@@ -14,12 +14,17 @@ use tracing::Span;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 
+mod accounts;
 pub mod auth;
+mod categories;
+mod commodities;
 mod common;
 pub mod conventions;
+mod counterparties;
 mod health;
 mod parties;
 pub mod problem;
+mod tags;
 mod tokens;
 
 /// Shared by every handler.
@@ -60,6 +65,11 @@ fn v1() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .merge(tokens::routes())
         .merge(parties::routes())
+        .merge(commodities::routes())
+        .merge(accounts::routes())
+        .merge(counterparties::routes())
+        .merge(categories::routes())
+        .merge(tags::routes())
 }
 
 fn routes() -> OpenApiRouter<AppState> {

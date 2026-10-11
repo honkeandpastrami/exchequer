@@ -12,7 +12,12 @@ pub fn schema_version() -> i64 {
     MIGRATOR.iter().map(|m| m.version).max().unwrap_or(0)
 }
 
+pub mod accounts;
 pub mod audit;
+pub mod categories;
+pub mod commodities;
+pub mod counterparties;
 pub mod idempotency;
 pub mod parties;
+pub mod tags;
 pub mod tokens;

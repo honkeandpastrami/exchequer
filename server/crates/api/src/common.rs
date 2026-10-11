@@ -80,3 +80,12 @@ pub fn delete_error(err: sqlx::Error) -> Problem {
         err.into()
     }
 }
+
+/// Trims a name and checks its length.
+pub fn valid_name(name: &str) -> Result<&str, Problem> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 100 {
+        return Err(Problem::invalid("name must be 1-100 characters"));
+    }
+    Ok(name)
+}

@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth::Principal;
-use crate::common::{audit, delete_error, id_cursor, write_error};
+use crate::common::{audit, delete_error, id_cursor, valid_name, write_error};
 use crate::conventions::{IfMatch, Page, PageParams, etag};
 use crate::problem::{Json, Path, Problem, Query};
 
@@ -79,22 +79,16 @@ fn respond(status: StatusCode, party: &Party) -> Response {
 }
 
 #[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct NewParty {
     name: String,
     kind: PartyKind,
 }
 
 #[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PartyUpdate {
     name: String,
-}
-
-fn valid_name(name: &str) -> Result<&str, Problem> {
-    let name = name.trim();
-    if name.is_empty() || name.chars().count() > 100 {
-        return Err(Problem::invalid("name must be 1-100 characters"));
-    }
-    Ok(name)
 }
 
 /// List parties.

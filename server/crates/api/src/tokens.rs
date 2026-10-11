@@ -46,6 +46,7 @@ impl From<TokenRow> for Token {
 }
 
 #[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct NewToken {
     /// Which client uses the token, e.g. `alex-laptop-cli`. Unique.
     name: String,
