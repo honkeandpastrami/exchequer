@@ -16,6 +16,7 @@ use utoipa_axum::router::OpenApiRouter;
 
 mod accounts;
 pub mod auth;
+mod balance_checks;
 mod categories;
 mod commodities;
 mod common;
@@ -79,6 +80,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .merge(settlements::routes())
         .merge(query::routes())
         .merge(reports::routes())
+        .merge(balance_checks::routes())
 }
 
 fn routes() -> OpenApiRouter<AppState> {

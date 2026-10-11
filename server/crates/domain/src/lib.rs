@@ -7,6 +7,7 @@ pub mod account_number;
 pub mod amount;
 pub mod book;
 pub mod commodity;
+pub mod discrepancy;
 pub mod ids;
 pub mod month;
 pub mod party;

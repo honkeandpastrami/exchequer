@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id, c.account_id, c.commodity_id, c.date, c.balance, c.source, c.created_at,\n                  COALESCE((\n                      SELECT sum(CASE WHEN s.to_account_id = c.account_id\n                                       AND s.to_commodity_id = c.commodity_id\n                                      THEN s.to_quantity ELSE 0 END)\n                           - sum(CASE WHEN s.from_account_id = c.account_id\n                                       AND s.from_commodity_id = c.commodity_id\n                                      THEN s.from_quantity ELSE 0 END)\n                      FROM split s JOIN transaction t ON t.id = s.transaction_id\n                      WHERE t.date <= c.date\n                        AND c.account_id IN (s.from_account_id, s.to_account_id)\n                  ), 0) AS \"ledger!\"\n           FROM balance_check c\n           WHERE ($1::uuid IS NULL OR c.id = $1)\n             AND ($2::uuid IS NULL OR c.account_id = $2)\n             AND ($3::uuid IS NULL OR c.commodity_id = $3)\n             AND ($4::date IS NULL OR (c.date, c.id) < ($4, $5::uuid))\n           ORDER BY c.date DESC, c.id DESC\n           LIMIT $6",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "balance_check",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "balance_check",
+            "name": "account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "commodity_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "balance_check",
+            "name": "commodity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "date",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "balance_check",
+            "name": "date"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "balance",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "balance_check",
+            "name": "balance"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "source",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "balance_check",
+            "name": "source"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "balance_check",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "ledger!",
+        "type_info": "Numeric",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Date",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "c2d8287b500fb43ba718c96bc1746540201fe28288a27719babd944ef2d8f896"
+}

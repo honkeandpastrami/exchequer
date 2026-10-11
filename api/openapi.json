@@ -336,6 +336,249 @@
         ]
       }
     },
+    "/api/v1/balance-checks": {
+      "get": {
+        "tags": [
+          "balance-checks"
+        ],
+        "summary": "List balance checks, newest first, each compared with the current ledger.",
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "commodity_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Items per page (default 100, max 500).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "`next_cursor` from the previous page. Opaque.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_BalanceCheck"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "balance-checks"
+        ],
+        "summary": "Record what the bank shows and compare it with the ledger. A mismatch\ncomes with candidate explanations.",
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewBalanceCheck"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BalanceCheck"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No commodity given and no household currency",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/balance-checks/{id}": {
+      "get": {
+        "tags": [
+          "balance-checks"
+        ],
+        "summary": "One balance check, with candidate explanations if it doesn't match.",
+        "operationId": "get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BalanceCheck"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "balance-checks"
+        ],
+        "summary": "Delete a balance check.",
+        "operationId": "delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/categories": {
       "get": {
         "tags": [
@@ -3321,6 +3564,88 @@
         },
         "additionalProperties": false
       },
+      "BalanceCheck": {
+        "type": "object",
+        "required": [
+          "id",
+          "account_id",
+          "commodity_id",
+          "date",
+          "amount",
+          "source",
+          "created_at",
+          "ledger",
+          "difference",
+          "matches"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string",
+            "description": "What the bank showed."
+          },
+          "candidates": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Candidate"
+            },
+            "description": "For a mismatch, on a single check only."
+          },
+          "commodity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "difference": {
+            "type": "string",
+            "description": "`ledger − amount`."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ledger": {
+            "type": "string",
+            "description": "The ledger's balance at the end of `date`, signed like `amount`."
+          },
+          "matches": {
+            "type": "boolean"
+          },
+          "searched_after": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "For a mismatch: candidates were searched after this date (the last\nverified date before the check), or from the beginning if absent."
+          },
+          "source": {
+            "type": "string",
+            "description": "`user` or `ofx`."
+          },
+          "verified_through": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "The latest date up to this check's on which a check of the same\naccount and commodity matched."
+          }
+        }
+      },
       "Balances": {
         "type": "object",
         "required": [
@@ -3350,6 +3675,55 @@
           "quarter",
           "year"
         ]
+      },
+      "Candidate": {
+        "type": "object",
+        "description": "A possible explanation for the difference, most likely first.",
+        "required": [
+          "reason",
+          "splits"
+        ],
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/CandidateReason"
+          },
+          "splits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CandidateSplit"
+            }
+          }
+        }
+      },
+      "CandidateReason": {
+        "type": "string",
+        "enum": [
+          "duplicate_pair",
+          "equals_difference",
+          "date_boundary",
+          "sign_flipped",
+          "subset",
+          "transposition",
+          "near_duplicate",
+          "multiple_of_nine"
+        ]
+      },
+      "CandidateSplit": {
+        "type": "object",
+        "required": [
+          "transaction_id",
+          "position"
+        ],
+        "properties": {
+          "position": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "transaction_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       },
       "Category": {
         "type": "object",
@@ -3914,6 +4288,41 @@
         },
         "additionalProperties": false
       },
+      "NewBalanceCheck": {
+        "type": "object",
+        "required": [
+          "account_id",
+          "amount"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string",
+            "description": "As the bank shows it (owed amounts positive on cards and mortgages).",
+            "example": "1234.56"
+          },
+          "commodity_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Default: the household currency."
+          },
+          "date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "Default: today (UTC)."
+          }
+        },
+        "additionalProperties": false
+      },
       "NewCategory": {
         "type": "object",
         "required": [
@@ -4143,6 +4552,107 @@
                   "type": "string",
                   "format": "uuid",
                   "description": "The party the account belongs to."
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` to get the next page; absent on the last page."
+          }
+        }
+      },
+      "Page_BalanceCheck": {
+        "type": "object",
+        "description": "One page of results.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "account_id",
+                "commodity_id",
+                "date",
+                "amount",
+                "source",
+                "created_at",
+                "ledger",
+                "difference",
+                "matches"
+              ],
+              "properties": {
+                "account_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "amount": {
+                  "type": "string",
+                  "description": "What the bank showed."
+                },
+                "candidates": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "$ref": "#/components/schemas/Candidate"
+                  },
+                  "description": "For a mismatch, on a single check only."
+                },
+                "commodity_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "difference": {
+                  "type": "string",
+                  "description": "`ledger − amount`."
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "ledger": {
+                  "type": "string",
+                  "description": "The ledger's balance at the end of `date`, signed like `amount`."
+                },
+                "matches": {
+                  "type": "boolean"
+                },
+                "searched_after": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date",
+                  "description": "For a mismatch: candidates were searched after this date (the last\nverified date before the check), or from the beginning if absent."
+                },
+                "source": {
+                  "type": "string",
+                  "description": "`user` or `ofx`."
+                },
+                "verified_through": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date",
+                  "description": "The latest date up to this check's on which a check of the same\naccount and commodity matched."
                 }
               }
             }

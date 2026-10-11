@@ -14,6 +14,7 @@ pub fn schema_version() -> i64 {
 
 pub mod accounts;
 pub mod audit;
+pub mod balance_checks;
 pub mod categories;
 pub mod commodities;
 pub mod counterparties;

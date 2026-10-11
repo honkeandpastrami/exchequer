@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.transaction_id, s.position, t.date,\n                  (CASE WHEN s.to_account_id = $1 AND s.to_commodity_id = $2\n                        THEN s.to_quantity ELSE 0 END\n                 - CASE WHEN s.from_account_id = $1 AND s.from_commodity_id = $2\n                        THEN s.from_quantity ELSE 0 END) AS \"quantity!\"\n           FROM split s JOIN transaction t ON t.id = s.transaction_id\n           WHERE $1 IN (s.from_account_id, s.to_account_id)\n             AND $2 IN (s.from_commodity_id, s.to_commodity_id)\n             AND ($3::date IS NULL OR t.date > $3)\n             AND t.date <= $4\n           ORDER BY t.date, s.transaction_id, s.position",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "transaction_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "transaction_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "position",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "date",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "date"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "quantity!",
+        "type_info": "Numeric",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "264d2b588127c706ffbf69a3ce0a0c7c049dd99b3efaa4254a7dc55ec3ccb0de"
+}
