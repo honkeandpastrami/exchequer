@@ -33,17 +33,17 @@ pub struct Entry<'a> {
 }
 
 pub async fn record(db: impl PgExecutor<'_>, e: Entry<'_>) -> Result<(), sqlx::Error> {
-    sqlx::query(
+    sqlx::query!(
         "INSERT INTO audit_log (id, token_id, action, entity, entity_id, before, after)
          VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        Uuid::now_v7(),
+        e.actor.map(|t| *t.as_uuid()),
+        e.action.as_str(),
+        e.entity,
+        e.entity_id,
+        e.before,
+        e.after,
     )
-    .bind(Uuid::now_v7())
-    .bind(e.actor.map(|t| *t.as_uuid()))
-    .bind(e.action.as_str())
-    .bind(e.entity)
-    .bind(e.entity_id)
-    .bind(e.before)
-    .bind(e.after)
     .execute(db)
     .await?;
     Ok(())

@@ -31,6 +31,8 @@ db-up:
         | grep -q 1 || "{{pg_bin}}/createdb" exchequer
     # For tools that read .env (sqlx macros, editors).
     echo "DATABASE_URL=$DATABASE_URL" > "{{justfile_directory()}}/server/.env"
+    # The sqlx macros check queries against this schema at compile time.
+    cd "{{justfile_directory()}}/server" && cargo sqlx migrate run
 
 # Stop the dev database.
 db-down:
@@ -49,12 +51,19 @@ psql:
 # Format, lint and test the server.
 check:
     cd server && cargo fmt --check
+    cd server && cargo sqlx prepare --workspace --check -- --all-targets
     cd server && cargo clippy --all-targets -- -D warnings
     cd server && cargo test
 
 # Regenerate the committed OpenAPI document.
 spec:
-    cd server && cargo run -q -p server -- openapi > ../api/openapi.json
+    cd server && cargo run -q -p server -- openapi > ../api/openapi.json.tmp
+    mv api/openapi.json.tmp api/openapi.json
+
+# Regenerate the committed query cache (server/.sqlx), so builds work
+# without a database. Run after changing any query or migration.
+prepare:
+    cd server && cargo sqlx prepare --workspace -- --all-targets
 
 # Run the server against the dev database (just db-up first).
 serve:

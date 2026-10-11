@@ -33,7 +33,7 @@ pub struct Health {
     ),
 )]
 async fn healthz(State(state): State<AppState>) -> (StatusCode, Json<Health>) {
-    match sqlx::query("SELECT 1").execute(&state.pool).await {
+    match sqlx::query!("SELECT 1 AS ok").fetch_one(&state.pool).await {
         Ok(_) => (StatusCode::OK, Json(Health { status: "ok" })),
         Err(_) => (
             StatusCode::SERVICE_UNAVAILABLE,

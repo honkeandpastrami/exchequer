@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name, secret_hash, created_at, revoked_at FROM api_token WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "secret_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "secret_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "revoked_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "revoked_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "515793686f308e0e8eee33e7530edff213b8303b2eec6966d9fe53396f4be94a"
+}

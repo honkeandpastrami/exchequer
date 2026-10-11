@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO api_token (id, name, secret_hash) VALUES ($1, $2, $3)\n         RETURNING id, name, secret_hash, created_at, revoked_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "secret_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "secret_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "revoked_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "revoked_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "d02d13fad5cf37d8c5744475d993336246e3c3b31c92afdc04d62f7aeb0bdd4c"
+}

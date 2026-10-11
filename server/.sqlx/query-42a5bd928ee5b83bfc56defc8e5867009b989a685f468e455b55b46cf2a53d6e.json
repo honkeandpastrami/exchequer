@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE api_token new SET revoked_at = coalesce(new.revoked_at, now())\n           FROM api_token old WHERE new.id = old.id AND new.id = $1\n           RETURNING old.id, old.name, old.secret_hash, old.created_at, old.revoked_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "secret_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "secret_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "revoked_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "revoked_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "42a5bd928ee5b83bfc56defc8e5867009b989a685f468e455b55b46cf2a53d6e"
+}
