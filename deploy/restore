@@ -1,12 +1,16 @@
 #!/bin/sh
 # restore: replace the Exchequer database with a backup dump (design §14.2).
 #
-#   deploy/restore FILE
+#   deploy/restore [--no-safety-dump] FILE
 #
-# Stops the API, restores FILE with the backup image (`exchequer-backup
-# restore --replace`, which checks FILE before dropping anything), and starts
-# the API again. Uses the unit, network, container and secret names from
-# deploy/examples/. On failure the API is left stopped.
+# Stops the API, takes a safety dump of the current database through
+# exchequer-backup.service (so a wrong FILE can be undone), restores FILE with
+# the backup image (`exchequer-backup restore --replace`, which checks FILE
+# before dropping anything), and starts the API again. Skip the safety dump
+# with --no-safety-dump only when the current database can't be dumped.
+#
+# Uses the unit, network, container and secret names from deploy/examples/.
+# On failure the API is left stopped.
 
 set -eu
 
@@ -15,21 +19,45 @@ die() {
     exit 1
 }
 
-[ "$#" -eq 1 ] || die "usage: deploy/restore FILE"
+usage() {
+    die "usage: deploy/restore [--no-safety-dump] FILE"
+}
+
+safety=1
+if [ "$#" -ge 1 ] && [ "$1" = --no-safety-dump ]; then
+    safety=""
+    shift
+fi
+[ "$#" -eq 1 ] || usage
 [ -f "$1" ] || die "$1 not found"
-dir=$(cd "$(dirname "$1")" && pwd)
 name=$(basename "$1")
+
+# Restore from a private copy: the safety dump prunes old dumps, and FILE may
+# be the oldest.
+copy=$(mktemp -d)
+trap 'rm -rf "$copy"' EXIT
+cp "$1" "$copy/$name"
 
 max=$(podman run --rm localhost/exchequer-server:latest schema-version)
 
 systemctl --user stop exchequer-api.service
-if ! podman run --rm --network exchequer --secret exchequer_db_password \
+stopped="the API is stopped (systemctl --user start exchequer-api.service)"
+
+if [ -n "$safety" ]; then
+    # After stopping the API, so nothing changes between this dump and the restore.
+    systemctl --user start exchequer-backup.service ||
+        die "the safety dump failed, nothing was restored; $stopped. If the database can't be dumped, rerun with --no-safety-dump"
+    journalctl --user -u exchequer-backup.service -n 20 -o cat | grep '^wrote ' | tail -n 1 |
+        sed 's#^wrote /backups/#safety dump, in the backup directory: #'
+fi
+
+podman run --rm --network exchequer --secret exchequer_db_password \
     -e PGHOST=exchequer-db -e PGUSER=exchequer -e PGDATABASE=exchequer \
     -e PGPASSWORD_FILE=/run/secrets/exchequer_db_password \
-    -v "$dir:/backups:ro,Z" \
+    -v "$copy:/backups:ro,Z" \
     localhost/exchequer-backup:latest \
-    exchequer-backup restore --replace "/backups/$name" "$max"; then
-    die "failed; the API is stopped (systemctl --user start exchequer-api.service)"
-fi
+    exchequer-backup restore --replace "/backups/$name" "$max" ||
+    die "the restore failed; $stopped"
+
 systemctl --user start exchequer-api.service
 echo "the API is running again"

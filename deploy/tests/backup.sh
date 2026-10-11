@@ -117,6 +117,14 @@ PGDATABASE=$dst "$backup" restore --replace "$dump" "$latest" > /dev/null
 snapshot $dst > "$work/dst.sql"
 diff -u "$work/src.sql" "$work/dst.sql" || fail "the replaced database differs"
 
+# A run that failed between drop and create can be repeated: --replace also
+# works when the database is missing.
+dropdb $dst
+PGOPTIONS='-c client_min_messages=warning' PGDATABASE=$dst \
+    "$backup" restore --replace "$dump" "$latest" > /dev/null
+snapshot $dst > "$work/dst.sql"
+diff -u "$work/src.sql" "$work/dst.sql" || fail "restore into a missing database differs"
+
 # Pruning keeps the newest KEEP dumps and leaves other files alone.
 rm "$dump"
 for t in 20260101T000000Z 20260102T000000Z 20260103T000000Z; do

@@ -139,9 +139,15 @@ Restoring replaces the whole database. It's a command run by hand, never an API 
 deploy/restore /mnt/backup/exchequer/exchequer-20260101T033000Z-v0002.dump
 ```
 
-It stops the API, runs `exchequer-backup restore --replace` in the backup image, and
-starts the API again. The backup script refuses a file not named like a backup or a dump
-newer than the server image (an older one is fine: the server migrates it at startup),
-and checks both before dropping anything. It also refuses while anything is still
-connected to the database. If a step fails, the API is left stopped; fix the problem and
-run it again. The same restore runs in the test suite (`just backup-test`).
+It stops the API and takes a safety dump of the current database through
+`exchequer-backup.service`, so restoring the wrong file can be undone by restoring that
+dump. Then it runs `exchequer-backup restore --replace` in the backup image and starts the
+API again. The backup script refuses a file not named like a backup or a dump newer than
+the server image (an older one is fine: the server migrates it at startup), and checks
+both before dropping anything. It also refuses while anything is still connected to the
+database. If a step fails, the API is left stopped; fix the problem and run it again.
+
+If the current database is too damaged to dump, the safety dump fails and nothing is
+restored; then run `deploy/restore --no-safety-dump FILE`.
+
+The same restore runs in the test suite (`just backup-test`).
