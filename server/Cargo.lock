@@ -125,6 +125,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
+name = "import"
+version = "0.0.0"
+dependencies = [
+ "ofx-rs",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -172,6 +179,7 @@ name = "ofx-check"
 version = "0.0.0"
 dependencies = [
  "csv",
+ "import",
  "ofx-rs",
  "rust_decimal",
  "time",

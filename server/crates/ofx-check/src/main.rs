@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::process::ExitCode;
 
+use import::ofx::restore;
 use ofx_rs::aggregates::{LedgerBalance, StatementTransaction};
 use rust_decimal::Decimal;
 use time::{Date, UtcOffset};
@@ -54,17 +55,11 @@ fn main() -> ExitCode {
 
 /// Returns `Ok(true)` when every transaction matches the reference.
 fn run(ofx_path: &str, reference_path: &str) -> Result<bool, Box<dyn Error>> {
-    let bytes = std::fs::read(ofx_path)?;
-    // `ofx-rs` parses text, so decoding is our job. Some banks declare a
-    // legacy charset in the header but actually write UTF-8; strict UTF-8
-    // decoding tells us which case a file is in.
-    let text = match String::from_utf8(bytes) {
-        Ok(text) => text,
-        Err(err) => return Err(format!("file is not valid UTF-8 ({err})").into()),
-    };
-
-    let doc = ofx_rs::parse(&text)?;
-    let statements = collect_statements(&doc);
+    // Exchequer's patched parser: ofx-rs plus fixes for bank-specific tags,
+    // entities and non-ASCII text (see `import::ofx`).
+    let parsed = import::ofx::parse(std::fs::read(ofx_path)?)?;
+    let doc = &parsed.document;
+    let statements = collect_statements(doc);
     let reference = read_reference(reference_path)?;
 
     println!("file: {ofx_path}");
@@ -84,6 +79,22 @@ fn run(ofx_path: &str, reference_path: &str) -> Result<bool, Box<dyn Error>> {
         );
         ours.extend(st.transactions.iter());
     }
+    // Tag names and counts only: values can be personal (e.g. a cardholder name).
+    let mut tags: Vec<(String, usize)> = parsed
+        .extensions
+        .values()
+        .flatten()
+        .fold(HashMap::new(), |mut acc: HashMap<String, usize>, e| {
+            *acc.entry(e.tag.clone()).or_default() += 1;
+            acc
+        })
+        .into_iter()
+        .collect();
+    tags.sort();
+    if !tags.is_empty() {
+        let list: Vec<String> = tags.iter().map(|(t, n)| format!("{t}×{n}")).collect();
+        println!("  bank-specific tags kept: {}", list.join(", "));
+    }
 
     Ok(compare(&ours, &reference))
 }
@@ -95,7 +106,7 @@ fn collect_statements(doc: &ofx_rs::OfxDocument) -> Vec<Statement> {
             if let Some(resp) = wrapper.response() {
                 out.push(Statement {
                     kind: "bank",
-                    account_last4: last4(resp.bank_account().account_id().as_str()),
+                    account_last4: last4(&restore(resp.bank_account().account_id().as_str())),
                     currency: resp.currency_default().to_string(),
                     ledger: resp.ledger_balance().map(ledger),
                     transactions: normalize(resp.transaction_list().map(|l| l.transactions())),
@@ -108,7 +119,9 @@ fn collect_statements(doc: &ofx_rs::OfxDocument) -> Vec<Statement> {
             if let Some(resp) = wrapper.response() {
                 out.push(Statement {
                     kind: "credit card",
-                    account_last4: last4(resp.credit_card_account().account_id().as_str()),
+                    account_last4: last4(&restore(
+                        resp.credit_card_account().account_id().as_str(),
+                    )),
                     currency: resp.currency_default().to_string(),
                     ledger: resp.ledger_balance().map(ledger),
                     transactions: normalize(resp.transaction_list().map(|l| l.transactions())),
@@ -120,7 +133,10 @@ fn collect_statements(doc: &ofx_rs::OfxDocument) -> Vec<Statement> {
 }
 
 fn ledger(bal: &LedgerBalance) -> (Decimal, Date) {
-    (bal.amount().as_decimal(), bal.as_of().as_offset_date_time().date())
+    (
+        bal.amount().as_decimal(),
+        bal.as_of().as_offset_date_time().date(),
+    )
 }
 
 /// Mirrors the existing importer: description is NAME, else MEMO, else
@@ -134,15 +150,19 @@ fn normalize(txns: Option<&[StatementTransaction]>) -> Vec<Normalized> {
         let description = [t.name(), t.memo()]
             .into_iter()
             .flatten()
-            .map(str::trim)
+            .map(restore)
+            .map(|s| s.trim().to_owned())
             .find(|s| !s.is_empty())
-            .unwrap_or("Transaction")
-            .to_owned();
+            .unwrap_or_else(|| "Transaction".to_owned());
 
-        let base = t.fit_id().as_str().to_owned();
+        let base = restore(t.fit_id().as_str());
         let count = seen.entry(base.clone()).or_insert(0);
         *count += 1;
-        let id = if *count == 1 { base } else { format!("{base}-{count}") };
+        let id = if *count == 1 {
+            base
+        } else {
+            format!("{base}-{count}")
+        };
 
         out.push(Normalized {
             id,
@@ -168,7 +188,14 @@ fn read_reference(path: &str) -> Result<HashMap<String, Reference>, Box<dyn Erro
         let field = |i: usize| r.get(i).unwrap_or_default().to_owned();
         // Parsed straight from text into an exact decimal; never a float.
         let amount: Decimal = field(3).parse()?;
-        map.insert(field(0), Reference { date: field(1), description: field(2), amount });
+        map.insert(
+            field(0),
+            Reference {
+                date: field(1),
+                description: field(2),
+                amount,
+            },
+        );
     }
     Ok(map)
 }
@@ -191,7 +218,10 @@ fn compare(ours: &[&Normalized], reference: &HashMap<String, Reference>) -> bool
             diffs.push(format!("date {} vs {}", n.utc_date, r.date));
         }
         if r.description != n.description {
-            diffs.push(format!("description: {}", first_difference(&n.description, &r.description)));
+            diffs.push(format!(
+                "description: {}",
+                first_difference(&n.description, &r.description)
+            ));
         }
         // Decimal equality ignores scale, so -80 equals -80.00. The reference
         // rounds to cents; a difference here means the bank sent more decimals.
@@ -204,7 +234,10 @@ fn compare(ours: &[&Normalized], reference: &HashMap<String, Reference>) -> bool
         }
     }
     let ours_ids: std::collections::HashSet<&str> = ours.iter().map(|n| n.id.as_str()).collect();
-    for id in reference.keys().filter(|id| !ours_ids.contains(id.as_str())) {
+    for id in reference
+        .keys()
+        .filter(|id| !ours_ids.contains(id.as_str()))
+    {
         problems += 1;
         println!("  MISSING in ofx-rs output: id {}", short(id));
     }
@@ -228,7 +261,8 @@ fn compare(ours: &[&Normalized], reference: &HashMap<String, Reference>) -> bool
 fn first_difference(ours: &str, reference: &str) -> String {
     let (a, b): (Vec<char>, Vec<char>) = (ours.chars().collect(), reference.chars().collect());
     let at = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
-    let show = |c: Option<&char>| c.map_or("end".to_owned(), |c| format!("U+{:04X}", u32::from(*c)));
+    let show =
+        |c: Option<&char>| c.map_or("end".to_owned(), |c| format!("U+{:04X}", u32::from(*c)));
     format!(
         "at char {at}: ofx-rs {} vs reference {} (lengths {} vs {})",
         show(a.get(at)),
@@ -245,5 +279,9 @@ fn last4(account: &str) -> String {
 
 /// IDs can be long (some banks embed the amount and payee); keep output short.
 fn short(id: &str) -> String {
-    if id.chars().count() > 16 { format!("{}…", id.chars().take(16).collect::<String>()) } else { id.to_owned() }
+    if id.chars().count() > 16 {
+        format!("{}…", id.chars().take(16).collect::<String>())
+    } else {
+        id.to_owned()
+    }
 }

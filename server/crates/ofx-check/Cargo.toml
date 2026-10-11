@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 csv = "1.4"
+import = { version = "0.0.0", path = "../import" }
 ofx-rs = "0.2"
 rust_decimal = "1.43"
 time = "0.3.55"
