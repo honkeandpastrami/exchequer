@@ -1,34 +1,9 @@
 //! The examples table of design §3.3, plus the invariants of §3.2–§3.5, on the
 //! fictional household (Alex, Sam, Studio).
 
-use std::collections::HashMap;
-
 use domain::transaction::{ImpliedPrice, TransactionError};
 use domain::*;
 use proptest::prelude::*;
-
-#[derive(Default)]
-struct Book {
-    accounts: HashMap<AccountId, Account>,
-    counterparties: HashMap<CounterpartyId, Counterparty>,
-    commodities: HashMap<CommodityId, Commodity>,
-    parties: HashMap<PartyId, Party>,
-}
-
-impl Lookup for Book {
-    fn account(&self, id: AccountId) -> Option<&Account> {
-        self.accounts.get(&id)
-    }
-    fn counterparty(&self, id: CounterpartyId) -> Option<&Counterparty> {
-        self.counterparties.get(&id)
-    }
-    fn commodity(&self, id: CommodityId) -> Option<&Commodity> {
-        self.commodities.get(&id)
-    }
-    fn party_exists(&self, id: PartyId) -> bool {
-        self.parties.contains_key(&id)
-    }
-}
 
 struct Household {
     book: Book,
@@ -69,7 +44,7 @@ impl Household {
                 kind,
             };
             let id = p.id;
-            book.parties.insert(id, p);
+            book.add_party(p);
             id
         };
         let household = party("Household", PartyKind::Household);
@@ -80,7 +55,7 @@ impl Household {
         let mut commodity = |code: &str, kind, precision| {
             let c = Commodity::new(CommodityId::new(), code, kind, precision).unwrap();
             let id = c.id;
-            book.commodities.insert(id, c);
+            book.add_commodity(c);
             id
         };
         let usd = commodity("USD", CommodityKind::Fiat, 2);
@@ -97,7 +72,7 @@ impl Household {
                 liquid,
             };
             let id = a.id;
-            book.accounts.insert(id, a);
+            book.add_account(a);
             id
         };
         let alex_checking = account("Alex Checking", AccountKind::Checking, alex, true);
@@ -115,7 +90,7 @@ impl Household {
                 system: None,
             };
             let id = c.id;
-            book.counterparties.insert(id, c);
+            book.add_counterparty(c);
             id
         };
 

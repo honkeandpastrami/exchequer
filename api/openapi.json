@@ -2027,6 +2027,360 @@
         ]
       }
     },
+    "/api/v1/transactions": {
+      "get": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "List transactions, newest first.",
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Earliest date, inclusive.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Latest date, inclusive.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "account_id",
+            "in": "query",
+            "description": "Only transactions with a split on this account.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "counterparty_id",
+            "in": "query",
+            "description": "Only transactions with a split involving this counterparty.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "category_id",
+            "in": "query",
+            "description": "Only transactions with a split in this category.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Items per page (default 100, max 500).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "`next_cursor` from the previous page. Opaque.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_Transaction"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "Create a transaction with its splits.",
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewTransaction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transaction"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid, or breaks a ledger rule",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/transactions/{id}": {
+      "get": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "Get one transaction.",
+        "operationId": "get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transaction"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "Replace a transaction entirely, splits and tags included.",
+        "operationId": "replace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewTransaction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transaction"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid, or breaks a ledger rule",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "Delete a transaction.",
+        "operationId": "delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/healthz": {
       "get": {
         "tags": [
@@ -2292,6 +2646,51 @@
           }
         }
       },
+      "Kind": {
+        "type": "string",
+        "description": "Derived from who is on each side; never stored or entered.",
+        "enum": [
+          "expense",
+          "income",
+          "transfer",
+          "conversion"
+        ]
+      },
+      "Leg": {
+        "type": "object",
+        "description": "One side of a split: exactly one of `account_id` (yours) or\n`counterparty_id` (outside the household).",
+        "required": [
+          "commodity_id",
+          "quantity"
+        ],
+        "properties": {
+          "account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "commodity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "counterparty_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "quantity": {
+            "type": "string",
+            "description": "Positive decimal string, e.g. `\"80.00\"`.",
+            "example": "80.00",
+            "pattern": "^[0-9]+(\\.[0-9]+)?$"
+          }
+        },
+        "additionalProperties": false
+      },
       "NewAccount": {
         "type": "object",
         "required": [
@@ -2382,6 +2781,44 @@
         },
         "additionalProperties": false
       },
+      "NewSplit": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "category_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Only on income, expenses and liquidations."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "from": {
+            "$ref": "#/components/schemas/Leg"
+          },
+          "purpose_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Who the money was for. Only on income/expense of liquid accounts and\non liquidations."
+          },
+          "to": {
+            "$ref": "#/components/schemas/Leg"
+          }
+        },
+        "additionalProperties": false
+      },
       "NewTag": {
         "type": "object",
         "required": [
@@ -2403,6 +2840,43 @@
           "name": {
             "type": "string",
             "description": "Which client uses the token, e.g. `alex-laptop-cli`. Unique."
+          }
+        },
+        "additionalProperties": false
+      },
+      "NewTransaction": {
+        "type": "object",
+        "required": [
+          "date",
+          "description",
+          "splits"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "splits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NewSplit"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tag names; unknown ones are created."
           }
         },
         "additionalProperties": false
@@ -2655,6 +3129,66 @@
           }
         }
       },
+      "Page_Transaction": {
+        "type": "object",
+        "description": "One page of results.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "date",
+                "description",
+                "tags",
+                "splits"
+              ],
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "splits": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Split"
+                  }
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` to get the next page; absent on the last page."
+          }
+        }
+      },
       "Party": {
         "type": "object",
         "required": [
@@ -2724,6 +3258,51 @@
           }
         }
       },
+      "Split": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "kind",
+          "liquidation"
+        ],
+        "properties": {
+          "category_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "from": {
+            "$ref": "#/components/schemas/Leg"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Kind",
+            "description": "Read-only."
+          },
+          "liquidation": {
+            "type": "boolean",
+            "description": "Read-only: a transfer from an investment account into a liquid one."
+          },
+          "purpose_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "to": {
+            "$ref": "#/components/schemas/Leg"
+          }
+        }
+      },
       "Tag": {
         "type": "object",
         "required": [
@@ -2766,6 +3345,47 @@
               "null"
             ],
             "format": "date-time"
+          }
+        }
+      },
+      "Transaction": {
+        "type": "object",
+        "required": [
+          "id",
+          "date",
+          "description",
+          "tags",
+          "splits"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "splits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Split"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

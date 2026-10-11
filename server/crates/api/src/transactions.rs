@@ -1,0 +1,565 @@
+//! `/api/v1/transactions` (design §3). A transaction is created and replaced
+//! whole, splits included. Every split is checked by `domain` before it's
+//! stored, and every response carries each split's derived `kind`.
+
+use axum::Extension;
+use axum::extract::State;
+use axum::http::{StatusCode, header};
+use axum::response::{IntoResponse, Response};
+use domain::transaction::TransactionError;
+use domain::{
+    AccountId, Amount, Book, CategoryId, Classified, CommodityId, CounterpartyId, Leg as DomainLeg,
+    PartyId, Side, Split as DomainSplit, TransactionId,
+};
+use serde::{Deserialize, Serialize};
+use sqlx::PgConnection;
+use store::audit::Action;
+use store::transactions::{Filter, Full, SplitRow, TransactionRow};
+use time::Date;
+use utoipa::{IntoParams, ToSchema};
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+use uuid::Uuid;
+
+use crate::AppState;
+use crate::auth::Principal;
+use crate::common::{audit, delete_error, write_error};
+use crate::conventions::{IfMatch, Page, etag};
+use crate::ledger::book_for;
+use crate::problem::{Json, Path, Problem, Query};
+
+pub fn routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(list, create))
+        .routes(routes!(get, replace, delete))
+}
+
+const MAX_SPLITS: usize = 200;
+
+// ------------------------------------------------------------- Schemas ----
+
+/// One side of a split: exactly one of `account_id` (yours) or
+/// `counterparty_id` (outside the household).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Leg {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    account_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    counterparty_id: Option<Uuid>,
+    commodity_id: Uuid,
+    /// Positive decimal string, e.g. `"80.00"`.
+    #[schema(value_type = String, pattern = r"^[0-9]+(\.[0-9]+)?$", example = "80.00")]
+    quantity: Amount,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NewSplit {
+    from: Leg,
+    to: Leg,
+    /// Who the money was for. Only on income/expense of liquid accounts and
+    /// on liquidations.
+    purpose_id: Option<Uuid>,
+    /// Only on income, expenses and liquidations.
+    category_id: Option<Uuid>,
+    description: Option<String>,
+}
+
+/// Derived from who is on each side; never stored or entered.
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+    Expense,
+    Income,
+    Transfer,
+    Conversion,
+}
+
+impl From<domain::Kind> for Kind {
+    fn from(k: domain::Kind) -> Self {
+        match k {
+            domain::Kind::Expense => Self::Expense,
+            domain::Kind::Income => Self::Income,
+            domain::Kind::Transfer => Self::Transfer,
+            domain::Kind::Conversion => Self::Conversion,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct Split {
+    from: Leg,
+    to: Leg,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    purpose_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    category_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    /// Read-only.
+    kind: Kind,
+    /// Read-only: a transfer from an investment account into a liquid one.
+    liquidation: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NewTransaction {
+    date: Date,
+    description: String,
+    notes: Option<String>,
+    /// Tag names; unknown ones are created.
+    #[serde(default)]
+    tags: Vec<String>,
+    splits: Vec<NewSplit>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct Transaction {
+    id: Uuid,
+    date: Date,
+    description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notes: Option<String>,
+    tags: Vec<String>,
+    splits: Vec<Split>,
+    #[serde(skip)]
+    version: i64,
+}
+
+fn respond(status: StatusCode, t: &Transaction) -> Response {
+    (status, etag(t.version), axum::Json(t)).into_response()
+}
+
+// ---------------------------------------------------------- Conversion ----
+
+fn side(leg: &Leg, which: &str, index: usize) -> Result<Side, Problem> {
+    match (leg.account_id, leg.counterparty_id) {
+        (Some(a), None) => Ok(Side::Account(AccountId::from_uuid(a))),
+        (None, Some(c)) => Ok(Side::Counterparty(CounterpartyId::from_uuid(c))),
+        _ => Err(Problem::invalid(format!(
+            "split {index}: `{which}` needs exactly one of account_id, counterparty_id"
+        ))),
+    }
+}
+
+fn domain_leg(leg: &Leg, which: &str, index: usize) -> Result<DomainLeg, Problem> {
+    Ok(DomainLeg {
+        side: side(leg, which, index)?,
+        commodity: CommodityId::from_uuid(leg.commodity_id),
+        quantity: leg.quantity,
+    })
+}
+
+fn domain_split(s: &NewSplit, index: usize) -> Result<DomainSplit, Problem> {
+    Ok(DomainSplit {
+        from: domain_leg(&s.from, "from", index)?,
+        to: domain_leg(&s.to, "to", index)?,
+        purpose: s.purpose_id.map(PartyId::from_uuid),
+        category: s.category_id.map(CategoryId::from_uuid),
+        bill: None,
+        description: s.description.clone(),
+    })
+}
+
+fn leg_from_row(
+    account: Option<Uuid>,
+    counterparty: Option<Uuid>,
+    commodity: Uuid,
+    qty: rust_decimal::Decimal,
+) -> Leg {
+    Leg {
+        account_id: account,
+        counterparty_id: counterparty,
+        commodity_id: commodity,
+        quantity: Amount::from_decimal(qty),
+    }
+}
+
+/// The request form of a stored split (to re-check it with `domain`).
+fn new_split_from_row(r: &SplitRow) -> NewSplit {
+    NewSplit {
+        from: leg_from_row(
+            r.from_account_id,
+            r.from_counterparty_id,
+            r.from_commodity_id,
+            r.from_quantity,
+        ),
+        to: leg_from_row(
+            r.to_account_id,
+            r.to_counterparty_id,
+            r.to_commodity_id,
+            r.to_quantity,
+        ),
+        purpose_id: r.purpose_id,
+        category_id: r.category_id,
+        description: r.description.clone(),
+    }
+}
+
+fn check_count(splits: &[NewSplit]) -> Result<(), Problem> {
+    if splits.is_empty() {
+        return Err(Problem::invalid("a transaction needs at least one split"));
+    }
+    if splits.len() > MAX_SPLITS {
+        return Err(Problem::invalid(format!("at most {MAX_SPLITS} splits")));
+    }
+    Ok(())
+}
+
+fn domain_splits(splits: &[NewSplit]) -> Result<Vec<DomainSplit>, Problem> {
+    splits
+        .iter()
+        .enumerate()
+        .map(|(i, s)| domain_split(s, i))
+        .collect()
+}
+
+/// Classifies splits with `domain`, against entities already loaded into
+/// `book`. Errors name the split and the rule.
+fn classify_with(book: &Book, splits: Vec<DomainSplit>) -> Result<Vec<Classified>, Problem> {
+    let tx = domain::Transaction {
+        id: TransactionId::new(),
+        date: Date::MIN,
+        description: String::new(),
+        notes: None,
+        tags: vec![],
+        splits,
+    };
+    tx.classify(book).map_err(|e| match e {
+        TransactionError::NoSplits => Problem::invalid(e.to_string()),
+        TransactionError::Split { index, error } => Problem::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ledger-rule",
+            "Breaks a ledger rule",
+        )
+        .detail(format!("split {index}: {error}")),
+    })
+}
+
+/// Checks a request's splits against the database.
+async fn classify(db: &mut PgConnection, splits: &[NewSplit]) -> Result<Vec<Classified>, Problem> {
+    check_count(splits)?;
+    let splits = domain_splits(splits)?;
+    let book = book_for(db, &splits).await?;
+    classify_with(&book, splits)
+}
+
+fn output(id: Uuid, version: i64, req: NewTransaction, classified: Vec<Classified>) -> Transaction {
+    Transaction {
+        id,
+        date: req.date,
+        description: req.description,
+        notes: req.notes,
+        tags: req.tags,
+        splits: req
+            .splits
+            .into_iter()
+            .zip(classified)
+            .map(|(s, c)| Split {
+                from: s.from,
+                to: s.to,
+                purpose_id: s.purpose_id,
+                category_id: s.category_id,
+                description: s.description,
+                kind: c.kind.into(),
+                liquidation: c.liquidation,
+            })
+            .collect(),
+        version,
+    }
+}
+
+/// Rebuilds the API form of stored transactions, kinds included, loading
+/// what all of them refer to in one go.
+async fn from_full(db: &mut PgConnection, fulls: Vec<Full>) -> Result<Vec<Transaction>, Problem> {
+    let requests: Vec<(TransactionRow, NewTransaction)> = fulls
+        .into_iter()
+        .map(|f| {
+            let splits = f.splits.iter().map(new_split_from_row).collect();
+            let req = NewTransaction {
+                date: f.transaction.date,
+                description: f.transaction.description.clone(),
+                notes: f.transaction.notes.clone(),
+                tags: f.tags,
+                splits,
+            };
+            (f.transaction, req)
+        })
+        .collect();
+    // Stored data passed these checks when written; failing now is a bug.
+    let internal = |_| Problem::internal();
+    let all: Vec<DomainSplit> = requests
+        .iter()
+        .map(|(_, r)| domain_splits(&r.splits))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(internal)?
+        .into_iter()
+        .flatten()
+        .collect();
+    let book = book_for(db, &all).await?;
+    requests
+        .into_iter()
+        .map(|(t, req)| {
+            let splits = domain_splits(&req.splits).map_err(internal)?;
+            let classified = classify_with(&book, splits).map_err(internal)?;
+            Ok(output(t.id, t.version, req, classified))
+        })
+        .collect()
+}
+
+async fn from_one(db: &mut PgConnection, full: Full) -> Result<Transaction, Problem> {
+    from_full(db, vec![full])
+        .await?
+        .pop()
+        .ok_or_else(Problem::internal)
+}
+
+/// Validates the request's own fields and normalizes them.
+fn normalize(mut req: NewTransaction) -> Result<NewTransaction, Problem> {
+    req.description = req.description.trim().to_owned();
+    if req.description.is_empty() || req.description.chars().count() > 500 {
+        return Err(Problem::invalid("description must be 1-500 characters"));
+    }
+    let mut tags: Vec<String> = req.tags.iter().map(|t| t.trim().to_owned()).collect();
+    if tags.iter().any(|t| t.is_empty() || t.chars().count() > 100) {
+        return Err(Problem::invalid("tags must be 1-100 characters"));
+    }
+    tags.sort();
+    tags.dedup();
+    req.tags = tags;
+    Ok(req)
+}
+
+fn to_full(id: Uuid, req: &NewTransaction) -> Full {
+    let leg = |l: &Leg| {
+        (
+            l.account_id,
+            l.counterparty_id,
+            l.commodity_id,
+            l.quantity.as_decimal(),
+        )
+    };
+    Full {
+        transaction: TransactionRow {
+            id,
+            date: req.date,
+            description: req.description.clone(),
+            notes: req.notes.clone(),
+            version: 0,
+        },
+        splits: req
+            .splits
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let (fa, fc, fcom, fq) = leg(&s.from);
+                let (ta, tc, tcom, tq) = leg(&s.to);
+                SplitRow {
+                    transaction_id: id,
+                    position: i16::try_from(i).unwrap_or(i16::MAX),
+                    from_account_id: fa,
+                    from_counterparty_id: fc,
+                    from_commodity_id: fcom,
+                    from_quantity: fq,
+                    to_account_id: ta,
+                    to_counterparty_id: tc,
+                    to_commodity_id: tcom,
+                    to_quantity: tq,
+                    purpose_id: s.purpose_id,
+                    category_id: s.category_id,
+                    description: s.description.clone(),
+                }
+            })
+            .collect(),
+        tags: req.tags.clone(),
+    }
+}
+
+// ------------------------------------------------------------ Handlers ----
+
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct ListParams {
+    /// Earliest date, inclusive.
+    from: Option<Date>,
+    /// Latest date, inclusive.
+    to: Option<Date>,
+    /// Only transactions with a split on this account.
+    account_id: Option<Uuid>,
+    /// Only transactions with a split involving this counterparty.
+    counterparty_id: Option<Uuid>,
+    /// Only transactions with a split in this category.
+    category_id: Option<Uuid>,
+    /// Items per page (default 100, max 500).
+    limit: Option<u32>,
+    /// `next_cursor` from the previous page. Opaque.
+    cursor: Option<String>,
+}
+
+fn parse_cursor(c: &str) -> Result<(Date, Uuid), Problem> {
+    let bad = || Problem::invalid("invalid cursor");
+    let (d, id) = c.split_once('_').ok_or_else(bad)?;
+    let format = time::macros::format_description!("[year]-[month]-[day]");
+    Ok((
+        Date::parse(d, &format).map_err(|_| bad())?,
+        Uuid::try_parse(id).map_err(|_| bad())?,
+    ))
+}
+
+/// List transactions, newest first.
+#[utoipa::path(get, path = "/transactions", tag = "transactions", security(("bearer" = [])),
+    params(ListParams),
+    responses((status = OK, body = Page<Transaction>)))]
+async fn list(
+    State(state): State<AppState>,
+    Query(p): Query<ListParams>,
+) -> Result<axum::Json<Page<Transaction>>, Problem> {
+    let after = p.cursor.as_deref().map(parse_cursor).transpose()?;
+    let limit = i64::from(p.limit.unwrap_or(100).clamp(1, 500));
+    let filter = Filter {
+        from: p.from,
+        to: p.to,
+        account: p.account_id,
+        counterparty: p.counterparty_id,
+        category: p.category_id,
+    };
+    let mut conn = state.pool.acquire().await?;
+    let rows = store::transactions::list(&mut *conn, &filter, after, limit + 1).await?;
+    let fulls = store::transactions::complete(&mut conn, rows).await?;
+    let items = from_full(&mut conn, fulls).await?;
+    Ok(axum::Json(Page::from_rows(items, limit, |t| {
+        format!("{}_{}", t.date, t.id)
+    })))
+}
+
+/// Get one transaction.
+#[utoipa::path(get, path = "/transactions/{id}", tag = "transactions", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = OK, body = Transaction, headers(("ETag" = String))),
+              (status = NOT_FOUND, body = Problem, content_type = "application/problem+json")))]
+async fn get(State(state): State<AppState>, Path(id): Path<Uuid>) -> Result<Response, Problem> {
+    let mut conn = state.pool.acquire().await?;
+    let full = store::transactions::get(&mut conn, id, false)
+        .await?
+        .ok_or_else(Problem::not_found)?;
+    Ok(respond(StatusCode::OK, &from_one(&mut conn, full).await?))
+}
+
+/// Create a transaction with its splits.
+#[utoipa::path(post, path = "/transactions", tag = "transactions", security(("bearer" = [])),
+    request_body = NewTransaction,
+    responses((status = CREATED, body = Transaction, headers(("ETag" = String), ("Location" = String))),
+              (status = UNPROCESSABLE_ENTITY, description = "Invalid, or breaks a ledger rule", body = Problem, content_type = "application/problem+json")))]
+async fn create(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(req): Json<NewTransaction>,
+) -> Result<Response, Problem> {
+    let req = normalize(req)?;
+    let id = Uuid::now_v7();
+    let mut tx = state.pool.begin().await?;
+    let classified = classify(&mut tx, &req.splits).await?;
+    let version = store::transactions::upsert(&mut tx, &to_full(id, &req))
+        .await
+        .map_err(|e| write_error(e, String::new))?;
+    let created = output(id, version, req, classified);
+    audit(
+        &mut tx,
+        principal,
+        Action::Create,
+        "transaction",
+        id,
+        None,
+        Some(&created),
+    )
+    .await?;
+    tx.commit().await?;
+    let mut res = respond(StatusCode::CREATED, &created);
+    if let Ok(loc) = format!("/api/v1/transactions/{id}").parse() {
+        res.headers_mut().insert(header::LOCATION, loc);
+    }
+    Ok(res)
+}
+
+/// Replace a transaction entirely, splits and tags included.
+#[utoipa::path(put, path = "/transactions/{id}", tag = "transactions", security(("bearer" = [])),
+    params(("id" = Uuid, Path), ("If-Match" = String, Header, description = "ETag from your last read")),
+    request_body = NewTransaction,
+    responses((status = OK, body = Transaction, headers(("ETag" = String))),
+              (status = NOT_FOUND, body = Problem, content_type = "application/problem+json"),
+              (status = PRECONDITION_FAILED, body = Problem, content_type = "application/problem+json"),
+              (status = PRECONDITION_REQUIRED, body = Problem, content_type = "application/problem+json"),
+              (status = UNPROCESSABLE_ENTITY, description = "Invalid, or breaks a ledger rule", body = Problem, content_type = "application/problem+json")))]
+async fn replace(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    IfMatch(version): IfMatch,
+    Json(req): Json<NewTransaction>,
+) -> Result<Response, Problem> {
+    let req = normalize(req)?;
+    let mut tx = state.pool.begin().await?;
+    let before = store::transactions::get(&mut tx, id, true)
+        .await?
+        .ok_or_else(Problem::not_found)?;
+    if before.transaction.version != version {
+        return Err(Problem::stale());
+    }
+    let before = from_one(&mut tx, before).await?;
+    let classified = classify(&mut tx, &req.splits).await?;
+    let new_version = store::transactions::upsert(&mut tx, &to_full(id, &req))
+        .await
+        .map_err(|e| write_error(e, String::new))?;
+    let after = output(id, new_version, req, classified);
+    audit(
+        &mut tx,
+        principal,
+        Action::Update,
+        "transaction",
+        id,
+        Some(&before),
+        Some(&after),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(respond(StatusCode::OK, &after))
+}
+
+/// Delete a transaction.
+#[utoipa::path(delete, path = "/transactions/{id}", tag = "transactions", security(("bearer" = [])),
+    params(("id" = Uuid, Path), ("If-Match" = String, Header, description = "ETag from your last read")),
+    responses((status = NO_CONTENT),
+              (status = NOT_FOUND, body = Problem, content_type = "application/problem+json"),
+              (status = PRECONDITION_FAILED, body = Problem, content_type = "application/problem+json")))]
+async fn delete(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    IfMatch(version): IfMatch,
+) -> Result<StatusCode, Problem> {
+    let mut tx = state.pool.begin().await?;
+    let before = store::transactions::get(&mut tx, id, true)
+        .await?
+        .ok_or_else(Problem::not_found)?;
+    if before.transaction.version != version {
+        return Err(Problem::stale());
+    }
+    let before = from_one(&mut tx, before).await?;
+    store::transactions::delete(&mut *tx, id)
+        .await
+        .map_err(delete_error)?;
+    audit(
+        &mut tx,
+        principal,
+        Action::Delete,
+        "transaction",
+        id,
+        Some(&before),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}

@@ -5,6 +5,7 @@
 pub mod account;
 pub mod account_number;
 pub mod amount;
+pub mod book;
 pub mod commodity;
 pub mod ids;
 pub mod party;
@@ -13,6 +14,7 @@ pub mod transaction;
 pub use account::{Account, AccountKind, Counterparty, SystemCounterparty};
 pub use account_number::AccountNumber;
 pub use amount::{Amount, NumberError, Rate};
+pub use book::Book;
 pub use commodity::{Commodity, CommodityKind};
 pub use ids::*;
 pub use party::{Party, PartyKind, SettlementTree};

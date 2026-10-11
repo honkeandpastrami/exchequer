@@ -94,3 +94,14 @@ pub async fn delete(db: impl PgExecutor<'_>, id: Uuid) -> Result<(), sqlx::Error
         .await?;
     Ok(())
 }
+
+/// Every row whose ID is in `ids` (unknown IDs are skipped).
+pub async fn get_many(db: impl PgExecutor<'_>, ids: &[Uuid]) -> Result<Vec<PartyRow>, sqlx::Error> {
+    sqlx::query_as!(
+        PartyRow,
+        "SELECT id, name, kind, version FROM party WHERE id = ANY($1)",
+        ids
+    )
+    .fetch_all(db)
+    .await
+}

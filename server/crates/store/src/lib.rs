@@ -21,3 +21,4 @@ pub mod idempotency;
 pub mod parties;
 pub mod tags;
 pub mod tokens;
+pub mod transactions;

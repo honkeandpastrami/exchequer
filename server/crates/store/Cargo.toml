@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 domain = { version = "0.0.0", path = "../domain" }
+rust_decimal = "1.43.0"
 serde_json = "1.0.154"
 sqlx = { version = "0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "migrate", "macros", "uuid", "time", "rust_decimal", "derive", "json"] }
 time = "0.3.55"

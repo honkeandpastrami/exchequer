@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO transaction (id, date, description, notes) VALUES ($1, $2, $3, $4)\n         ON CONFLICT (id) DO UPDATE SET date = $2, description = $3, notes = $4,\n             version = transaction.version + 1, updated_at = now()\n         RETURNING version",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Date",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c52b2013da88b1f9d179f0c9fc187816b259a53d78e72376fcb263033de9019d"
+}

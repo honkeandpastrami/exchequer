@@ -22,10 +22,12 @@ mod common;
 pub mod conventions;
 mod counterparties;
 mod health;
+mod ledger;
 mod parties;
 pub mod problem;
 mod tags;
 mod tokens;
+mod transactions;
 
 /// Shared by every handler.
 #[derive(Clone)]
@@ -70,6 +72,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .merge(counterparties::routes())
         .merge(categories::routes())
         .merge(tags::routes())
+        .merge(transactions::routes())
 }
 
 fn routes() -> OpenApiRouter<AppState> {

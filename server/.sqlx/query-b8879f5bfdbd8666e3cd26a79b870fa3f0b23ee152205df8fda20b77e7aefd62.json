@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.id, t.date, t.description, t.notes, t.version\n           FROM transaction t\n           WHERE ($1::date IS NULL OR (t.date, t.id) < ($1, $2::uuid))\n             AND ($3::date IS NULL OR t.date >= $3)\n             AND ($4::date IS NULL OR t.date <= $4)\n             AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = t.id\n                  AND $5 IN (s.from_account_id, s.to_account_id)))\n             AND ($6::uuid IS NULL OR EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = t.id\n                  AND $6 IN (s.from_counterparty_id, s.to_counterparty_id)))\n             AND ($7::uuid IS NULL OR EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = t.id\n                  AND s.category_id = $7))\n           ORDER BY t.date DESC, t.id DESC\n           LIMIT $8",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "date",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "date"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "notes",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "notes"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Uuid",
+        "Date",
+        "Date",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "b8879f5bfdbd8666e3cd26a79b870fa3f0b23ee152205df8fda20b77e7aefd62"
+}

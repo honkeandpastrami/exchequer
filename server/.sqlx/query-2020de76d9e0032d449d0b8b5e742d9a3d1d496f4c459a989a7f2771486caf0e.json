@@ -1,0 +1,172 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT transaction_id, position,\n                from_account_id, from_counterparty_id, from_commodity_id, from_quantity,\n                to_account_id, to_counterparty_id, to_commodity_id, to_quantity,\n                purpose_id, category_id, description\n         FROM split WHERE transaction_id = ANY($1) ORDER BY transaction_id, position",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "transaction_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "transaction_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "position",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "from_account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "from_account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "from_counterparty_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "from_counterparty_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "from_commodity_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "from_commodity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "from_quantity",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "from_quantity"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "to_account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "to_account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "to_counterparty_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "to_counterparty_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "to_commodity_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "to_commodity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "to_quantity",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "to_quantity"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "purpose_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "purpose_id"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "category_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "category_id"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "description"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "2020de76d9e0032d449d0b8b5e742d9a3d1d496f4c459a989a7f2771486caf0e"
+}
