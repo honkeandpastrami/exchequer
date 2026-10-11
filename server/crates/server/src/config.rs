@@ -56,7 +56,7 @@ impl fmt::Debug for Secret {
 
 #[derive(Debug)]
 pub struct Config {
-    /// `EXCHEQUER_BIND`, default `127.0.0.1:8080`.
+    /// `EXCHEQUER_BIND`, default `127.0.0.1:7438`.
     pub bind: SocketAddr,
     pub db: DbConfig,
     /// `BOOTSTRAP_TOKEN_FILE`: accepted only for managing tokens (design §10).
@@ -126,7 +126,7 @@ impl Config {
             )))
         };
 
-        let bind = parsed("EXCHEQUER_BIND", "127.0.0.1:8080")?;
+        let bind = parsed("EXCHEQUER_BIND", "127.0.0.1:7438")?;
         let port = parsed("DB_PORT", "5432")?;
         Ok(Self {
             bind: bind.parse().map_err(|_| ConfigError::Invalid {
@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn defaults() {
         let c = config(&DB).unwrap();
-        assert_eq!(c.bind.to_string(), "127.0.0.1:8080");
+        assert_eq!(c.bind.to_string(), "127.0.0.1:7438");
         assert_eq!(c.db.port, 5432);
         assert!(c.db.password.is_none());
     }

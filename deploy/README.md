@@ -9,7 +9,7 @@ since paths and schedules are yours.
 |---|---|
 | `exchequer.network` | Private network shared by the three containers |
 | `exchequer-db.volume`, `exchequer-db.container` | PostgreSQL 17, no published port |
-| `exchequer-api.container` | The API, published on `127.0.0.1:8080` |
+| `exchequer-api.container` | The API, published on `127.0.0.1:7438` |
 | `exchequer-backup.container`, `exchequer-backup.timer` | Daily `pg_dump` to a local drive |
 | `../exchequer-backup`, `../backup.Containerfile` | The dump/restore script, and the backup image that carries it |
 
@@ -63,8 +63,8 @@ Run these as the (non-root) user that will own the service, from a clone of this
 5. Check it answers:
 
    ```sh
-   curl -s http://127.0.0.1:8080/healthz
-   curl -s http://127.0.0.1:8080/version
+   curl -s http://127.0.0.1:7438/healthz
+   curl -s http://127.0.0.1:7438/version
    ```
 
 6. Make the first real token with the bootstrap token (design §10), and save the `token`
@@ -75,7 +75,7 @@ Run these as the (non-root) user that will own the service, from a clone of this
    podman secret inspect --showsecret --format '{{.SecretData}}' exchequer_bootstrap_token |
        sed 's/^/Authorization: Bearer /' |
        curl -s -H @- -H 'Content-Type: application/json' -d '{"name": "admin"}' \
-           http://127.0.0.1:8080/api/v1/tokens
+           http://127.0.0.1:7438/api/v1/tokens
    ```
 
 The API applies schema migrations at startup. `GET /healthz` and `GET /version` need no
@@ -88,7 +88,7 @@ also works under a path, as long as the proxy strips it; with nginx:
 
 ```nginx
 location /exchequer/ {
-    proxy_pass http://127.0.0.1:8080/;   # the trailing / strips /exchequer
+    proxy_pass http://127.0.0.1:7438/;   # the trailing / strips /exchequer
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
@@ -118,7 +118,7 @@ Before the database holds anything real, rehearse a backup and a restore once:
    ```sh
    podman secret inspect --showsecret --format '{{.SecretData}}' exchequer_bootstrap_token |
        sed 's/^/Authorization: Bearer /' |
-       curl -s -H @- http://127.0.0.1:8080/api/v1/tokens
+       curl -s -H @- http://127.0.0.1:7438/api/v1/tokens
    ```
 
 ## Backups
@@ -173,5 +173,5 @@ The same steps run in the test suite (`just backup-test`).
 
    ```sh
    systemctl --user start exchequer-api.service
-   curl -s http://127.0.0.1:8080/version
+   curl -s http://127.0.0.1:7438/version
    ```

@@ -12,10 +12,10 @@ Image=localhost/exchequer-server:latest
 # podman-auto-update.timer restarts the API on a rebuilt image.
 AutoUpdate=local
 Network=exchequer.network
-PublishPort=127.0.0.1:8080:8080
+PublishPort=127.0.0.1:7438:7438
 Secret=exchequer_db_password
 Secret=exchequer_bootstrap_token
-Environment=EXCHEQUER_BIND=0.0.0.0:8080
+Environment=EXCHEQUER_BIND=0.0.0.0:7438
 Environment=DB_HOST=exchequer-db DB_USER=exchequer DB_NAME=exchequer
 Environment=DB_PASSWORD_FILE=/run/secrets/exchequer_db_password
 Environment=BOOTSTRAP_TOKEN_FILE=/run/secrets/exchequer_bootstrap_token

@@ -89,12 +89,12 @@ jobs:
           docker run --rm exchequer-server schema-version
           docker run -d --name api --network host \
             -e DB_HOST=localhost -e DB_USER=exchequer -e DB_NAME=exchequer \
-            -e EXCHEQUER_BIND=127.0.0.1:8080 exchequer-server
+            -e EXCHEQUER_BIND=127.0.0.1:7438 exchequer-server
           for _ in $(seq 30); do
-            curl -sf http://127.0.0.1:8080/healthz && break
+            curl -sf http://127.0.0.1:7438/healthz && break
             sleep 1
           done
-          curl -sf http://127.0.0.1:8080/version
+          curl -sf http://127.0.0.1:7438/version
           docker logs api
           test "$(docker inspect -f '{{.State.Running}}' api)" = true
           docker run --rm exchequer-backup sh -c 'command -v exchequer-backup && pg_dump --version && pg_restore --version'

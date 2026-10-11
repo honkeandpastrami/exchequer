@@ -21,6 +21,6 @@ COPY --from=build /exchequer-server /exchequer-server
 # Built locally, so it can't be pulled again: a prune can skip it by this label.
 LABEL local-build="true"
 USER 65532:65532
-ENV EXCHEQUER_BIND=0.0.0.0:8080
-EXPOSE 8080
+ENV EXCHEQUER_BIND=0.0.0.0:7438
+EXPOSE 7438
 ENTRYPOINT ["/exchequer-server"]
