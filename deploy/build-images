@@ -1,0 +1,16 @@
+#!/bin/sh
+# build-images: build the server and backup images from this checkout.
+#
+#   deploy/build-images
+#
+# Both are tagged :latest under localhost/, the names the quadlets in
+# deploy/examples/ use. A running API switches to the new image when it is
+# restarted (or overnight, through AutoUpdate=local).
+
+set -eu
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+
+podman build -t exchequer-server "$root"
+podman build -t exchequer-backup -f "$root/deploy/backup.Containerfile" "$root/deploy"
+echo "built exchequer-server (schema v$(podman run --rm localhost/exchequer-server:latest schema-version)) and exchequer-backup"

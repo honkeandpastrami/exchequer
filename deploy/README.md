@@ -12,6 +12,7 @@ since paths and schedules are yours.
 | `exchequer-api.container` | The API, published on `127.0.0.1:7438` |
 | `exchequer-backup.container`, `exchequer-backup.timer` | Daily `pg_dump` to a local drive |
 | `../exchequer-backup`, `../backup.Containerfile` | The dump/restore script, and the backup image that carries it |
+| `../build-images` | Builds the server and backup images |
 
 Needs podman 5 or newer (`Notify=healthy`).
 
@@ -38,9 +39,7 @@ Run these as the (non-root) user that will own the service, from a clone of this
 3. Build the server and backup images (a few minutes the first time):
 
    ```sh
-   podman build -t exchequer-server .
-   podman build -t exchequer-backup -f deploy/backup.Containerfile deploy
-   podman run --rm localhost/exchequer-server:latest schema-version   # prints a number
+   deploy/build-images
    ```
 
 4. Install the units. Podman reads the container, network and volume files from
@@ -97,8 +96,8 @@ location /exchequer/ {
 
 ## Updating
 
-Pull and rebuild both images (step 3). The API's `AutoUpdate=local` lets
-`podman-auto-update.timer` restart it on the new image overnight (enable it once with
+Pull, then rebuild both images with `deploy/build-images`. The API's `AutoUpdate=local`
+lets `podman-auto-update.timer` restart it on the new image overnight (enable it once with
 `systemctl --user enable --now podman-auto-update.timer`); to switch now, run
 `systemctl --user restart exchequer-api.service`. The backup uses the new image on its
 next run.
