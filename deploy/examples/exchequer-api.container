@@ -9,6 +9,8 @@ After=exchequer-db.service
 ContainerName=exchequer-api
 # Built from this repository; see deploy/README.md.
 Image=localhost/exchequer-server:latest
+# podman-auto-update.timer restarts the API on a rebuilt image.
+AutoUpdate=local
 Network=exchequer.network
 PublishPort=127.0.0.1:8080:8080
 Secret=exchequer_db_password

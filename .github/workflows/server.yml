@@ -81,7 +81,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Build
-        run: docker build -f Containerfile -t exchequer-server .
+        run: |
+          docker build -f Containerfile -t exchequer-server .
+          docker build -f deploy/backup.Containerfile -t exchequer-backup deploy
       - name: Smoke test
         run: |
           docker run --rm exchequer-server schema-version
@@ -95,3 +97,4 @@ jobs:
           curl -sf http://127.0.0.1:8080/version
           docker logs api
           test "$(docker inspect -f '{{.State.Running}}' api)" = true
+          docker run --rm exchequer-backup sh -c 'command -v exchequer-backup && pg_dump --version && pg_restore --version'

@@ -1,5 +1,5 @@
-# One database dump, started by exchequer-backup.timer. Runs
-# deploy/exchequer-backup inside the postgres image, which has pg_dump.
+# One database dump, started by exchequer-backup.timer. The image is the
+# postgres image plus deploy/exchequer-backup (deploy/backup.Containerfile).
 [Unit]
 Description=Exchequer database backup
 Requires=exchequer-db.service
@@ -7,13 +7,12 @@ After=exchequer-db.service
 
 [Container]
 ContainerName=exchequer-backup
-Image=docker.io/library/postgres:17
+Image=localhost/exchequer-backup:latest
 Network=exchequer.network
 Secret=exchequer_db_password
 Environment=PGHOST=exchequer-db PGUSER=exchequer PGDATABASE=exchequer
 Environment=PGPASSWORD_FILE=/run/secrets/exchequer_db_password
-# Example paths: where you installed the script, and the backup drive.
-Volume=%h/.local/lib/exchequer/exchequer-backup:/usr/local/bin/exchequer-backup:ro,Z
+# Example path: the backup drive.
 Volume=/mnt/backup/exchequer:/backups:Z
 # Keep the newest 30 dumps.
 Exec=exchequer-backup dump /backups 30

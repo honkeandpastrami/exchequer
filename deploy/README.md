@@ -11,7 +11,7 @@ since paths and schedules are yours.
 | `exchequer-db.volume`, `exchequer-db.container` | PostgreSQL 17, no published port |
 | `exchequer-api.container` | The API, published on `127.0.0.1:8080` |
 | `exchequer-backup.container`, `exchequer-backup.timer` | Daily `pg_dump` to a local drive |
-| `../exchequer-backup` | The dump/restore script the backup unit runs |
+| `../exchequer-backup`, `../backup.Containerfile` | The dump/restore script, and the backup image that carries it |
 
 Needs podman 5 or newer (`Notify=healthy`).
 
@@ -35,20 +35,15 @@ Run these as the (non-root) user that will own the service, from a clone of this
    openssl rand -base64 32 | tr -d '\n' | podman secret create exchequer_bootstrap_token -
    ```
 
-3. Build the server image (a few minutes the first time):
+3. Build the server and backup images (a few minutes the first time):
 
    ```sh
    podman build -t exchequer-server .
+   podman build -t exchequer-backup -f deploy/backup.Containerfile deploy
    podman run --rm localhost/exchequer-server:latest schema-version   # prints a number
    ```
 
-4. Install the backup script where `exchequer-backup.container` mounts it from:
-
-   ```sh
-   install -D -m 755 deploy/exchequer-backup ~/.local/lib/exchequer/exchequer-backup
-   ```
-
-5. Install the units. Podman reads the container, network and volume files from
+4. Install the units. Podman reads the container, network and volume files from
    `containers/systemd`; the timer is a plain systemd unit and goes in `systemd/user`.
 
    ```sh
@@ -65,14 +60,14 @@ Run these as the (non-root) user that will own the service, from a clone of this
    The API and database start at boot on their own (their `[Install]` sections).
    If `start` fails, `journalctl --user -u exchequer-db -u exchequer-api` says why.
 
-6. Check it answers:
+5. Check it answers:
 
    ```sh
    curl -s http://127.0.0.1:8080/healthz
    curl -s http://127.0.0.1:8080/version
    ```
 
-7. Make the first real token with the bootstrap token (design §10), and save the `token`
+6. Make the first real token with the bootstrap token (design §10), and save the `token`
    it prints in your password manager: it's shown only once. The bootstrap token goes
    through stdin, so it never shows up in `ps`:
 
@@ -86,6 +81,31 @@ Run these as the (non-root) user that will own the service, from a clone of this
 The API applies schema migrations at startup. `GET /healthz` and `GET /version` need no
 token.
 
+## Reverse proxy
+
+TLS and access from other machines are left to a reverse proxy (design §10). The API
+also works under a path, as long as the proxy strips it; with nginx:
+
+```nginx
+location /exchequer/ {
+    proxy_pass http://127.0.0.1:8080/;   # the trailing / strips /exchequer
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+## Updating
+
+Pull and rebuild both images (step 3). The API's `AutoUpdate=local` lets
+`podman-auto-update.timer` restart it on the new image overnight (enable it once with
+`systemctl --user enable --now podman-auto-update.timer`); to switch now, run
+`systemctl --user restart exchequer-api.service`. The backup uses the new image on its
+next run.
+
+Both images carry the label `local-build`: they can't be pulled again, so keep them out
+of any image prune, e.g. `podman image prune -af --filter label!=local-build`.
+
 ## First-run rehearsal
 
 Before the database holds anything real, rehearse a backup and a restore once:
@@ -93,7 +113,7 @@ Before the database holds anything real, rehearse a backup and a restore once:
 1. Take a backup and look at it: `systemctl --user start exchequer-backup.service`, then
    `ls -l /mnt/backup/exchequer`.
 2. Follow [Restore](#restore) with that file.
-3. The `admin` token from step 7 still works, so the data came back:
+3. The `admin` token from step 6 still works, so the data came back:
 
    ```sh
    podman secret inspect --showsecret --format '{{.SecretData}}' exchequer_bootstrap_token |
@@ -144,9 +164,8 @@ The same steps run in the test suite (`just backup-test`).
    podman run --rm --network exchequer --secret exchequer_db_password \
        -e PGHOST=exchequer-db -e PGUSER=exchequer -e PGDATABASE=exchequer \
        -e PGPASSWORD_FILE=/run/secrets/exchequer_db_password \
-       -v ~/.local/lib/exchequer/exchequer-backup:/usr/local/bin/exchequer-backup:ro,Z \
        -v /mnt/backup/exchequer:/backups:ro,Z \
-       docker.io/library/postgres:17 \
+       localhost/exchequer-backup:latest \
        exchequer-backup restore /backups/exchequer-20260101T033000Z-v0002.dump "$max"
    ```
 
