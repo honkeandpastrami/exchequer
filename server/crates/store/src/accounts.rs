@@ -1,5 +1,6 @@
 //! Accounts: things of yours that hold value (design §3.1).
 
+use rust_decimal::Decimal;
 use sqlx::PgExecutor;
 use uuid::Uuid;
 
@@ -10,6 +11,9 @@ pub struct AccountRow {
     pub kind: String,
     pub owner_id: Uuid,
     pub liquid: bool,
+    pub archived: bool,
+    pub credit_limit_commodity_id: Option<Uuid>,
+    pub credit_limit: Option<Decimal>,
     pub version: i64,
 }
 
@@ -20,7 +24,7 @@ pub async fn list(
 ) -> Result<Vec<AccountRow>, sqlx::Error> {
     sqlx::query_as!(
         AccountRow,
-        "SELECT id, name, kind, owner_id, liquid, version FROM account
+        "SELECT id, name, kind, owner_id, liquid, archived, credit_limit_commodity_id, credit_limit, version FROM account
          WHERE $1::uuid IS NULL OR id > $1 ORDER BY id LIMIT $2",
         after,
         limit,
@@ -38,7 +42,7 @@ pub async fn get(
     if lock {
         sqlx::query_as!(
             AccountRow,
-            "SELECT id, name, kind, owner_id, liquid, version FROM account WHERE id = $1 FOR UPDATE",
+            "SELECT id, name, kind, owner_id, liquid, archived, credit_limit_commodity_id, credit_limit, version FROM account WHERE id = $1 FOR UPDATE",
             id
         )
         .fetch_optional(db)
@@ -46,7 +50,7 @@ pub async fn get(
     } else {
         sqlx::query_as!(
             AccountRow,
-            "SELECT id, name, kind, owner_id, liquid, version FROM account WHERE id = $1",
+            "SELECT id, name, kind, owner_id, liquid, archived, credit_limit_commodity_id, credit_limit, version FROM account WHERE id = $1",
             id
         )
         .fetch_optional(db)
@@ -59,15 +63,21 @@ pub async fn get(
 pub async fn upsert(db: impl PgExecutor<'_>, r: &AccountRow) -> Result<AccountRow, sqlx::Error> {
     sqlx::query_as!(
         AccountRow,
-        "INSERT INTO account (id, name, kind, owner_id, liquid) VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (id) DO UPDATE SET name = $2, kind = $3, liquid = $5,
+        "INSERT INTO account (id, name, kind, owner_id, liquid, archived,
+                              credit_limit_commodity_id, credit_limit)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO UPDATE SET name = $2, kind = $3, liquid = $5, archived = $6,
+             credit_limit_commodity_id = $7, credit_limit = $8,
              version = account.version + 1
-         RETURNING id, name, kind, owner_id, liquid, version",
+         RETURNING id, name, kind, owner_id, liquid, archived, credit_limit_commodity_id, credit_limit, version",
         r.id,
         r.name,
         r.kind,
         r.owner_id,
         r.liquid,
+        r.archived,
+        r.credit_limit_commodity_id,
+        r.credit_limit,
     )
     .fetch_one(db)
     .await
@@ -87,7 +97,7 @@ pub async fn get_many(
 ) -> Result<Vec<AccountRow>, sqlx::Error> {
     sqlx::query_as!(
         AccountRow,
-        "SELECT id, name, kind, owner_id, liquid, version FROM account WHERE id = ANY($1)",
+        "SELECT id, name, kind, owner_id, liquid, archived, credit_limit_commodity_id, credit_limit, version FROM account WHERE id = ANY($1)",
         ids
     )
     .fetch_all(db)

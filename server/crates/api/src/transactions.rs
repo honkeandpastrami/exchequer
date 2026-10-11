@@ -103,6 +103,20 @@ pub struct Split {
     liquidation: bool,
 }
 
+/// Where a transaction came from outside Exchequer, such as its ID in the
+/// system it was migrated from. Unique per `source`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ExternalRef {
+    /// Lowercase letters, digits, `_` or `-`; e.g. `firefly`.
+    #[schema(pattern = r"^[a-z0-9_-]{1,32}$", example = "firefly")]
+    source: String,
+    /// 1-200 characters.
+    #[serde(rename = "ref")]
+    #[schema(example = "1234")]
+    reference: String,
+}
+
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NewTransaction {
@@ -112,6 +126,8 @@ pub struct NewTransaction {
     /// Tag names; unknown ones are created.
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    external_refs: Vec<ExternalRef>,
     splits: Vec<NewSplit>,
 }
 
@@ -123,6 +139,7 @@ pub struct Transaction {
     #[serde(skip_serializing_if = "Option::is_none")]
     notes: Option<String>,
     tags: Vec<String>,
+    external_refs: Vec<ExternalRef>,
     splits: Vec<Split>,
     #[serde(skip)]
     version: i64,
@@ -253,6 +270,7 @@ fn output(id: Uuid, version: i64, req: NewTransaction, classified: Vec<Classifie
         description: req.description,
         notes: req.notes,
         tags: req.tags,
+        external_refs: req.external_refs,
         splits: req
             .splits
             .into_iter()
@@ -283,6 +301,11 @@ async fn from_full(db: &mut PgConnection, fulls: Vec<Full>) -> Result<Vec<Transa
                 description: f.transaction.description.clone(),
                 notes: f.transaction.notes.clone(),
                 tags: f.tags,
+                external_refs: f
+                    .external_refs
+                    .into_iter()
+                    .map(|(source, reference)| ExternalRef { source, reference })
+                    .collect(),
                 splits,
             };
             (f.transaction, req)
@@ -329,6 +352,24 @@ fn normalize(mut req: NewTransaction) -> Result<NewTransaction, Problem> {
     tags.sort();
     tags.dedup();
     req.tags = tags;
+    for r in &req.external_refs {
+        let source_ok = (1..=32).contains(&r.source.len())
+            && r.source
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-');
+        if !source_ok {
+            return Err(Problem::invalid(
+                "external_refs: source must be 1-32 of a-z, 0-9, _ or -",
+            ));
+        }
+        if r.reference.is_empty() || r.reference.chars().count() > 200 {
+            return Err(Problem::invalid(
+                "external_refs: ref must be 1-200 characters",
+            ));
+        }
+    }
+    req.external_refs.sort();
+    req.external_refs.dedup();
     Ok(req)
 }
 
@@ -374,7 +415,16 @@ fn to_full(id: Uuid, req: &NewTransaction) -> Full {
             })
             .collect(),
         tags: req.tags.clone(),
+        external_refs: req
+            .external_refs
+            .iter()
+            .map(|r| (r.source.clone(), r.reference.clone()))
+            .collect(),
     }
+}
+
+fn duplicate_ref() -> String {
+    "another transaction already has one of these external_refs".to_owned()
 }
 
 // ------------------------------------------------------------ Handlers ----
@@ -392,6 +442,10 @@ pub struct ListParams {
     counterparty_id: Option<Uuid>,
     /// Only transactions with a split in this category.
     category_id: Option<Uuid>,
+    /// With `external_ref`: the transaction with this external reference.
+    external_source: Option<String>,
+    /// With `external_source`.
+    external_ref: Option<String>,
     /// Items per page (default 100, max 500).
     limit: Option<u32>,
     /// `next_cursor` from the previous page. Opaque.
@@ -424,6 +478,15 @@ async fn list(
         account: p.account_id,
         counterparty: p.counterparty_id,
         category: p.category_id,
+        external_ref: match (p.external_source, p.external_ref) {
+            (Some(s), Some(r)) => Some((s, r)),
+            (None, None) => None,
+            _ => {
+                return Err(Problem::invalid(
+                    "external_source and external_ref go together",
+                ));
+            }
+        },
     };
     let mut conn = state.pool.acquire().await?;
     let rows = store::transactions::list(&mut *conn, &filter, after, limit + 1).await?;
@@ -463,7 +526,7 @@ async fn create(
     let classified = classify(&mut tx, &req.splits).await?;
     let version = store::transactions::upsert(&mut tx, &to_full(id, &req))
         .await
-        .map_err(|e| write_error(e, String::new))?;
+        .map_err(|e| write_error(e, duplicate_ref))?;
     let created = output(id, version, req, classified);
     audit(
         &mut tx,
@@ -511,7 +574,7 @@ async fn replace(
     let classified = classify(&mut tx, &req.splits).await?;
     let new_version = store::transactions::upsert(&mut tx, &to_full(id, &req))
         .await
-        .map_err(|e| write_error(e, String::new))?;
+        .map_err(|e| write_error(e, duplicate_ref))?;
     let after = output(id, new_version, req, classified);
     audit(
         &mut tx,

@@ -127,6 +127,63 @@ async fn accounts(pool: PgPool) {
         (Some("Alex Main"), Some(alex.as_str()))
     );
 
+    // Archived flag and credit limit: set, checked against the commodity, cleared.
+    let usd = post(
+        &pool,
+        &t,
+        "/api/v1/commodities",
+        json!({ "code": "USD", "kind": "fiat", "precision": 2 }),
+    )
+    .await
+    .id();
+    let card = post(
+        &pool,
+        &t,
+        "/api/v1/accounts",
+        json!({ "name": "Alex Credit", "kind": "credit_card", "owner_id": alex,
+                "credit_limit": { "commodity_id": usd, "quantity": "9000.00" } }),
+    )
+    .await;
+    assert_eq!(card.status, StatusCode::CREATED, "{}", card.body);
+    assert_eq!(
+        (card.body["archived"].as_bool(), &card.body["credit_limit"]),
+        (
+            Some(false),
+            &json!({ "commodity_id": usd, "quantity": "9000.00" })
+        )
+    );
+    assert!(checking.body.get("credit_limit").is_none());
+    for bad in ["9000.001", "0", "-5"] {
+        let r = post(&pool, &t, "/api/v1/accounts", json!({ "name": "Bad Card", "kind": "credit_card", "owner_id": alex, "credit_limit": { "commodity_id": usd, "quantity": bad } })).await;
+        assert_eq!(
+            r.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{bad}: {}",
+            r.body
+        );
+    }
+    let card_path = format!("/api/v1/accounts/{}", card.id());
+    let r = call(&pool, "PATCH", &card_path)
+        .token(&t)
+        .if_match(&card.etag())
+        .json(json!({ "archived": true }))
+        .send()
+        .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(r.body["archived"], true);
+    assert_eq!(
+        r.body["credit_limit"]["quantity"], "9000.00",
+        "absent keeps it"
+    );
+    let r = call(&pool, "PATCH", &card_path)
+        .token(&t)
+        .if_match(&r.etag())
+        .json(json!({ "credit_limit": null }))
+        .send()
+        .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert!(r.body.get("credit_limit").is_none(), "null clears it");
+
     // A party that owns accounts can't be deleted.
     let party = call(&pool, "GET", format!("/api/v1/parties/{alex}"))
         .token(&t)

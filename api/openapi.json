@@ -2086,6 +2086,24 @@
             }
           },
           {
+            "name": "external_source",
+            "in": "query",
+            "description": "With `external_ref`: the transaction with this external reference.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "external_ref",
+            "in": "query",
+            "description": "With `external_source`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "description": "Items per page (default 100, max 500).",
@@ -2440,9 +2458,24 @@
           "name",
           "kind",
           "owner_id",
-          "liquid"
+          "liquid",
+          "archived"
         ],
         "properties": {
+          "archived": {
+            "type": "boolean",
+            "description": "Kept for history, hidden from everyday views."
+          },
+          "credit_limit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CreditLimit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -2481,6 +2514,23 @@
         "type": "object",
         "description": "Fields to change; omitted ones stay as they are. The owner can't change.",
         "properties": {
+          "archived": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "credit_limit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CreditLimit",
+                "description": "`null` removes the limit."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "kind": {
             "oneOf": [
               {
@@ -2634,6 +2684,49 @@
           }
         ]
       },
+      "CreditLimit": {
+        "type": "object",
+        "description": "A credit card's limit: display metadata, never part of the balance.",
+        "required": [
+          "commodity_id",
+          "quantity"
+        ],
+        "properties": {
+          "commodity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "type": "string",
+            "description": "Positive decimal string, e.g. `\"9000.00\"`.",
+            "example": "9000.00",
+            "pattern": "^[0-9]+(\\.[0-9]+)?$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ExternalRef": {
+        "type": "object",
+        "description": "Where a transaction came from outside Exchequer, such as its ID in the\nsystem it was migrated from. Unique per `source`.",
+        "required": [
+          "source",
+          "ref"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "description": "1-200 characters.",
+            "example": "1234"
+          },
+          "source": {
+            "type": "string",
+            "description": "Lowercase letters, digits, `_` or `-`; e.g. `firefly`.",
+            "example": "firefly",
+            "pattern": "^[a-z0-9_-]{1,32}$"
+          }
+        },
+        "additionalProperties": false
+      },
       "Health": {
         "type": "object",
         "required": [
@@ -2699,6 +2792,19 @@
           "owner_id"
         ],
         "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "credit_limit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CreditLimit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "kind": {
             "$ref": "#/components/schemas/AccountKind"
           },
@@ -2859,6 +2965,12 @@
           "description": {
             "type": "string"
           },
+          "external_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExternalRef"
+            }
+          },
           "notes": {
             "type": [
               "string",
@@ -2897,9 +3009,24 @@
                 "name",
                 "kind",
                 "owner_id",
-                "liquid"
+                "liquid",
+                "archived"
               ],
               "properties": {
+                "archived": {
+                  "type": "boolean",
+                  "description": "Kept for history, hidden from everyday views."
+                },
+                "credit_limit": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CreditLimit"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "id": {
                   "type": "string",
                   "format": "uuid"
@@ -3145,6 +3272,7 @@
                 "date",
                 "description",
                 "tags",
+                "external_refs",
                 "splits"
               ],
               "properties": {
@@ -3154,6 +3282,12 @@
                 },
                 "description": {
                   "type": "string"
+                },
+                "external_refs": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExternalRef"
+                  }
                 },
                 "id": {
                   "type": "string",
@@ -3355,6 +3489,7 @@
           "date",
           "description",
           "tags",
+          "external_refs",
           "splits"
         ],
         "properties": {
@@ -3364,6 +3499,12 @@
           },
           "description": {
             "type": "string"
+          },
+          "external_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExternalRef"
+            }
           },
           "id": {
             "type": "string",

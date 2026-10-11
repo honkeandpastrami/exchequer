@@ -1,6 +1,6 @@
 //! Helpers every resource handler uses.
 
-use serde::Serialize;
+use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::PgConnection;
 use store::audit::{self, Action};
 use uuid::Uuid;
@@ -88,4 +88,14 @@ pub fn valid_name(name: &str) -> Result<&str, Problem> {
         return Err(Problem::invalid("name must be 1-100 characters"));
     }
     Ok(name)
+}
+
+/// For PATCH fields that can be cleared: absent stays `None` (with
+/// `#[serde(default)]`), `null` becomes `Some(None)`.
+pub fn nullable<'de, D, T>(d: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(d).map(Some)
 }

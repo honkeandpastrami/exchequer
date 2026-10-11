@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, kind, owner_id, liquid, version FROM account WHERE id = ANY($1)",
+  "query": "SELECT id, name, kind, owner_id, liquid, archived, credit_limit_commodity_id, credit_limit, version FROM account WHERE id = ANY($1)",
   "describe": {
     "columns": [
       {
@@ -60,6 +60,39 @@
       },
       {
         "ordinal": 5,
+        "name": "archived",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "account",
+            "name": "archived"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "credit_limit_commodity_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "account",
+            "name": "credit_limit_commodity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "credit_limit",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "account",
+            "name": "credit_limit"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -81,8 +114,11 @@
       false,
       false,
       false,
+      false,
+      true,
+      true,
       false
     ]
   },
-  "hash": "6b7334a28d36550197841aa4922cfd239772e706a9e6dc05a97946b10ce79dc7"
+  "hash": "e7b1e6d2a6d2d1b562d495e39e902358eaea8f38e4bf4530e9f24db5d7198795"
 }

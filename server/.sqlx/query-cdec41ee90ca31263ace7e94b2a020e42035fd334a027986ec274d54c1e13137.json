@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO account (id, name, kind, owner_id, liquid) VALUES ($1, $2, $3, $4, $5)\n         ON CONFLICT (id) DO UPDATE SET name = $2, kind = $3, liquid = $5,\n             version = account.version + 1\n         RETURNING id, name, kind, owner_id, liquid, version",
+  "query": "SELECT id, name, kind, owner_id, liquid, archived, credit_limit_commodity_id, credit_limit, version FROM account\n         WHERE $1::uuid IS NULL OR id > $1 ORDER BY id LIMIT $2",
   "describe": {
     "columns": [
       {
@@ -60,6 +60,39 @@
       },
       {
         "ordinal": 5,
+        "name": "archived",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "account",
+            "name": "archived"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "credit_limit_commodity_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "account",
+            "name": "credit_limit_commodity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "credit_limit",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "account",
+            "name": "credit_limit"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -73,10 +106,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text",
-        "Text",
-        "Uuid",
-        "Bool"
+        "Int8"
       ]
     },
     "nullable": [
@@ -85,8 +115,11 @@
       false,
       false,
       false,
+      false,
+      true,
+      true,
       false
     ]
   },
-  "hash": "b399764f95e268eedd11fc4ad152d1d7f9677e2a2dabf9b81b03770f6a683c5a"
+  "hash": "cdec41ee90ca31263ace7e94b2a020e42035fd334a027986ec274d54c1e13137"
 }

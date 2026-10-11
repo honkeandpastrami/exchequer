@@ -5,7 +5,9 @@ use axum::Extension;
 use axum::extract::State;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use domain::Amount;
 use serde::{Deserialize, Serialize};
+use sqlx::PgConnection;
 use store::accounts::AccountRow;
 use store::audit::Action;
 use utoipa::ToSchema;
@@ -15,7 +17,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth::Principal;
-use crate::common::{audit, delete_error, id_cursor, valid_name, write_error};
+use crate::common::{audit, delete_error, id_cursor, nullable, valid_name, write_error};
 use crate::conventions::{IfMatch, Page, PageParams, etag};
 use crate::problem::{Json, Path, Problem, Query};
 
@@ -65,6 +67,16 @@ impl AccountKind {
     }
 }
 
+/// A credit card's limit: display metadata, never part of the balance.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreditLimit {
+    commodity_id: Uuid,
+    /// Positive decimal string, e.g. `"9000.00"`.
+    #[schema(value_type = String, pattern = r"^[0-9]+(\.[0-9]+)?$", example = "9000.00")]
+    quantity: Amount,
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct Account {
     id: Uuid,
@@ -75,6 +87,10 @@ pub struct Account {
     /// Investment accounts are not liquid; activity inside them is never
     /// shared (design §4.1).
     liquid: bool,
+    /// Kept for history, hidden from everyday views.
+    archived: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    credit_limit: Option<CreditLimit>,
     #[serde(skip)]
     version: i64,
 }
@@ -88,6 +104,15 @@ impl TryFrom<AccountRow> for Account {
             kind: AccountKind::parse(&r.kind)?,
             owner_id: r.owner_id,
             liquid: r.liquid,
+            archived: r.archived,
+            credit_limit: match (r.credit_limit_commodity_id, r.credit_limit) {
+                (Some(commodity_id), Some(q)) => Some(CreditLimit {
+                    commodity_id,
+                    quantity: Amount::from_decimal(q),
+                }),
+                (None, None) => None,
+                _ => return Err(Problem::internal()),
+            },
             version: r.version,
         })
     }
@@ -101,9 +126,33 @@ impl Account {
             kind: self.kind.as_str().to_owned(),
             owner_id: self.owner_id,
             liquid: self.liquid,
+            archived: self.archived,
+            credit_limit_commodity_id: self.credit_limit.as_ref().map(|c| c.commodity_id),
+            credit_limit: self.credit_limit.as_ref().map(|c| c.quantity.as_decimal()),
             version: self.version,
         }
     }
+}
+
+/// The limit must be positive and fit its commodity's precision.
+async fn check_credit_limit(
+    db: &mut PgConnection,
+    limit: Option<&CreditLimit>,
+) -> Result<(), Problem> {
+    let Some(limit) = limit else { return Ok(()) };
+    if !limit.quantity.is_positive() {
+        return Err(Problem::invalid("credit_limit must be positive"));
+    }
+    let commodity = store::commodities::get(&mut *db, limit.commodity_id, false)
+        .await?
+        .ok_or_else(|| Problem::invalid("credit_limit: unknown commodity"))?;
+    if i64::from(limit.quantity.significant_scale()) > i64::from(commodity.precision) {
+        return Err(Problem::invalid(format!(
+            "credit_limit: {} has more decimals than {} allows ({})",
+            limit.quantity, commodity.code, commodity.precision
+        )));
+    }
+    Ok(())
 }
 
 fn respond(status: StatusCode, item: &Account) -> Response {
@@ -118,6 +167,9 @@ pub struct NewAccount {
     owner_id: Uuid,
     /// Defaults to `false` for brokerage accounts, `true` otherwise.
     liquid: Option<bool>,
+    #[serde(default)]
+    archived: bool,
+    credit_limit: Option<CreditLimit>,
 }
 
 /// Fields to change; omitted ones stay as they are. The owner can't change.
@@ -127,6 +179,11 @@ pub struct AccountUpdate {
     name: Option<String>,
     kind: Option<AccountKind>,
     liquid: Option<bool>,
+    archived: Option<bool>,
+    /// `null` removes the limit.
+    #[serde(default, deserialize_with = "nullable")]
+    #[schema(value_type = Option<CreditLimit>)]
+    credit_limit: Option<Option<CreditLimit>>,
 }
 
 /// List accounts.
@@ -177,9 +234,12 @@ async fn create(
         kind: req.kind,
         owner_id: req.owner_id,
         liquid: req.liquid.unwrap_or(req.kind != AccountKind::Brokerage),
+        archived: req.archived,
+        credit_limit: req.credit_limit,
         version: 0,
     };
     let mut tx = state.pool.begin().await?;
+    check_credit_limit(&mut tx, new.credit_limit.as_ref()).await?;
     let saved = store::accounts::upsert(&mut *tx, &new.row())
         .await
         .map_err(|e| {
@@ -239,7 +299,13 @@ async fn update(
         },
         kind: req.kind.unwrap_or(before.kind),
         liquid: req.liquid.unwrap_or(before.liquid),
+        archived: req.archived.unwrap_or(before.archived),
+        credit_limit: match req.credit_limit {
+            Some(new) => new,
+            None => before.credit_limit.clone(),
+        },
     };
+    check_credit_limit(&mut tx, changed.credit_limit.as_ref()).await?;
     let saved = store::accounts::upsert(&mut *tx, &changed.row())
         .await
         .map_err(|e| {

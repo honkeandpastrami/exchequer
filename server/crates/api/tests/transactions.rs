@@ -418,3 +418,105 @@ async fn replace_and_delete(pool: PgPool) {
         StatusCode::NOT_FOUND
     );
 }
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn external_refs_are_unique_and_findable(pool: PgPool) {
+    let h = Household::new(&pool).await;
+    let body = |refs: Value| {
+        json!({
+            "date": "2026-03-14",
+            "description": "GROCER #12",
+            "external_refs": refs,
+            "splits": [{
+                "from": account(&h.alex_credit, &h.usd, "80.00"),
+                "to": external(&h.grocer, &h.usd, "80.00"),
+            }],
+        })
+    };
+
+    let r = h
+        .post(
+            &pool,
+            body(json!([{ "source": "firefly", "ref": "41" }, { "source": "bank", "ref": "X-1" }])),
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    // Sorted by source, then ref.
+    assert_eq!(
+        r.body["external_refs"],
+        json!([{ "source": "bank", "ref": "X-1" }, { "source": "firefly", "ref": "41" }])
+    );
+    let id = r.id();
+
+    // The same reference can't be stored twice.
+    let r = h
+        .post(&pool, body(json!([{ "source": "firefly", "ref": "41" }])))
+        .await;
+    assert_eq!(r.status, StatusCode::CONFLICT, "{}", r.body);
+    // Same ref, other source: fine.
+    let r = h
+        .post(&pool, body(json!([{ "source": "other", "ref": "41" }])))
+        .await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+
+    for bad in [
+        json!([{ "source": "Firefly", "ref": "1" }]),
+        json!([{ "source": "firefly", "ref": "" }]),
+        json!([{ "source": "firefly" }]),
+    ] {
+        let r = h.post(&pool, body(bad.clone())).await;
+        assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{bad}");
+    }
+
+    let find = |source: &str, reference: &str| {
+        call(
+            &pool,
+            "GET",
+            format!("/api/v1/transactions?external_source={source}&external_ref={reference}"),
+        )
+        .token(&h.t)
+        .send()
+    };
+    let r = find("firefly", "41").await;
+    assert_eq!(r.status, StatusCode::OK);
+    let items = r.body["items"].as_array().unwrap();
+    assert_eq!(
+        items
+            .iter()
+            .map(|i| i["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [id.as_str()]
+    );
+    assert!(
+        find("firefly", "42").await.body["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let r = call(&pool, "GET", "/api/v1/transactions?external_source=firefly")
+        .token(&h.t)
+        .send()
+        .await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    // Replacing a transaction replaces its references too.
+    let path = format!("/api/v1/transactions/{id}");
+    let current = call(&pool, "GET", &path).token(&h.t).send().await;
+    let r = call(&pool, "PUT", &path)
+        .token(&h.t)
+        .if_match(&current.etag())
+        .json(body(json!([{ "source": "firefly", "ref": "41" }])))
+        .send()
+        .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(
+        r.body["external_refs"],
+        json!([{ "source": "firefly", "ref": "41" }])
+    );
+    assert!(
+        find("bank", "X-1").await.body["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, kind, owner_id, liquid, version FROM account WHERE id = $1 FOR UPDATE",
+  "query": "SELECT id, name, kind, owner_id, liquid, archived, credit_limit_commodity_id, credit_limit, version FROM account WHERE id = $1 FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -60,6 +60,39 @@
       },
       {
         "ordinal": 5,
+        "name": "archived",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "account",
+            "name": "archived"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "credit_limit_commodity_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "account",
+            "name": "credit_limit_commodity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "credit_limit",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "account",
+            "name": "credit_limit"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -81,8 +114,11 @@
       false,
       false,
       false,
+      false,
+      true,
+      true,
       false
     ]
   },
-  "hash": "a8abd720af4fc9a09317e1add9a6fd2faa4f5f04754584a0ab7562447f48b650"
+  "hash": "dcabcf64156d5d2867569305990db57e52577f698dfbe3ea6a9b1bde68d3810a"
 }

@@ -40,6 +40,8 @@ pub struct Full {
     pub splits: Vec<SplitRow>,
     /// Tag names, sorted.
     pub tags: Vec<String>,
+    /// `(source, ref)` pairs, sorted.
+    pub external_refs: Vec<(String, String)>,
 }
 
 /// Optional filters for [`list`]; `None` means "any".
@@ -50,6 +52,8 @@ pub struct Filter {
     pub account: Option<Uuid>,
     pub counterparty: Option<Uuid>,
     pub category: Option<Uuid>,
+    /// `(source, ref)`: the transaction with this external reference.
+    pub external_ref: Option<(String, String)>,
 }
 
 /// Newest first: by date, then by ID. `after` is the `(date, id)` of the last
@@ -61,6 +65,7 @@ pub async fn list(
     limit: i64,
 ) -> Result<Vec<TransactionRow>, sqlx::Error> {
     let (after_date, after_id) = after.unzip();
+    let (ext_source, ext_ref) = filter.external_ref.clone().unzip();
     sqlx::query_as!(
         TransactionRow,
         r#"SELECT t.id, t.date, t.description, t.notes, t.version
@@ -74,8 +79,10 @@ pub async fn list(
                   AND $6 IN (s.from_counterparty_id, s.to_counterparty_id)))
              AND ($7::uuid IS NULL OR EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = t.id
                   AND s.category_id = $7))
+             AND ($8::text IS NULL OR EXISTS (SELECT 1 FROM transaction_external_ref e
+                  WHERE e.transaction_id = t.id AND e.source = $8 AND e.ref = $9))
            ORDER BY t.date DESC, t.id DESC
-           LIMIT $8"#,
+           LIMIT $10"#,
         after_date,
         after_id,
         filter.from,
@@ -83,6 +90,8 @@ pub async fn list(
         filter.account,
         filter.counterparty,
         filter.category,
+        ext_source,
+        ext_ref,
         limit,
     )
     .fetch_all(db)
@@ -125,6 +134,24 @@ pub async fn tags_of(
         .collect())
 }
 
+/// `(transaction id, source, ref)` for several transactions.
+pub async fn external_refs_of(
+    db: impl PgExecutor<'_>,
+    ids: &[Uuid],
+) -> Result<Vec<(Uuid, String, String)>, sqlx::Error> {
+    let rows = sqlx::query!(
+        "SELECT transaction_id, source, ref FROM transaction_external_ref
+         WHERE transaction_id = ANY($1) ORDER BY source, ref",
+        ids,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| (r.transaction_id, r.source, r.r#ref))
+        .collect())
+}
+
 /// Attaches splits and tags to transaction rows, keeping their order.
 pub async fn complete(
     db: &mut PgConnection,
@@ -133,6 +160,7 @@ pub async fn complete(
     let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
     let mut splits = splits_of(&mut *db, &ids).await?;
     let tags = tags_of(&mut *db, &ids).await?;
+    let refs = external_refs_of(&mut *db, &ids).await?;
     Ok(rows
         .into_iter()
         .map(|transaction| {
@@ -146,6 +174,11 @@ pub async fn complete(
                     .iter()
                     .filter(|(t, _)| *t == id)
                     .map(|(_, n)| n.clone())
+                    .collect(),
+                external_refs: refs
+                    .iter()
+                    .filter(|(t, _, _)| *t == id)
+                    .map(|(_, s, r)| (s.clone(), r.clone()))
                     .collect(),
             }
         })
@@ -244,6 +277,23 @@ pub async fn upsert(db: &mut PgConnection, full: &Full) -> Result<i64, sqlx::Err
             "INSERT INTO transaction_tag (transaction_id, tag_id) VALUES ($1, $2)",
             t.id,
             tag_id,
+        )
+        .execute(&mut *db)
+        .await?;
+    }
+
+    sqlx::query!(
+        "DELETE FROM transaction_external_ref WHERE transaction_id = $1",
+        t.id
+    )
+    .execute(&mut *db)
+    .await?;
+    for (source, r) in &full.external_refs {
+        sqlx::query!(
+            "INSERT INTO transaction_external_ref (transaction_id, source, ref) VALUES ($1, $2, $3)",
+            t.id,
+            source,
+            r,
         )
         .execute(&mut *db)
         .await?;
