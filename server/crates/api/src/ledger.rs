@@ -8,6 +8,7 @@ use domain::{
     CounterpartyId, Party, PartyId, PartyKind, Side, Split, SystemCounterparty,
 };
 use sqlx::PgConnection;
+use store::parties::PartyRow;
 use uuid::Uuid;
 
 use crate::problem::Problem;
@@ -70,18 +71,23 @@ pub async fn book_for(db: &mut PgConnection, splits: &[Split]) -> Result<Book, P
         book.add_commodity(c);
     }
     for r in store::parties::get_many(&mut *db, &ids(parties)).await? {
-        book.add_party(Party {
-            id: PartyId::from_uuid(r.id),
-            name: r.name,
-            kind: match r.kind.as_str() {
-                "household" => PartyKind::Household,
-                "person" => PartyKind::Person,
-                "business" => PartyKind::Business,
-                _ => return Err(Problem::internal()),
-            },
-        });
+        book.add_party(party(r)?);
     }
     Ok(book)
+}
+
+/// The domain form of a stored party.
+pub fn party(r: PartyRow) -> Result<Party, Problem> {
+    Ok(Party {
+        id: PartyId::from_uuid(r.id),
+        name: r.name,
+        kind: match r.kind.as_str() {
+            "household" => PartyKind::Household,
+            "person" => PartyKind::Person,
+            "business" => PartyKind::Business,
+            _ => return Err(Problem::internal()),
+        },
+    })
 }
 
 fn account_kind(s: &str) -> Result<AccountKind, Problem> {

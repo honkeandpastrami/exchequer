@@ -30,6 +30,8 @@ pub struct SplitRow {
     pub purpose_id: Option<Uuid>,
     pub category_id: Option<Uuid>,
     pub description: Option<String>,
+    /// First day of the month a settlement payment settles, if set by hand.
+    pub settles: Option<Date>,
 }
 
 /// A transaction with everything in it.
@@ -108,7 +110,7 @@ pub async fn splits_of(
         "SELECT transaction_id, position,
                 from_account_id, from_counterparty_id, from_commodity_id, from_quantity,
                 to_account_id, to_counterparty_id, to_commodity_id, to_quantity,
-                purpose_id, category_id, description
+                purpose_id, category_id, description, settles
          FROM split WHERE transaction_id = ANY($1) ORDER BY transaction_id, position",
         ids,
     )
@@ -236,8 +238,8 @@ pub async fn upsert(db: &mut PgConnection, full: &Full) -> Result<i64, sqlx::Err
             "INSERT INTO split (transaction_id, position,
                  from_account_id, from_counterparty_id, from_commodity_id, from_quantity,
                  to_account_id, to_counterparty_id, to_commodity_id, to_quantity,
-                 purpose_id, category_id, description)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+                 purpose_id, category_id, description, settles)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
             t.id,
             s.position,
             s.from_account_id,
@@ -251,6 +253,7 @@ pub async fn upsert(db: &mut PgConnection, full: &Full) -> Result<i64, sqlx::Err
             s.purpose_id,
             s.category_id,
             s.description,
+            s.settles,
         )
         .execute(&mut *db)
         .await?;
@@ -306,4 +309,50 @@ pub async fn delete(db: impl PgExecutor<'_>, id: Uuid) -> Result<(), sqlx::Error
         .execute(db)
         .await?;
     Ok(())
+}
+
+/// A split as the settlement needs it: with its transaction's date.
+#[derive(Debug, Clone)]
+pub struct DatedSplit {
+    pub date: Date,
+    pub split: SplitRow,
+}
+
+/// Every split that can matter to the settlement: those with a purpose, and
+/// those between two accounts (transfers, liquidations).
+pub async fn settlement_splits(db: impl PgExecutor<'_>) -> Result<Vec<DatedSplit>, sqlx::Error> {
+    let rows = sqlx::query!(
+        "SELECT t.date, s.transaction_id, s.position,
+                s.from_account_id, s.from_counterparty_id, s.from_commodity_id, s.from_quantity,
+                s.to_account_id, s.to_counterparty_id, s.to_commodity_id, s.to_quantity,
+                s.purpose_id, s.category_id, s.description, s.settles
+         FROM split s JOIN transaction t ON t.id = s.transaction_id
+         WHERE s.purpose_id IS NOT NULL
+            OR (s.from_account_id IS NOT NULL AND s.to_account_id IS NOT NULL)
+         ORDER BY t.date, s.transaction_id, s.position"
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| DatedSplit {
+            date: r.date,
+            split: SplitRow {
+                transaction_id: r.transaction_id,
+                position: r.position,
+                from_account_id: r.from_account_id,
+                from_counterparty_id: r.from_counterparty_id,
+                from_commodity_id: r.from_commodity_id,
+                from_quantity: r.from_quantity,
+                to_account_id: r.to_account_id,
+                to_counterparty_id: r.to_counterparty_id,
+                to_commodity_id: r.to_commodity_id,
+                to_quantity: r.to_quantity,
+                purpose_id: r.purpose_id,
+                category_id: r.category_id,
+                description: r.description,
+                settles: r.settles,
+            },
+        })
+        .collect())
 }

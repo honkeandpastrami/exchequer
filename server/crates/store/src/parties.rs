@@ -9,6 +9,8 @@ pub struct PartyRow {
     pub name: String,
     /// `household`, `person` or `business`.
     pub kind: String,
+    /// The household currency; only on the household.
+    pub currency_id: Option<Uuid>,
     pub version: i64,
 }
 
@@ -20,7 +22,7 @@ pub async fn list(
 ) -> Result<Vec<PartyRow>, sqlx::Error> {
     sqlx::query_as!(
         PartyRow,
-        "SELECT id, name, kind, version FROM party
+        "SELECT id, name, kind, currency_id, version FROM party
          WHERE $1::uuid IS NULL OR id > $1 ORDER BY id LIMIT $2",
         after,
         limit,
@@ -38,7 +40,7 @@ pub async fn get(
     if lock {
         sqlx::query_as!(
             PartyRow,
-            "SELECT id, name, kind, version FROM party WHERE id = $1 FOR UPDATE",
+            "SELECT id, name, kind, currency_id, version FROM party WHERE id = $1 FOR UPDATE",
             id
         )
         .fetch_optional(db)
@@ -46,7 +48,7 @@ pub async fn get(
     } else {
         sqlx::query_as!(
             PartyRow,
-            "SELECT id, name, kind, version FROM party WHERE id = $1",
+            "SELECT id, name, kind, currency_id, version FROM party WHERE id = $1",
             id
         )
         .fetch_optional(db)
@@ -63,7 +65,7 @@ pub async fn insert(
     sqlx::query_as!(
         PartyRow,
         "INSERT INTO party (id, name, kind) VALUES ($1, $2, $3)
-         RETURNING id, name, kind, version",
+         RETURNING id, name, kind, currency_id, version",
         id,
         name,
         kind,
@@ -72,17 +74,19 @@ pub async fn insert(
     .await
 }
 
-pub async fn rename(
+pub async fn update(
     db: impl PgExecutor<'_>,
     id: Uuid,
     name: &str,
+    currency_id: Option<Uuid>,
 ) -> Result<PartyRow, sqlx::Error> {
     sqlx::query_as!(
         PartyRow,
-        "UPDATE party SET name = $2, version = version + 1 WHERE id = $1
-         RETURNING id, name, kind, version",
+        "UPDATE party SET name = $2, currency_id = $3, version = version + 1 WHERE id = $1
+         RETURNING id, name, kind, currency_id, version",
         id,
         name,
+        currency_id,
     )
     .fetch_one(db)
     .await
@@ -99,8 +103,28 @@ pub async fn delete(db: impl PgExecutor<'_>, id: Uuid) -> Result<(), sqlx::Error
 pub async fn get_many(db: impl PgExecutor<'_>, ids: &[Uuid]) -> Result<Vec<PartyRow>, sqlx::Error> {
     sqlx::query_as!(
         PartyRow,
-        "SELECT id, name, kind, version FROM party WHERE id = ANY($1)",
+        "SELECT id, name, kind, currency_id, version FROM party WHERE id = ANY($1)",
         ids
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// The household, if it exists.
+pub async fn household(db: impl PgExecutor<'_>) -> Result<Option<PartyRow>, sqlx::Error> {
+    sqlx::query_as!(
+        PartyRow,
+        "SELECT id, name, kind, currency_id, version FROM party WHERE kind = 'household'"
+    )
+    .fetch_optional(db)
+    .await
+}
+
+/// Every party, in ID order.
+pub async fn all(db: impl PgExecutor<'_>) -> Result<Vec<PartyRow>, sqlx::Error> {
+    sqlx::query_as!(
+        PartyRow,
+        "SELECT id, name, kind, currency_id, version FROM party ORDER BY id"
     )
     .fetch_all(db)
     .await

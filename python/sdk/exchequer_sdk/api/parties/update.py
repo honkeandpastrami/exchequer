@@ -53,6 +53,11 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 
         return response_412
 
+    if response.status_code == 422:
+        response_422 = Problem.from_dict(response.json())
+
+        return response_422
+
     if response.status_code == 428:
         response_428 = Problem.from_dict(response.json())
 
@@ -80,7 +85,7 @@ def sync_detailed(
     body: PartyUpdate,
     if_match: str,
 ) -> Response[Party | Problem]:
-    """Rename a party.
+    """Rename a party, or set the household currency.
 
     Args:
         id (UUID):
@@ -115,7 +120,7 @@ def sync(
     body: PartyUpdate,
     if_match: str,
 ) -> Party | Problem | None:
-    """Rename a party.
+    """Rename a party, or set the household currency.
 
     Args:
         id (UUID):
@@ -145,7 +150,7 @@ async def asyncio_detailed(
     body: PartyUpdate,
     if_match: str,
 ) -> Response[Party | Problem]:
-    """Rename a party.
+    """Rename a party, or set the household currency.
 
     Args:
         id (UUID):
@@ -178,7 +183,7 @@ async def asyncio(
     body: PartyUpdate,
     if_match: str,
 ) -> Party | Problem | None:
-    """Rename a party.
+    """Rename a party, or set the household currency.
 
     Args:
         id (UUID):

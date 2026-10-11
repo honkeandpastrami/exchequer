@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT month FROM settlement\n         WHERE closed_at IS NOT NULL\n           AND month = ANY(SELECT date_trunc('month', d)::date FROM unnest($1::date[]) d)\n         ORDER BY month LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "month",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "settlement",
+            "name": "month"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "DateArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "70a9114a29831a577704dc77c6a65b626bf02bf55db240832e5dbd51ccae4f39"
+}

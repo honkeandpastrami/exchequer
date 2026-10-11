@@ -1,38 +1,38 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, kind, version FROM party WHERE id = ANY($1)",
+  "query": "SELECT month, id, closed_at, version FROM settlement WHERE month = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
-        "type_info": "Uuid",
+        "name": "month",
+        "type_info": "Date",
         "origin": {
           "Table": {
-            "table": "party",
-            "name": "id"
+            "table": "settlement",
+            "name": "month"
           }
         }
       },
       {
         "ordinal": 1,
-        "name": "name",
-        "type_info": "Text",
+        "name": "id",
+        "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "party",
-            "name": "name"
+            "table": "settlement",
+            "name": "id"
           }
         }
       },
       {
         "ordinal": 2,
-        "name": "kind",
-        "type_info": "Text",
+        "name": "closed_at",
+        "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "party",
-            "name": "kind"
+            "table": "settlement",
+            "name": "closed_at"
           }
         }
       },
@@ -42,7 +42,7 @@
         "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "party",
+            "table": "settlement",
             "name": "version"
           }
         }
@@ -50,15 +50,15 @@
     ],
     "parameters": {
       "Left": [
-        "UuidArray"
+        "Date"
       ]
     },
     "nullable": [
       false,
       false,
-      false,
+      true,
       false
     ]
   },
-  "hash": "08d2ce5f34e1a7eab6d2cb20707481c7d0ebb6053f31a844b028aefe89d7d98a"
+  "hash": "6263c3828f15d03e0f3095b09821501cb352b238bd8d7180079af4b080805eae"
 }

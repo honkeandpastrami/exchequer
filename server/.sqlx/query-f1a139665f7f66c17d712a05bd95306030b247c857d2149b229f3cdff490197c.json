@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT transaction_id, position,\n                from_account_id, from_counterparty_id, from_commodity_id, from_quantity,\n                to_account_id, to_counterparty_id, to_commodity_id, to_quantity,\n                purpose_id, category_id, description\n         FROM split WHERE transaction_id = ANY($1) ORDER BY transaction_id, position",
+  "query": "SELECT transaction_id, position,\n                from_account_id, from_counterparty_id, from_commodity_id, from_quantity,\n                to_account_id, to_counterparty_id, to_commodity_id, to_quantity,\n                purpose_id, category_id, description, settles\n         FROM split WHERE transaction_id = ANY($1) ORDER BY transaction_id, position",
   "describe": {
     "columns": [
       {
@@ -145,6 +145,17 @@
             "name": "description"
           }
         }
+      },
+      {
+        "ordinal": 13,
+        "name": "settles",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "settles"
+          }
+        }
       }
     ],
     "parameters": {
@@ -165,8 +176,9 @@
       false,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "2020de76d9e0032d449d0b8b5e742d9a3d1d496f4c459a989a7f2771486caf0e"
+  "hash": "f1a139665f7f66c17d712a05bd95306030b247c857d2149b229f3cdff490197c"
 }

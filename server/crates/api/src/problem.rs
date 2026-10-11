@@ -68,6 +68,12 @@ impl Problem {
         .detail(detail)
     }
 
+    /// A change to a closed month (design §4.4).
+    pub fn month_closed(month: domain::Month) -> Self {
+        Self::new(StatusCode::CONFLICT, "month-closed", "The month is closed")
+            .detail(format!("{month} is closed; reopen it to edit"))
+    }
+
     pub fn internal() -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,

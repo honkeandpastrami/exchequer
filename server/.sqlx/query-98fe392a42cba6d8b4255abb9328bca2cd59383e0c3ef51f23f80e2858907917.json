@@ -1,38 +1,38 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, kind, version FROM party WHERE id = $1 FOR UPDATE",
+  "query": "INSERT INTO settlement (month, id) VALUES ($1, $2)\n         ON CONFLICT (month) DO UPDATE SET version = settlement.version + 1\n         RETURNING month, id, closed_at, version",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
-        "type_info": "Uuid",
+        "name": "month",
+        "type_info": "Date",
         "origin": {
           "Table": {
-            "table": "party",
-            "name": "id"
+            "table": "settlement",
+            "name": "month"
           }
         }
       },
       {
         "ordinal": 1,
-        "name": "name",
-        "type_info": "Text",
+        "name": "id",
+        "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "party",
-            "name": "name"
+            "table": "settlement",
+            "name": "id"
           }
         }
       },
       {
         "ordinal": 2,
-        "name": "kind",
-        "type_info": "Text",
+        "name": "closed_at",
+        "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "party",
-            "name": "kind"
+            "table": "settlement",
+            "name": "closed_at"
           }
         }
       },
@@ -42,7 +42,7 @@
         "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "party",
+            "table": "settlement",
             "name": "version"
           }
         }
@@ -50,15 +50,16 @@
     ],
     "parameters": {
       "Left": [
+        "Date",
         "Uuid"
       ]
     },
     "nullable": [
       false,
       false,
-      false,
+      true,
       false
     ]
   },
-  "hash": "3ef8dc04b63e3914797ff2afd58bfa9a21a7de8029b0a0e1854b9755ce687b5b"
+  "hash": "98fe392a42cba6d8b4255abb9328bca2cd59383e0c3ef51f23f80e2858907917"
 }

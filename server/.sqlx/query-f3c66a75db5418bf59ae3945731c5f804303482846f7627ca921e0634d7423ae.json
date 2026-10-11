@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE party SET name = $2, version = version + 1 WHERE id = $1\n         RETURNING id, name, kind, version",
+  "query": "UPDATE party SET name = $2, currency_id = $3, version = version + 1 WHERE id = $1\n         RETURNING id, name, kind, currency_id, version",
   "describe": {
     "columns": [
       {
@@ -38,6 +38,17 @@
       },
       {
         "ordinal": 3,
+        "name": "currency_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "party",
+            "name": "currency_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -51,15 +62,17 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text"
+        "Text",
+        "Uuid"
       ]
     },
     "nullable": [
       false,
       false,
       false,
+      true,
       false
     ]
   },
-  "hash": "276dec38af4421c1350514009fb94da0b0c70405edec2c9f48ccb2e2d20421d8"
+  "hash": "f3c66a75db5418bf59ae3945731c5f804303482846f7627ca921e0634d7423ae"
 }

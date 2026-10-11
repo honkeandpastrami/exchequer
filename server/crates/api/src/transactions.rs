@@ -9,7 +9,7 @@ use axum::response::{IntoResponse, Response};
 use domain::transaction::TransactionError;
 use domain::{
     AccountId, Amount, Book, CategoryId, Classified, CommodityId, CounterpartyId, Leg as DomainLeg,
-    PartyId, Side, Split as DomainSplit, TransactionId,
+    Month, PartyId, Side, Split as DomainSplit, TransactionId,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
@@ -64,6 +64,10 @@ pub struct NewSplit {
     /// Only on income, expenses and liquidations.
     category_id: Option<Uuid>,
     description: Option<String>,
+    /// Settlement payments only: the month (`YYYY-MM`) this payment settles,
+    /// when not the month before it's made.
+    #[schema(value_type = Option<String>, pattern = r"^[0-9]{4}-[0-9]{2}$", example = "2026-06")]
+    settles: Option<Month>,
 }
 
 /// Derived from who is on each side; never stored or entered.
@@ -97,6 +101,9 @@ pub struct Split {
     category_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, pattern = r"^[0-9]{4}-[0-9]{2}$", example = "2026-06")]
+    settles: Option<Month>,
     /// Read-only.
     kind: Kind,
     /// Read-only: a transfer from an investment account into a liquid one.
@@ -169,7 +176,7 @@ fn domain_leg(leg: &Leg, which: &str, index: usize) -> Result<DomainLeg, Problem
     })
 }
 
-fn domain_split(s: &NewSplit, index: usize) -> Result<DomainSplit, Problem> {
+pub(crate) fn domain_split(s: &NewSplit, index: usize) -> Result<DomainSplit, Problem> {
     Ok(DomainSplit {
         from: domain_leg(&s.from, "from", index)?,
         to: domain_leg(&s.to, "to", index)?,
@@ -177,7 +184,7 @@ fn domain_split(s: &NewSplit, index: usize) -> Result<DomainSplit, Problem> {
         category: s.category_id.map(CategoryId::from_uuid),
         bill: None,
         description: s.description.clone(),
-        settles: None,
+        settles: s.settles,
     })
 }
 
@@ -196,7 +203,7 @@ fn leg_from_row(
 }
 
 /// The request form of a stored split (to re-check it with `domain`).
-fn new_split_from_row(r: &SplitRow) -> NewSplit {
+pub(crate) fn new_split_from_row(r: &SplitRow) -> NewSplit {
     NewSplit {
         from: leg_from_row(
             r.from_account_id,
@@ -213,6 +220,7 @@ fn new_split_from_row(r: &SplitRow) -> NewSplit {
         purpose_id: r.purpose_id,
         category_id: r.category_id,
         description: r.description.clone(),
+        settles: r.settles.map(Month::of),
     }
 }
 
@@ -282,6 +290,7 @@ fn output(id: Uuid, version: i64, req: NewTransaction, classified: Vec<Classifie
                 purpose_id: s.purpose_id,
                 category_id: s.category_id,
                 description: s.description,
+                settles: s.settles,
                 kind: c.kind.into(),
                 liquidation: c.liquidation,
             })
@@ -412,6 +421,7 @@ fn to_full(id: Uuid, req: &NewTransaction) -> Full {
                     purpose_id: s.purpose_id,
                     category_id: s.category_id,
                     description: s.description.clone(),
+                    settles: s.settles.map(|m| m.first_day()),
                 }
             })
             .collect(),
@@ -421,6 +431,14 @@ fn to_full(id: Uuid, req: &NewTransaction) -> Full {
             .iter()
             .map(|r| (r.source.clone(), r.reference.clone()))
             .collect(),
+    }
+}
+
+/// Refuses a change to transactions dated in a closed month (design §4.4).
+async fn check_open(db: &mut PgConnection, dates: &[Date]) -> Result<(), Problem> {
+    match store::settlements::first_closed(&mut *db, dates).await? {
+        Some(month) => Err(Problem::month_closed(Month::of(month))),
+        None => Ok(()),
     }
 }
 
@@ -515,6 +533,7 @@ async fn get(State(state): State<AppState>, Path(id): Path<Uuid>) -> Result<Resp
 #[utoipa::path(post, path = "/transactions", tag = "transactions", security(("bearer" = [])),
     request_body = NewTransaction,
     responses((status = CREATED, body = Transaction, headers(("ETag" = String), ("Location" = String))),
+              (status = CONFLICT, description = "Dated in a closed month, or a duplicate external ref", body = Problem, content_type = "application/problem+json"),
               (status = UNPROCESSABLE_ENTITY, description = "Invalid, or breaks a ledger rule", body = Problem, content_type = "application/problem+json")))]
 async fn create(
     State(state): State<AppState>,
@@ -524,6 +543,7 @@ async fn create(
     let req = normalize(req)?;
     let id = Uuid::now_v7();
     let mut tx = state.pool.begin().await?;
+    check_open(&mut tx, &[req.date]).await?;
     let classified = classify(&mut tx, &req.splits).await?;
     let version = store::transactions::upsert(&mut tx, &to_full(id, &req))
         .await
@@ -553,6 +573,7 @@ async fn create(
     request_body = NewTransaction,
     responses((status = OK, body = Transaction, headers(("ETag" = String))),
               (status = NOT_FOUND, body = Problem, content_type = "application/problem+json"),
+              (status = CONFLICT, description = "Dated in a closed month, or a duplicate external ref", body = Problem, content_type = "application/problem+json"),
               (status = PRECONDITION_FAILED, body = Problem, content_type = "application/problem+json"),
               (status = PRECONDITION_REQUIRED, body = Problem, content_type = "application/problem+json"),
               (status = UNPROCESSABLE_ENTITY, description = "Invalid, or breaks a ledger rule", body = Problem, content_type = "application/problem+json")))]
@@ -571,6 +592,7 @@ async fn replace(
     if before.transaction.version != version {
         return Err(Problem::stale());
     }
+    check_open(&mut tx, &[before.transaction.date, req.date]).await?;
     let before = from_one(&mut tx, before).await?;
     let classified = classify(&mut tx, &req.splits).await?;
     let new_version = store::transactions::upsert(&mut tx, &to_full(id, &req))
@@ -596,6 +618,7 @@ async fn replace(
     params(("id" = Uuid, Path), ("If-Match" = String, Header, description = "ETag from your last read")),
     responses((status = NO_CONTENT),
               (status = NOT_FOUND, body = Problem, content_type = "application/problem+json"),
+              (status = CONFLICT, description = "Dated in a closed month", body = Problem, content_type = "application/problem+json"),
               (status = PRECONDITION_FAILED, body = Problem, content_type = "application/problem+json")))]
 async fn delete(
     State(state): State<AppState>,
@@ -610,6 +633,7 @@ async fn delete(
     if before.transaction.version != version {
         return Err(Problem::stale());
     }
+    check_open(&mut tx, &[before.transaction.date]).await?;
     let before = from_one(&mut tx, before).await?;
     store::transactions::delete(&mut *tx, id)
         .await

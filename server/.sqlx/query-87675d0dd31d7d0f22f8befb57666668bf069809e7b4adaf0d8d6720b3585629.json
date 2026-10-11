@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM settlement_funder WHERE month = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Date"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "87675d0dd31d7d0f22f8befb57666668bf069809e7b4adaf0d8d6720b3585629"
+}

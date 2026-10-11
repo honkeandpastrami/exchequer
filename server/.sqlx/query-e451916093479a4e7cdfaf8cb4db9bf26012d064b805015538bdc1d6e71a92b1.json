@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM settlement_stipend WHERE month = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Date"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e451916093479a4e7cdfaf8cb4db9bf26012d064b805015538bdc1d6e71a92b1"
+}

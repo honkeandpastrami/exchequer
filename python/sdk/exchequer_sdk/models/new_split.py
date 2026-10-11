@@ -27,6 +27,8 @@ class NewSplit:
         description (None | str | Unset):
         purpose_id (None | Unset | UUID): Who the money was for. Only on income/expense of liquid accounts and
             on liquidations.
+        settles (None | str | Unset): Settlement payments only: the month (`YYYY-MM`) this payment settles,
+            when not the month before it's made. Example: 2026-06.
     """
 
     from_: Leg
@@ -34,6 +36,7 @@ class NewSplit:
     category_id: None | Unset | UUID = UNSET
     description: None | str | Unset = UNSET
     purpose_id: None | Unset | UUID = UNSET
+    settles: None | str | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         from_ = self.from_.to_dict()
@@ -62,6 +65,12 @@ class NewSplit:
         else:
             purpose_id = self.purpose_id
 
+        settles: None | str | Unset
+        if isinstance(self.settles, Unset):
+            settles = UNSET
+        else:
+            settles = self.settles
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -76,6 +85,8 @@ class NewSplit:
             field_dict["description"] = description
         if purpose_id is not UNSET:
             field_dict["purpose_id"] = purpose_id
+        if settles is not UNSET:
+            field_dict["settles"] = settles
 
         return field_dict
 
@@ -131,12 +142,22 @@ class NewSplit:
 
         purpose_id = _parse_purpose_id(d.pop("purpose_id", UNSET))
 
+        def _parse_settles(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        settles = _parse_settles(d.pop("settles", UNSET))
+
         new_split = cls(
             from_=from_,
             to=to,
             category_id=category_id,
             description=description,
             purpose_id=purpose_id,
+            settles=settles,
         )
 
         return new_split

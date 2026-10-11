@@ -10,10 +10,16 @@ from .commodity_update import CommodityUpdate
 from .counterparty import Counterparty
 from .created_token import CreatedToken
 from .credit_limit import CreditLimit
+from .edge import Edge
 from .external_ref import ExternalRef
+from .funder import Funder
 from .health import Health
+from .history import History
+from .in_transit import InTransit
 from .kind import Kind
 from .leg import Leg
+from .line import Line
+from .line_kind import LineKind
 from .new_account import NewAccount
 from .new_category import NewCategory
 from .new_commodity import NewCommodity
@@ -41,10 +47,16 @@ from .party import Party
 from .party_kind import PartyKind
 from .party_update import PartyUpdate
 from .problem import Problem
+from .settlement import Settlement
+from .settlement_params import SettlementParams
 from .split import Split
+from .split_pointer import SplitPointer
+from .statement import Statement
+from .stipend import Stipend
 from .tag import Tag
 from .token import Token
 from .transaction import Transaction
+from .unpriced import Unpriced
 from .version import Version
 
 __all__ = (
@@ -58,10 +70,16 @@ __all__ = (
     "Counterparty",
     "CreatedToken",
     "CreditLimit",
+    "Edge",
     "ExternalRef",
+    "Funder",
     "Health",
+    "History",
+    "InTransit",
     "Kind",
     "Leg",
+    "Line",
+    "LineKind",
     "NewAccount",
     "NewCategory",
     "NewCommodity",
@@ -89,9 +107,15 @@ __all__ = (
     "PartyKind",
     "PartyUpdate",
     "Problem",
+    "Settlement",
+    "SettlementParams",
     "Split",
+    "SplitPointer",
+    "Statement",
+    "Stipend",
     "Tag",
     "Token",
     "Transaction",
+    "Unpriced",
     "Version",
 )

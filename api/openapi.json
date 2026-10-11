@@ -1552,7 +1552,7 @@
         "tags": [
           "parties"
         ],
-        "summary": "Rename a party.",
+        "summary": "Rename a party, or set the household currency.",
         "operationId": "update",
         "parameters": [
           {
@@ -1622,8 +1622,462 @@
               }
             }
           },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "428": {
             "description": "Precondition Required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/settlements": {
+      "get": {
+        "tags": [
+          "settlements"
+        ],
+        "summary": "Statements for a range of months, without their lines: the history used\nto check migrated data (each edge's `implied_stipend`, design §4.5).",
+        "operationId": "history",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "First month, `YYYY-MM`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Last month, `YYYY-MM` (at most 120 months in all).",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/History"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No household currency yet",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/settlements/{month}": {
+      "get": {
+        "tags": [
+          "settlements"
+        ],
+        "summary": "A month's parameters (its own, or carried forward) and whether it's closed.",
+        "operationId": "get",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "path",
+            "description": "`YYYY-MM`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settlement"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "settlements"
+        ],
+        "summary": "Set a month's stipends and funders. `If-Match` is the ETag from GET\n(`\"0\"` for a month never set).",
+        "operationId": "put",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "path",
+            "description": "`YYYY-MM`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettlementParams"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settlement"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The month is closed, or no household currency yet",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Precondition Required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/settlements/{month}/close": {
+      "post": {
+        "tags": [
+          "settlements"
+        ],
+        "summary": "Close a month: edits to transactions dated in it are refused until it's\nreopened. Needs every person's stipend and every business's funder set\nfor the month itself.",
+        "operationId": "close",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "path",
+            "description": "`YYYY-MM`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settlement"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already closed, or parameters missing",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Precondition Required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/settlements/{month}/reopen": {
+      "post": {
+        "tags": [
+          "settlements"
+        ],
+        "summary": "Reopen a closed month. Always allowed (design §4.4).",
+        "operationId": "reopen",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "path",
+            "description": "`YYYY-MM`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settlement"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Not closed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Precondition Required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/settlements/{month}/statement": {
+      "get": {
+        "tags": [
+          "settlements"
+        ],
+        "summary": "The month's statement: each edge's claims, stipend, due, paid,\noutstanding and lines (design §4.3). Always computed from current data.",
+        "operationId": "statement",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "path",
+            "description": "`YYYY-MM`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Statement"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No household currency yet",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2274,6 +2728,16 @@
               }
             }
           },
+          "409": {
+            "description": "Dated in a closed month, or a duplicate external ref",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Invalid, or breaks a ledger rule",
             "content": {
@@ -2409,6 +2873,16 @@
               }
             }
           },
+          "409": {
+            "description": "Dated in a closed month, or a duplicate external ref",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "412": {
             "description": "Precondition Failed",
             "content": {
@@ -2478,6 +2952,16 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Dated in a closed month",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2813,6 +3297,77 @@
         },
         "additionalProperties": false
       },
+      "Edge": {
+        "type": "object",
+        "description": "One edge of the settlement tree (a child and its parent) for one month.\nPositive amounts go from the child to the parent.",
+        "required": [
+          "child_id",
+          "parent_id",
+          "claims",
+          "stipend",
+          "due",
+          "paid",
+          "outstanding",
+          "to_settle",
+          "implied_stipend"
+        ],
+        "properties": {
+          "child_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "claims": {
+            "type": "string",
+            "description": "Regular claims across the edge this month."
+          },
+          "due": {
+            "type": "string",
+            "description": "`claims − stipend`."
+          },
+          "implied_stipend": {
+            "type": "string",
+            "description": "`claims − paid`: the stipend that would explain the payments made."
+          },
+          "in_transit": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/InTransit"
+            }
+          },
+          "lines": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Line"
+            }
+          },
+          "outstanding": {
+            "type": "string",
+            "description": "Everything up to the end of this month, in-transit proceeds included."
+          },
+          "paid": {
+            "type": "string",
+            "description": "Regular payments that settle this month."
+          },
+          "parent_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stipend": {
+            "type": "string",
+            "description": "What the parent owes the child as stipends this month."
+          },
+          "to_settle": {
+            "type": "string",
+            "description": "`outstanding` without the proceeds still in transit: the regular\ntransfer to make (positive: the child pays)."
+          }
+        }
+      },
       "ExternalRef": {
         "type": "object",
         "description": "Where a transaction came from outside Exchequer, such as its ID in the\nsystem it was migrated from. Unique per `source`.",
@@ -2835,6 +3390,25 @@
         },
         "additionalProperties": false
       },
+      "Funder": {
+        "type": "object",
+        "description": "Who funds a business for the month: the household or a person.",
+        "required": [
+          "business_id",
+          "funder_id"
+        ],
+        "properties": {
+          "business_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "funder_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
       "Health": {
         "type": "object",
         "required": [
@@ -2846,6 +3420,67 @@
             "description": "`ok`, or `database unavailable`."
           }
         }
+      },
+      "History": {
+        "type": "object",
+        "required": [
+          "currency_id",
+          "months",
+          "unpriced"
+        ],
+        "properties": {
+          "currency_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "months": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Statement"
+            },
+            "description": "One statement per month, without lines."
+          },
+          "unpriced": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Unpriced"
+            }
+          }
+        }
+      },
+      "InTransit": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SplitPointer"
+          },
+          {
+            "type": "object",
+            "required": [
+              "date",
+              "amount"
+            ],
+            "properties": {
+              "amount": {
+                "type": "string"
+              },
+              "cleared_by": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SplitPointer",
+                    "description": "The payment that cleared it by the end of the month."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "date": {
+                "type": "string",
+                "format": "date"
+              }
+            }
+          }
+        ]
       },
       "Kind": {
         "type": "string",
@@ -2891,6 +3526,43 @@
           }
         },
         "additionalProperties": false
+      },
+      "Line": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SplitPointer"
+          },
+          {
+            "type": "object",
+            "required": [
+              "date",
+              "kind",
+              "amount"
+            ],
+            "properties": {
+              "amount": {
+                "type": "string"
+              },
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "kind": {
+                "$ref": "#/components/schemas/LineKind"
+              }
+            }
+          }
+        ],
+        "description": "An item on an edge. Positive amounts go from the child to the parent."
+      },
+      "LineKind": {
+        "type": "string",
+        "enum": [
+          "claim",
+          "in_transit",
+          "payment",
+          "clearing"
+        ]
       },
       "NewAccount": {
         "type": "object",
@@ -3026,6 +3698,15 @@
             ],
             "format": "uuid",
             "description": "Who the money was for. Only on income/expense of liquid accounts and\non liquidations."
+          },
+          "settles": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Settlement payments only: the month (`YYYY-MM`) this payment settles,\nwhen not the month before it's made.",
+            "example": "2026-06",
+            "pattern": "^[0-9]{4}-[0-9]{2}$"
           },
           "to": {
             "$ref": "#/components/schemas/Leg"
@@ -3307,6 +3988,14 @@
                 "kind"
               ],
               "properties": {
+                "currency_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid",
+                  "description": "The household currency: what settlement statements are in. Only on\nthe household."
+                },
                 "id": {
                   "type": "string",
                   "format": "uuid"
@@ -3439,6 +4128,14 @@
           "kind"
         ],
         "properties": {
+          "currency_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The household currency: what settlement statements are in. Only on\nthe household."
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -3461,12 +4158,20 @@
       },
       "PartyUpdate": {
         "type": "object",
-        "required": [
-          "name"
-        ],
         "properties": {
+          "currency_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Household only; `null` clears it."
+          },
           "name": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": false
@@ -3499,6 +4204,70 @@
             "description": "`urn:exchequer:problem:<slug>`; stable, for clients to match on."
           }
         }
+      },
+      "Settlement": {
+        "type": "object",
+        "description": "A month's parameters and state.",
+        "required": [
+          "month",
+          "closed",
+          "stipends",
+          "funders"
+        ],
+        "properties": {
+          "closed": {
+            "type": "boolean"
+          },
+          "closed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "funders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Funder"
+            }
+          },
+          "month": {
+            "type": "string",
+            "example": "2026-06"
+          },
+          "params_from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The month these parameters were set for: this one, an earlier one\nthey're carried forward from, or absent when none were ever set."
+          },
+          "stipends": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Stipend"
+            }
+          }
+        }
+      },
+      "SettlementParams": {
+        "type": "object",
+        "properties": {
+          "funders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Funder"
+            },
+            "description": "Businesses left out are funded by the household."
+          },
+          "stipends": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Stipend"
+            }
+          }
+        },
+        "additionalProperties": false
       },
       "Split": {
         "type": "object",
@@ -3540,10 +4309,99 @@
             ],
             "format": "uuid"
           },
+          "settles": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "2026-06",
+            "pattern": "^[0-9]{4}-[0-9]{2}$"
+          },
           "to": {
             "$ref": "#/components/schemas/Leg"
           }
         }
+      },
+      "SplitPointer": {
+        "type": "object",
+        "description": "One split, by its transaction and position.",
+        "required": [
+          "transaction_id",
+          "position"
+        ],
+        "properties": {
+          "position": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "transaction_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "Statement": {
+        "type": "object",
+        "description": "The statement for one month (design §4.3).",
+        "required": [
+          "month",
+          "closed",
+          "currency_id",
+          "edges",
+          "unpriced"
+        ],
+        "properties": {
+          "closed": {
+            "type": "boolean"
+          },
+          "currency_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Edge"
+            }
+          },
+          "month": {
+            "type": "string",
+            "example": "2026-06"
+          },
+          "params_from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unpriced": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Unpriced"
+            },
+            "description": "Splits left out because they have no value in the household currency."
+          }
+        }
+      },
+      "Stipend": {
+        "type": "object",
+        "description": "What the Household owes a person for the month.",
+        "required": [
+          "party_id",
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "In the household currency; zero or more.",
+            "example": "650.00"
+          },
+          "party_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
       },
       "Tag": {
         "type": "object",
@@ -3637,6 +4495,26 @@
             }
           }
         }
+      },
+      "Unpriced": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SplitPointer"
+          },
+          {
+            "type": "object",
+            "required": [
+              "date"
+            ],
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              }
+            }
+          }
+        ],
+        "description": "A split the settlement couldn't value: neither leg is in the household\ncurrency (prices come later)."
       },
       "Version": {
         "type": "object",

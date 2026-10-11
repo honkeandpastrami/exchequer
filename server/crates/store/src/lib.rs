@@ -19,6 +19,7 @@ pub mod commodities;
 pub mod counterparties;
 pub mod idempotency;
 pub mod parties;
+pub mod settlements;
 pub mod tags;
 pub mod tokens;
 pub mod transactions;

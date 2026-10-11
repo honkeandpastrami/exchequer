@@ -1,0 +1,194 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.date, s.transaction_id, s.position,\n                s.from_account_id, s.from_counterparty_id, s.from_commodity_id, s.from_quantity,\n                s.to_account_id, s.to_counterparty_id, s.to_commodity_id, s.to_quantity,\n                s.purpose_id, s.category_id, s.description, s.settles\n         FROM split s JOIN transaction t ON t.id = s.transaction_id\n         WHERE s.purpose_id IS NOT NULL\n            OR (s.from_account_id IS NOT NULL AND s.to_account_id IS NOT NULL)\n         ORDER BY t.date, s.transaction_id, s.position",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "date",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "date"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "transaction_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "transaction_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "position",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "from_account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "from_account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "from_counterparty_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "from_counterparty_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "from_commodity_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "from_commodity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "from_quantity",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "from_quantity"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "to_account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "to_account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "to_counterparty_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "to_counterparty_id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "to_commodity_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "to_commodity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "to_quantity",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "to_quantity"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "purpose_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "purpose_id"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "category_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "category_id"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "settles",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "settles"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "db20d44ab76d6b4c3564a8cd49403063e1a2a98d5597478a3bf2ba01a61f4de3"
+}
