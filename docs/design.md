@@ -498,7 +498,7 @@ Deterministic statistics over the transaction history, no AI:
 A pluggable middleware layer: every request resolves to a principal or is rejected.
 
 - **Tier 1 (first): static bearer tokens,** created by a CLI admin command and stored
-  **hashed** (`argon2`). One token per client, individually revocable. A bootstrap token
+  **hashed** (SHA-256: the secrets are 256 random bits, so a slow password hash adds cost without adding safety). One token per client, individually revocable. A bootstrap token
   comes from a podman secret (§14.1).
 - **Tier 2 (preferred): OIDC with Microsoft Entra ID** (personal Microsoft accounts). The CLI
   uses the device-code flow; the web app uses auth code + PKCE. The server validates JWTs
@@ -669,7 +669,7 @@ boundary, so each side uses the language that suits it.
 
 - **OpenAPI:** `utoipa-axum` registers each route together with its spec entry. The spec is
   committed, and CI fails on drift.
-- **Auth:** `argon2` token hashes; `jsonwebtoken` for Entra JWTs.
+- **Auth:** SHA-256 token hashes (`sha2`); `jsonwebtoken` for Entra JWTs.
 - **Database:** PostgreSQL 17 (`NUMERIC`, `pg_trgm`); `sqlx` migrations compiled into the
   binary.
 - **Container:** multi-stage build, one static binary in a minimal image.

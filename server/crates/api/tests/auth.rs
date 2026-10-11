@@ -181,7 +181,7 @@ async fn token_lifecycle(pool: PgPool) {
     assert_eq!(actions, ["create", "create", "update"]);
     let all = format!("{rows:?}");
     assert!(!all.contains(&token[37..]));
-    assert!(!all.contains("argon2"));
+    assert!(!all.contains("secret_hash"));
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]

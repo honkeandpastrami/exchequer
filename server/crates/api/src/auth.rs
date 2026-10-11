@@ -1,20 +1,24 @@
 //! Bearer-token authentication (design §10 tier 1).
 //!
 //! A token looks like `exq_<id>_<secret>`: 32 hex digits of token ID, then 64
-//! hex digits (256 bits) of random secret. The server stores only an argon2
-//! hash of the secret, finds the token by its ID, and verifies the secret.
+//! hex digits (256 bits) of random secret. The server stores only the SHA-256
+//! of the secret, finds the token by its ID, and compares hashes in constant
+//! time.
+//!
+//! SHA-256 rather than a password hash (argon2, bcrypt) on purpose: those are
+//! deliberately slow to protect *guessable* passwords. A 256-bit random secret
+//! can't be guessed, so a fast hash is just as safe, and costs microseconds
+//! per request instead of milliseconds.
 //!
 //! The bootstrap token (a podman secret) is accepted only on `/tokens`, to
 //! create the first real tokens.
 
-use argon2::Argon2;
-use argon2::password_hash::phc::PasswordHash;
-use argon2::password_hash::{PasswordHasher, PasswordVerifier};
 use axum::extract::{Request, State};
 use axum::http::header;
 use axum::middleware::Next;
 use axum::response::Response;
 use domain::TokenId;
+use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
@@ -46,22 +50,23 @@ pub struct NewToken {
     pub secret_hash: String,
 }
 
-/// Generates a token and hashes its secret. CPU-heavy: call off the async
-/// runtime (`spawn_blocking`).
+/// Generates a token and hashes its secret.
 pub fn generate() -> Result<NewToken, Problem> {
     let id = TokenId::new();
     let mut bytes = [0u8; 32];
     getrandom::fill(&mut bytes).map_err(|_| Problem::internal())?;
     let secret = hex(&bytes);
-    let secret_hash = Argon2::default()
-        .hash_password(secret.as_bytes())
-        .map_err(|_| Problem::internal())?
-        .to_string();
+    let secret_hash = hash(&secret);
     Ok(NewToken {
         id,
         token: format!("exq_{}_{secret}", id.as_uuid().simple()),
         secret_hash,
     })
+}
+
+/// Hex SHA-256 of a token secret: what the database stores.
+fn hash(secret: &str) -> String {
+    hex(&Sha256::digest(secret.as_bytes()))
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -114,17 +119,8 @@ pub async fn require(
             .await?
             .filter(|t| t.revoked_at.is_none())
             .ok_or_else(Problem::unauthorized)?;
-        let secret = secret.to_owned();
-        let valid = tokio::task::spawn_blocking(move || {
-            PasswordHash::new(&row.secret_hash).is_ok_and(|h| {
-                Argon2::default()
-                    .verify_password(secret.as_bytes(), &h)
-                    .is_ok()
-            })
-        })
-        .await
-        .map_err(|_| Problem::internal())?;
-        if !valid {
+        let valid = hash(secret).as_bytes().ct_eq(row.secret_hash.as_bytes());
+        if !bool::from(valid) {
             return Err(Problem::unauthorized());
         }
         Principal::Token(id)
@@ -143,7 +139,8 @@ mod tests {
         let t = generate().unwrap();
         let (id, secret) = parse(&t.token).unwrap();
         assert_eq!(id, t.id);
-        assert!(t.secret_hash.starts_with("$argon2id$"));
+        assert_eq!(t.secret_hash, hash(secret));
+        assert_eq!(t.secret_hash.len(), 64);
         assert!(!t.secret_hash.contains(secret));
     }
 

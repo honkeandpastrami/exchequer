@@ -98,9 +98,7 @@ async fn create(
     if name.is_empty() || name.chars().count() > 64 {
         return Err(Problem::invalid("name must be 1-64 characters"));
     }
-    let generated = tokio::task::spawn_blocking(auth::generate)
-        .await
-        .map_err(|_| Problem::internal())??;
+    let generated = auth::generate()?;
 
     let mut tx = state.pool.begin().await?;
     let row = store::tokens::insert(&mut *tx, generated.id, name, &generated.secret_hash)

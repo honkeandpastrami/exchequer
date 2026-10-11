@@ -1,4 +1,4 @@
-//! API tokens (design §10 tier 1). Only argon2 hashes of secrets are stored.
+//! API tokens (design §10 tier 1). Only SHA-256 hashes of secrets are stored.
 
 use domain::TokenId;
 use sqlx::{PgExecutor, Row};

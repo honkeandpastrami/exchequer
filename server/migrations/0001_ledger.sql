@@ -105,7 +105,7 @@ CREATE INDEX split_to_counterparty ON split (to_counterparty_id)
 CREATE INDEX split_category ON split (category_id) WHERE category_id IS NOT NULL;
 CREATE INDEX split_purpose ON split (purpose_id) WHERE purpose_id IS NOT NULL;
 
--- Bearer tokens (§10 tier 1). Only an argon2 hash of the secret is stored.
+-- Bearer tokens (§10 tier 1). Only a hash of the secret is stored.
 CREATE TABLE api_token (
     id          uuid PRIMARY KEY,
     name        text NOT NULL UNIQUE CHECK (name <> ''),
