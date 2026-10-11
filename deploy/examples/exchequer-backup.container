@@ -13,7 +13,7 @@ Secret=exchequer_db_password
 Environment=PGHOST=exchequer-db PGUSER=exchequer PGDATABASE=exchequer
 Environment=PGPASSWORD_FILE=/run/secrets/exchequer_db_password
 # Example paths: where you installed the script, and the backup drive.
-Volume=%h/.local/lib/exchequer/exchequer-backup:/usr/local/bin/exchequer-backup:ro
+Volume=%h/.local/lib/exchequer/exchequer-backup:/usr/local/bin/exchequer-backup:ro,Z
 Volume=/mnt/backup/exchequer:/backups:Z
 # Keep the newest 30 dumps.
 Exec=exchequer-backup dump /backups 30
