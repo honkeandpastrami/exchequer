@@ -1,4 +1,5 @@
-//! `exchequer-server`: runs the API, or prints its OpenAPI document.
+//! `exchequer-server`: runs the API, or prints its OpenAPI document or schema
+//! version.
 
 use std::io::IsTerminal;
 use std::process::ExitCode;
@@ -25,6 +26,9 @@ enum Command {
     Serve,
     /// Print the OpenAPI document as JSON.
     Openapi,
+    /// Print the newest schema migration this binary knows. A restore checks a
+    /// dump against it (deploy/exchequer-backup).
+    SchemaVersion,
 }
 
 #[tokio::main]
@@ -42,6 +46,10 @@ async fn main() -> ExitCode {
                     ExitCode::FAILURE
                 }
             }
+        }
+        Command::SchemaVersion => {
+            println!("{}", store::schema_version());
+            ExitCode::SUCCESS
         }
         Command::Serve => {
             tracing_subscriber::fmt()

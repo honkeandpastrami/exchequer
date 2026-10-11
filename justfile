@@ -54,6 +54,12 @@ check:
     cd server && cargo sqlx prepare --workspace --check -- --all-targets
     cd server && cargo clippy --all-targets -- -D warnings
     cd server && cargo test
+    just backup-test
+
+# Dump a scratch database with deploy/exchequer-backup and restore it into
+# another (the dev database must be up).
+backup-test:
+    PATH="{{pg_bin}}:$PATH" deploy/tests/backup.sh
 
 # Regenerate the committed OpenAPI document.
 spec:

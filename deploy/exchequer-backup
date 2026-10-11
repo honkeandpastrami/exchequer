@@ -1,0 +1,119 @@
+#!/bin/sh
+# exchequer-backup: dump and restore the Exchequer database (design §14.2).
+#
+#   exchequer-backup dump DIR [KEEP]
+#       Write DIR/exchequer-<UTC time>-v<schema>.dump (pg_dump custom format),
+#       then delete all but the newest KEEP dumps (default 30).
+#
+#   exchequer-backup restore FILE [MAX_SCHEMA]
+#       Restore FILE into an empty database. With MAX_SCHEMA (the output of
+#       `exchequer-server schema-version`), refuse a dump whose schema is newer
+#       than the server that will run on it. An older schema is fine: the server
+#       migrates it forward at startup.
+#
+# The connection comes from the standard libpq variables (PGHOST, PGPORT,
+# PGUSER, PGDATABASE). The password is read from the file named by
+# PGPASSWORD_FILE (a podman secret), never from the environment or the
+# command line. Runs in the postgres image, which has pg_dump and pg_restore.
+
+set -eu
+export LC_ALL=C
+
+die() {
+    echo "exchequer-backup: $*" >&2
+    exit 1
+}
+
+usage() {
+    die "usage: exchequer-backup dump DIR [KEEP] | restore FILE [MAX_SCHEMA]"
+}
+
+is_number() {
+    case $1 in '' | *[!0-9]*) return 1 ;; esac
+}
+
+cleanup=""
+trap 'rm -f $cleanup' EXIT
+
+[ -z "${PGPASSWORD:-}" ] || die "PGPASSWORD is set; use PGPASSWORD_FILE"
+: "${PGDATABASE:?set PGDATABASE}"
+if [ -n "${PGPASSWORD_FILE:-}" ]; then
+    # A private .pgpass, so the password never sits in the environment.
+    # Its format escapes ':' and '\'.
+    PGPASSFILE=$(mktemp)
+    cleanup="$cleanup $PGPASSFILE"
+    password=$(sed 's/[\\:]/\\&/g' "$PGPASSWORD_FILE")
+    printf '*:*:*:*:%s\n' "$password" > "$PGPASSFILE"
+    unset password
+    export PGPASSFILE
+fi
+
+schema_of_db() {
+    psql -XAtq -v ON_ERROR_STOP=1 \
+        -c "SELECT coalesce(max(version), 0) FROM _sqlx_migrations WHERE success"
+}
+
+dump() {
+    dir=$1
+    keep=${2:-30}
+    [ -d "$dir" ] || die "$dir is not a directory"
+    is_number "$keep" && [ "$keep" -ge 1 ] || die "KEEP must be a whole number, at least 1"
+
+    schema=$(schema_of_db)
+    [ "$schema" -gt 0 ] || die "$PGDATABASE has no migrations applied"
+    file=$(printf '%s/exchequer-%s-v%04d.dump' "$dir" "$(date -u +%Y%m%dT%H%M%SZ)" "$schema")
+
+    # Written under a temporary name, so a failed run never looks like a backup.
+    cleanup="$cleanup $file.partial"
+    pg_dump --format=custom --file="$file.partial"
+    mv "$file.partial" "$file"
+    echo "wrote $file"
+
+    # Names sort by time, oldest first.
+    set -- "$dir"/exchequer-*T*Z-v*.dump
+    [ -e "$1" ] || set --
+    while [ "$#" -gt "$keep" ]; do
+        rm -f -- "$1"
+        echo "removed $1"
+        shift
+    done
+}
+
+restore() {
+    file=$1
+    max=${2:-}
+    [ -f "$file" ] || die "$file not found"
+    schema=$(basename "$file" |
+        sed -n 's/^exchequer-[0-9]\{8\}T[0-9]\{6\}Z-v\([0-9]\{1,\}\)\.dump$/\1/p' |
+        sed 's/^0*//')
+    [ -n "$schema" ] ||
+        die "$file is not named like a backup (exchequer-<time>-v<schema>.dump)"
+    if [ -n "$max" ]; then
+        is_number "$max" || die "MAX_SCHEMA must be a whole number"
+        [ "$schema" -le "$max" ] ||
+            die "the dump has schema v$schema, newer than this server's v$max: restore with a newer server"
+    fi
+
+    tables=$(psql -XAtq -v ON_ERROR_STOP=1 \
+        -c "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")
+    [ "$tables" -eq 0 ] ||
+        die "$PGDATABASE is not empty: drop and recreate it first (see deploy/README.md)"
+
+    # All or nothing; objects end up owned by the restoring user.
+    pg_restore --exit-on-error --single-transaction --no-owner --no-acl \
+        --dbname="$PGDATABASE" "$file"
+
+    restored=$(schema_of_db)
+    [ "$restored" = "$schema" ] ||
+        die "restored, but the data has schema v$restored while the name says v$schema"
+    echo "restored $file (schema v$schema) into $PGDATABASE"
+}
+
+[ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage
+command=$1
+shift
+case $command in
+    dump) dump "$@" ;;
+    restore) restore "$@" ;;
+    *) usage ;;
+esac

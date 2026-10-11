@@ -1,0 +1,18 @@
+# PostgreSQL. Reachable only on the private network: no PublishPort.
+[Unit]
+Description=Exchequer database
+
+[Container]
+ContainerName=exchequer-db
+Image=docker.io/library/postgres:17
+Network=exchequer.network
+Volume=exchequer-db.volume:/var/lib/postgresql/data
+Secret=exchequer_db_password
+Environment=POSTGRES_USER=exchequer POSTGRES_DB=exchequer
+Environment=POSTGRES_PASSWORD_FILE=/run/secrets/exchequer_db_password
+HealthCmd=pg_isready -U exchequer -d exchequer
+HealthInterval=30s
+Notify=healthy
+
+[Install]
+WantedBy=default.target

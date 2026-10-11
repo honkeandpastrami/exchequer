@@ -1,0 +1,5 @@
+# Private network for the database, the API and the backup job. Containers
+# reach each other by ContainerName; nothing outside the network reaches the
+# database.
+[Network]
+NetworkName=exchequer

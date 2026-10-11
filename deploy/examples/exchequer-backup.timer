@@ -1,0 +1,12 @@
+# Runs exchequer-backup.service daily. A run missed while the machine was
+# asleep or off happens at the next boot or wake.
+[Unit]
+Description=Daily Exchequer database backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
