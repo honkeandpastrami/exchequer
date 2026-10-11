@@ -9,6 +9,8 @@ cd python
 uv run firefly-migrate plan  MAPPING   # read Firefly, print the report; writes nothing
 uv run firefly-migrate run   MAPPING   # plan, then write into an EMPTY Exchequer server
 uv run firefly-migrate check MAPPING   # compare Firefly with what Exchequer holds
+uv run firefly-migrate settle MAPPING      # the settlement pass, then the settlement check
+uv run firefly-migrate settlement MAPPING  # only the settlement check
 ```
 
 `MAPPING` is a TOML file you keep privately (never in this repo). It names:
@@ -16,13 +18,19 @@ uv run firefly-migrate check MAPPING   # compare Firefly with what Exchequer hol
 - `[firefly]` `api_base` and `token_file`, a file holding only a Firefly personal access
   token made for the migration (revoke it when done);
 - `[exchequer]` `url` and `token_file`, an Exchequer token;
-- `[scope]` the `year` to migrate and the cutoff date `through`;
+- `[scope]` the `year` to migrate, the cutoff date `through`, and `closed_through`, the
+  last month already settled in the old system;
 - `[parties]`, `[commodities]` and `[[accounts]]` (several Firefly accounts may collapse
   into one, e.g. one per security into a single brokerage);
 - `[purpose]` which Firefly budgets and tags mean which party (unlabeled splits get the
   account's owner);
 - `[counterparties]`, `[categories]` and `[tags]`: dividends from Firefly's cash account,
-  transfer-only categories to drop, encoding tags to retire.
+  transfer-only categories to drop, encoding tags to retire;
+- `[settlement]` (for `settle`): the household `currency`; `stipends.<person>` and
+  `funders.<business>`, each a table of months to values, carried forward until the next
+  month given (amounts as strings, e.g. `"2026-01" = "500.00"`); `settles`, Firefly
+  transaction IDs whose settlement payment settles a month other than the one before it
+  was made.
 
 See `tests/conftest.py` for a complete example for a fictional household.
 
@@ -33,5 +41,13 @@ amounts it rounded, conflicting purpose labels, labels it dropped (e.g. a budget
 transfer) and anything it couldn't migrate. `check` compares balances per account and
 commodity at every month end, and category totals per month.
 
-Not yet migrated (each comes with the build step that adds it): settlement links and
-closed months (step 4), import batches (step 5), rules (step 6), bills (step 9).
+`settle` works on an already migrated ledger and never reads Firefly. It sets the household
+currency, links the listed payments, sets every month's stipends and funders through
+`closed_through`, and closes those months. Run it again after changing the mapping: it
+changes only what differs, reopening a closed month just long enough. The settlement check
+then shows, per person and month, the stipend set next to the *implied* stipend (claims −
+paid, design §4.5); a closed month where they differ points to a mislabeled transaction or
+a payment linked to the wrong month.
+
+Not yet migrated (each comes with the build step that adds it): import batches (step 5),
+rules (step 6), bills (step 9).

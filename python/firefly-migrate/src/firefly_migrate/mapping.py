@@ -6,9 +6,11 @@ fixes them all.
 
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +48,24 @@ class Account:
         return self.liquid if self.liquid is not None else self.kind != "brokerage"
 
 
+MONTH = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")
+
+
+@dataclass(frozen=True)
+class Settlement:
+    """The settlement pass (design §4.3, §4.5): parameters carried forward
+    from the month they're given for, and payments that settle a month other
+    than the default (the one before they're made)."""
+
+    currency: str
+    # person -> {month "YYYY-MM": stipend}
+    stipends: dict[str, dict[str, Decimal]]
+    # business -> {month: funder}
+    funders: dict[str, dict[str, str]]
+    # Firefly transaction group ID -> month it settles
+    settles: dict[str, str]
+
+
 @dataclass(frozen=True)
 class Mapping:
     firefly_api_base: str
@@ -67,6 +87,7 @@ class Mapping:
     drop_categories: frozenset[str]
     retire_tags: frozenset[str]
     import_batch_prefix: str | None
+    settlement: Settlement | None = None
     by_firefly_id: dict[int, Account] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -117,6 +138,12 @@ def parse(raw: dict[str, Any]) -> Mapping:
         problems.append(f"scope.through ({through}) is not in scope.year ({year})")
     if through is not None and not isinstance(through, date):
         problems.append("scope.through must be a date, e.g. 2026-09-06")
+
+    closed_through = scope.get("closed_through")
+    if closed_through is not None and not (
+        isinstance(closed_through, str) and MONTH.match(closed_through)
+    ):
+        problems.append('scope.closed_through must be a month, e.g. "2026-08"')
 
     household = need(parties, "household", "parties")
     people = tuple(parties.get("people", []))
@@ -178,6 +205,13 @@ def parse(raw: dict[str, Any]) -> Mapping:
                 f"counterparties.cash_account_by_destination: {dest!r} is not an account"
             )
 
+    settlement = _settlement(raw.get("settlement"), set(people), set(businesses), household)
+    if isinstance(settlement, list):
+        problems += settlement
+        settlement = None
+    elif settlement is not None and settlement.currency not in commodities:
+        problems.append(f"settlement.currency {settlement.currency!r} is not a commodity")
+
     if problems:
         raise MappingError(problems)
 
@@ -189,7 +223,7 @@ def parse(raw: dict[str, Any]) -> Mapping:
         exchequer_token_file=Path(exchequer.get("token_file", "")),
         year=year,
         through=through,
-        closed_through=scope.get("closed_through"),
+        closed_through=closed_through,
         household=household,
         people=people,
         businesses=businesses,
@@ -201,4 +235,75 @@ def parse(raw: dict[str, Any]) -> Mapping:
         drop_categories=frozenset(raw.get("categories", {}).get("drop", [])),
         retire_tags=frozenset(raw.get("tags", {}).get("retire", [])),
         import_batch_prefix=raw.get("tags", {}).get("import_batch_prefix"),
+        settlement=settlement,
+    )
+
+
+def _settlement(
+    raw: dict[str, Any] | None, people: set[str], businesses: set[str], household: str
+) -> Settlement | list[str] | None:
+    """The `[settlement]` section, or its problems."""
+    if raw is None:
+        return None
+    problems: list[str] = []
+    currency = raw.get("currency")
+    if not isinstance(currency, str):
+        problems.append("settlement.currency is missing")
+
+    def months(table: Any, where: str) -> dict[str, Any]:
+        if not isinstance(table, dict):
+            problems.append(f"{where} must be a table of months")
+            return {}
+        for m in table:
+            if not MONTH.match(m):
+                problems.append(f"{where}: {m!r} is not a month (YYYY-MM)")
+        return dict(table)
+
+    stipends: dict[str, dict[str, Decimal]] = {}
+    for person, table in raw.get("stipends", {}).items():
+        if person not in people:
+            problems.append(f"settlement.stipends: {person!r} is not a person")
+        stipends[person] = {}
+        for m, amount in months(table, f"settlement.stipends.{person}").items():
+            # Strings only: TOML numbers with decimals are floats.
+            try:
+                value = Decimal(amount) if isinstance(amount, str) else None
+            except InvalidOperation:
+                value = None
+            if value is None or value < 0:
+                problems.append(
+                    f'settlement.stipends.{person}.{m}: give the amount as a string, e.g. "650.00"'
+                )
+                continue
+            stipends[person][m] = value
+
+    funders: dict[str, dict[str, str]] = {}
+    for business, table in raw.get("funders", {}).items():
+        if business not in businesses:
+            problems.append(f"settlement.funders: {business!r} is not a business")
+        funders[business] = months(table, f"settlement.funders.{business}")
+        for m, funder in funders[business].items():
+            if funder != household and funder not in people:
+                problems.append(
+                    f"settlement.funders.{business}.{m}: {funder!r} "
+                    "is not the household or a person"
+                )
+
+    settles = raw.get("settles", {})
+    if not isinstance(settles, dict):
+        problems.append("settlement.settles must map Firefly transaction IDs to months")
+        settles = {}
+    for ref, m in settles.items():
+        if not str(ref).isdigit():
+            problems.append(f"settlement.settles: {ref!r} is not a Firefly transaction ID")
+        if not isinstance(m, str) or not MONTH.match(m):
+            problems.append(f"settlement.settles.{ref}: {m!r} is not a month (YYYY-MM)")
+
+    if problems:
+        return problems
+    return Settlement(
+        currency=str(currency),
+        stipends=stipends,
+        funders=funders,
+        settles={str(k): str(v) for k, v in settles.items()},
     )
