@@ -11,3 +11,6 @@ pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations"
 pub fn schema_version() -> i64 {
     MIGRATOR.iter().map(|m| m.version).max().unwrap_or(0)
 }
+
+pub mod audit;
+pub mod tokens;

@@ -75,7 +75,11 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(bind = %config.bind, "listening");
-    axum::serve(listener, api::app(api::AppState { pool }))
+    let state = api::AppState {
+        pool,
+        bootstrap_token: config.bootstrap_token.map(|s| s.expose().into()),
+    };
+    axum::serve(listener, api::app(state))
         .with_graceful_shutdown(shutdown())
         .await?;
     tracing::info!("stopped");

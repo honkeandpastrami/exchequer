@@ -12,6 +12,7 @@ export PGDATABASE := "exchequer"
 export PSQL_HISTORY := pgdata / "psql_history"
 export DATABASE_URL := "postgres://exchequer@localhost/exchequer?host=" + pgdata
 
+[private]
 default:
     @just --list
 

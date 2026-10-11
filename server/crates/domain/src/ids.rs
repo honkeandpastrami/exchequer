@@ -63,6 +63,7 @@ id_type!(
     TransactionId,
     CategoryId,
     BillId,
+    TokenId,
 );
 
 #[cfg(test)]

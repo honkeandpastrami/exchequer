@@ -1,6 +1,7 @@
 //! The HTTP API (design §5). Every route is registered together with its
 //! OpenAPI entry, so the spec can't drift from the handlers.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
@@ -13,24 +14,53 @@ use tracing::Span;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 
+pub mod auth;
 mod health;
+pub mod problem;
+mod tokens;
 
 /// Shared by every handler.
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
+    /// Accepted only for managing tokens (design §10).
+    pub bootstrap_token: Option<Arc<str>>,
 }
 
 #[derive(OpenApi)]
-#[openapi(info(
+#[openapi(modifiers(&BearerAuth), info(
     title = "Exchequer",
     description = "Self-hosted household accounting. Amounts are decimal strings, never JSON numbers.",
     license(name = "BSD-2-Clause", identifier = "BSD-2-Clause"),
 ))]
 struct ApiDoc;
 
+struct BearerAuth;
+
+impl utoipa::Modify for BearerAuth {
+    fn modify(&self, doc: &mut utoipa::openapi::OpenApi) {
+        use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+        doc.components.get_or_insert_default().add_security_scheme(
+            "bearer",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .description(Some("`exq_<id>_<secret>`, from POST /api/v1/tokens"))
+                    .build(),
+            ),
+        );
+    }
+}
+
+/// Everything under `/api/v1`; all of it requires a token.
+fn v1() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new().merge(tokens::routes())
+}
+
 fn routes() -> OpenApiRouter<AppState> {
-    OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(health::routes())
+    OpenApiRouter::with_openapi(ApiDoc::openapi())
+        .merge(health::routes())
+        .nest("/api/v1", v1())
 }
 
 /// The OpenAPI document, without needing a database.
@@ -39,9 +69,23 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
     routes().split_for_parts().1
 }
 
+async fn not_found() -> problem::Problem {
+    problem::Problem::not_found()
+}
+
 /// The complete application.
 pub fn app(state: AppState) -> Router {
-    let (router, _) = routes().split_for_parts();
+    let (operations, _) = health::routes().split_for_parts();
+    let (v1, _) = v1().split_for_parts();
+    // The fallback sits inside the auth layer: unknown /api/v1 paths need a
+    // token too, so they don't reveal which routes exist.
+    let v1 = v1
+        .fallback(not_found)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::require,
+        ));
+    let router = operations.nest("/api/v1", v1).fallback(not_found);
     // Logs method, path, status and latency. Never bodies, headers or query
     // strings: they can carry household data or tokens (design §3.6).
     let request_log = TraceLayer::new_for_http()

@@ -8,10 +8,13 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 
 async fn get(pool: PgPool, path: &str) -> (StatusCode, serde_json::Value) {
-    let res = api::app(api::AppState { pool })
-        .oneshot(Request::get(path).body(Body::empty()).unwrap())
-        .await
-        .unwrap();
+    let res = api::app(api::AppState {
+        pool,
+        bootstrap_token: None,
+    })
+    .oneshot(Request::get(path).body(Body::empty()).unwrap())
+    .await
+    .unwrap();
     let status = res.status();
     let body = res.into_body().collect().await.unwrap().to_bytes();
     (status, serde_json::from_slice(&body).unwrap())
