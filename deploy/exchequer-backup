@@ -57,7 +57,9 @@ dump() {
     dir=$1
     keep=${2:-30}
     [ -d "$dir" ] || die "$dir is not a directory"
-    is_number "$keep" && [ "$keep" -ge 1 ] || die "KEEP must be a whole number, at least 1"
+    if ! is_number "$keep" || [ "$keep" -lt 1 ]; then
+        die "KEEP must be a whole number, at least 1"
+    fi
 
     schema=$(schema_of_db)
     [ "$schema" -gt 0 ] || die "$PGDATABASE has no migrations applied"
@@ -109,7 +111,9 @@ restore() {
     echo "restored $file (schema v$schema) into $PGDATABASE"
 }
 
-[ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+    usage
+fi
 command=$1
 shift
 case $command in
