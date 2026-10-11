@@ -50,3 +50,11 @@ check:
     cd server && cargo fmt --check
     cd server && cargo clippy --all-targets -- -D warnings
     cd server && cargo test
+
+# Regenerate the committed OpenAPI document.
+spec:
+    cd server && cargo run -q -p server -- openapi > ../api/openapi.json
+
+# Run the server against the dev database (just db-up first).
+serve:
+    cd server && DB_HOST="{{pgdata}}" DB_USER=exchequer DB_NAME=exchequer cargo run -p server

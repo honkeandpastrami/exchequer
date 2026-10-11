@@ -1,0 +1,97 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Exchequer",
+    "description": "Self-hosted household accounting. Amounts are decimal strings, never JSON numbers.",
+    "license": {
+      "name": "BSD-2-Clause",
+      "identifier": "BSD-2-Clause"
+    },
+    "version": "0.0.0"
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "Whether the server is up and can reach its database.",
+        "operationId": "healthz",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/version": {
+      "get": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "Server and schema versions.",
+        "operationId": "version",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Version"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Health": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "`ok`, or `database unavailable`."
+          }
+        }
+      },
+      "Version": {
+        "type": "object",
+        "required": [
+          "version",
+          "schema"
+        ],
+        "properties": {
+          "schema": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Newest schema migration built into this server. Backups record it so\na restore can check compatibility (design §14.2)."
+          },
+          "version": {
+            "type": "string",
+            "description": "Server version."
+          }
+        }
+      }
+    }
+  }
+}
