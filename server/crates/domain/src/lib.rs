@@ -8,7 +8,9 @@ pub mod amount;
 pub mod book;
 pub mod commodity;
 pub mod ids;
+pub mod month;
 pub mod party;
+pub mod settlement;
 pub mod transaction;
 
 pub use account::{Account, AccountKind, Counterparty, SystemCounterparty};
@@ -17,5 +19,6 @@ pub use amount::{Amount, NumberError, Rate};
 pub use book::Book;
 pub use commodity::{Commodity, CommodityKind};
 pub use ids::*;
+pub use month::Month;
 pub use party::{Party, PartyKind, SettlementTree};
 pub use transaction::{Classified, Kind, Leg, Lookup, Side, Split, SplitError, Transaction};

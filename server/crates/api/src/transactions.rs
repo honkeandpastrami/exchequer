@@ -177,6 +177,7 @@ fn domain_split(s: &NewSplit, index: usize) -> Result<DomainSplit, Problem> {
         category: s.category_id.map(CategoryId::from_uuid),
         bill: None,
         description: s.description.clone(),
+        settles: None,
     })
 }
 

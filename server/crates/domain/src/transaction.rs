@@ -8,6 +8,7 @@ use crate::commodity::{Commodity, CommodityError};
 use crate::ids::{
     AccountId, BillId, CategoryId, CommodityId, CounterpartyId, PartyId, TransactionId,
 };
+use crate::month::Month;
 
 /// Where one side of a split is: one of your accounts, or someone outside.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +38,9 @@ pub struct Split {
     pub category: Option<CategoryId>,
     pub bill: Option<BillId>,
     pub description: Option<String>,
+    /// For a settlement payment, the month it settles when that isn't the
+    /// default (the month before it's made; design §4.3).
+    pub settles: Option<Month>,
 }
 
 /// One real-world event.
@@ -117,6 +121,9 @@ pub enum SplitError {
     PurposeNotAllowed(Kind),
     #[error("a {0:?} can't have a category")]
     CategoryNotAllowed(Kind),
+    /// Only transfers between liquid accounts of different owners settle a month.
+    #[error("only a settlement payment can settle a month")]
+    SettlesNotAllowed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -170,6 +177,14 @@ impl Split {
         if self.category.is_some() && !(liquidation || matches!(kind, Kind::Expense | Kind::Income))
         {
             return Err(SplitError::CategoryNotAllowed(kind));
+        }
+
+        if self.settles.is_some() {
+            let payment = kind == Kind::Transfer
+                && matches!((from, to), (Some(a), Some(b)) if a.liquid && b.liquid && a.owner != b.owner);
+            if !payment {
+                return Err(SplitError::SettlesNotAllowed);
+            }
         }
 
         let implied_price = if same_commodity {

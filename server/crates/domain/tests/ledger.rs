@@ -156,6 +156,7 @@ fn conversion(from: Side, out: (CommodityId, &str), to: Side, inn: (CommodityId,
         category: None,
         bill: None,
         description: None,
+        settles: None,
     }
 }
 
