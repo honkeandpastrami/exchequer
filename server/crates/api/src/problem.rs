@@ -1,6 +1,6 @@
 //! Errors as RFC 9457 Problem Details (design §5).
 
-use axum::extract::rejection::{JsonRejection, PathRejection};
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
@@ -120,6 +120,17 @@ impl From<PathRejection> for Problem {
         Self::invalid(rejection.body_text())
     }
 }
+
+impl From<QueryRejection> for Problem {
+    fn from(rejection: QueryRejection) -> Self {
+        Self::invalid(rejection.body_text())
+    }
+}
+
+/// `Query`, with rejections reported as Problem Details.
+#[derive(axum::extract::FromRequestParts)]
+#[from_request(via(axum::extract::Query), rejection(Problem))]
+pub struct Query<T>(pub T);
 
 /// `Json`, with rejections reported as Problem Details.
 #[derive(axum::extract::FromRequest)]

@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO idempotency_key (token_id, key, request_hash, response_status, response_body)\n         VALUES ($1, $2, $3, $4, $5)\n         ON CONFLICT (token_id, key) DO UPDATE\n             SET request_hash = excluded.request_hash,\n                 response_status = excluded.response_status,\n                 response_body = excluded.response_body,\n                 created_at = now()\n             WHERE idempotency_key.created_at <= now() - make_interval(hours => $6)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Int2",
+        "Jsonb",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8b6535166d2d75647ca63a278f5fee30a3f96e6c019782e2a9b415cdf0976af7"
+}

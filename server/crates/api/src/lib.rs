@@ -15,7 +15,10 @@ use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 
 pub mod auth;
+mod common;
+pub mod conventions;
 mod health;
+mod parties;
 pub mod problem;
 mod tokens;
 
@@ -54,7 +57,9 @@ impl utoipa::Modify for BearerAuth {
 
 /// Everything under `/api/v1`; all of it requires a token.
 fn v1() -> OpenApiRouter<AppState> {
-    OpenApiRouter::new().merge(tokens::routes())
+    OpenApiRouter::new()
+        .merge(tokens::routes())
+        .merge(parties::routes())
 }
 
 fn routes() -> OpenApiRouter<AppState> {
@@ -79,8 +84,14 @@ pub fn app(state: AppState) -> Router {
     let (v1, _) = v1().split_for_parts();
     // The fallback sits inside the auth layer: unknown /api/v1 paths need a
     // token too, so they don't reveal which routes exist.
+    // Layers run outside-in in reverse order: auth first, then idempotency
+    // (which needs to know the token).
     let v1 = v1
         .fallback(not_found)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            conventions::idempotency,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth::require,

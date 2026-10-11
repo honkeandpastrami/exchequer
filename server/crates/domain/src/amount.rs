@@ -109,6 +109,31 @@ impl FromStr for Amount {
     }
 }
 
+/// JSON: always a string (`"1500.00"`), never a number (design §3.5). A JSON
+/// number is rejected, because by the time it's parsed it may already have
+/// passed through a float.
+impl serde::Serialize for Amount {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(&self.0)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Amount {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = Amount;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a decimal number as a string, e.g. \"1500.00\"")
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Amount, E> {
+                v.parse().map_err(E::custom)
+            }
+        }
+        d.deserialize_str(Visitor)
+    }
+}
+
 impl fmt::Display for Amount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
@@ -189,6 +214,21 @@ mod tests {
 
     fn a(s: &str) -> Amount {
         s.parse().unwrap()
+    }
+
+    #[test]
+    fn json_is_a_string_and_numbers_are_rejected() {
+        assert_eq!(
+            serde_json::to_string(&a("1500.00")).unwrap(),
+            r#""1500.00""#
+        );
+        assert_eq!(
+            serde_json::from_str::<Amount>(r#""-0.10""#).unwrap(),
+            a("-0.1")
+        );
+        for bad in ["1500.00", "1500", r#""1e3""#, r#""abc""#, "null"] {
+            assert!(serde_json::from_str::<Amount>(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]
