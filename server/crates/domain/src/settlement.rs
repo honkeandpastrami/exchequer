@@ -212,8 +212,8 @@ pub struct Edge {
     pub due: Amount,
     /// Regular payments that settle this month.
     pub paid: Amount,
-    /// Everything up to and including this month: claims and in-transit
-    /// proceeds, minus stipends and every payment.
+    /// Everything from the first month with parameters through this one:
+    /// claims and in-transit proceeds, minus stipends and every payment.
     pub outstanding: Amount,
     /// `outstanding` without the proceeds still in transit: the regular
     /// transfer to make.
@@ -407,10 +407,14 @@ impl Settlement {
         let tree = SettlementTree::new(&self.parties, &funders)?;
         let empty = HashMap::new();
         let this = self.totals.get(&month).unwrap_or(&empty);
+        // Settlement starts with the first month that has parameters: earlier
+        // months (e.g. before migrated history begins) aren't carried in.
+        let start = self.params.keys().next().copied().filter(|s| *s <= month);
+        let since = |m: Month| start.is_none_or(|s| m >= s);
         let mut edges = Vec::new();
         for &child in &self.children {
             let mut outstanding = Amount::ZERO;
-            for (_, totals) in self.totals.range(..=month) {
+            for (_, totals) in self.totals.range(..=month).filter(|(m, _)| since(**m)) {
                 if let Some(t) = totals.get(&child) {
                     outstanding = outstanding.checked_add(t.net()?)?;
                 }
@@ -418,7 +422,7 @@ impl Settlement {
             let mut in_transit = Vec::new();
             let mut open = Amount::ZERO;
             for (m, line, cleared_on) in self.liquidations.get(&child).into_iter().flatten() {
-                if *m > month {
+                if *m > month || !since(*m) {
                     continue;
                 }
                 let cleared_by_end = cleared_on.is_some_and(|d| d <= month.last_day());

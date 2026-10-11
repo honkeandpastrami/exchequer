@@ -580,3 +580,33 @@ fn only_payments_settle_a_month() {
         );
     }
 }
+
+#[test]
+fn settlement_starts_with_the_first_month_with_parameters() {
+    let h = H::new();
+    // Paid in January for December, whose claims were never recorded.
+    let items = h.items(&[
+        (
+            date!(2026 - 01 - 10),
+            transfer(&h, h.alex_checking, h.joint_savings, "700"),
+        ),
+        (
+            date!(2026 - 01 - 20),
+            spend(&h, h.alex_credit, "50", h.household),
+        ),
+    ]);
+    let params = BTreeMap::from([(month("2026-01"), params(&[(h.alex, "0")], &[]))]);
+    let s = Settlement::compute(&h.parties, &params, &items, month("2026-12")).unwrap();
+    let alex = |m: &str| {
+        s.statement(month(m))
+            .unwrap()
+            .edges
+            .into_iter()
+            .find(|e| e.child == h.alex)
+            .unwrap()
+    };
+    assert_eq!(alex("2026-01").outstanding, amt("-50"));
+    // December itself still shows what happened in it.
+    assert_eq!(alex("2025-12").paid, amt("700"));
+    assert_eq!(alex("2025-12").outstanding, amt("-700"));
+}
