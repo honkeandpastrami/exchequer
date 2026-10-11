@@ -1,0 +1,30 @@
+# Rust
+/server/target/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.tox/
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Web
+/web/node_modules/
+/web/.svelte-kit/
+/web/build/
+
+# OS / editors
+.DS_Store
+*~
+\#*\#
+
+# Never commit real bank files or local secrets
+*.ofx
+*.qfx
+*.qbo
+!server/fixtures/**/*.ofx
+!server/fixtures/**/*.qfx
+!server/fixtures/**/*.qbo
+.env
