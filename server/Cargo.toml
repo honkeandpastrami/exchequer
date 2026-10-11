@@ -12,3 +12,4 @@ publish = false
 [workspace.lints.clippy]
 float_arithmetic = "deny"
 float_cmp = "deny"
+disallowed_types = "deny"
