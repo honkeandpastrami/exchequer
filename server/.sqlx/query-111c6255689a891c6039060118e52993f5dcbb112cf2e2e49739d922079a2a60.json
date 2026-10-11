@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT account_id AS \"account_id!\", commodity_id AS \"commodity_id!\",\n                  sum(quantity) AS \"balance!\"\n           FROM (SELECT s.from_account_id AS account_id, s.from_commodity_id AS commodity_id,\n                        -s.from_quantity AS quantity\n                 FROM split s JOIN transaction t ON t.id = s.transaction_id\n                 WHERE t.date < $1 AND s.from_account_id IS NOT NULL\n                 UNION ALL\n                 SELECT s.to_account_id, s.to_commodity_id, s.to_quantity\n                 FROM split s JOIN transaction t ON t.id = s.transaction_id\n                 WHERE t.date < $1 AND s.to_account_id IS NOT NULL) p\n           GROUP BY account_id, commodity_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "account_id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "commodity_id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "balance!",
+        "type_info": "Numeric",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "111c6255689a891c6039060118e52993f5dcbb112cf2e2e49739d922079a2a60"
+}

@@ -25,6 +25,8 @@ mod health;
 mod ledger;
 mod parties;
 pub mod problem;
+mod query;
+mod reports;
 mod settlements;
 mod tags;
 mod tokens;
@@ -75,6 +77,8 @@ fn v1() -> OpenApiRouter<AppState> {
         .merge(tags::routes())
         .merge(transactions::routes())
         .merge(settlements::routes())
+        .merge(query::routes())
+        .merge(reports::routes())
 }
 
 fn routes() -> OpenApiRouter<AppState> {

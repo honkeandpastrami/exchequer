@@ -315,7 +315,7 @@ fn household_needed() -> Problem {
 }
 
 /// The household and its currency.
-async fn household(db: &mut PgConnection) -> Result<(PartyId, CommodityId), Problem> {
+pub(crate) async fn household(db: &mut PgConnection) -> Result<(PartyId, CommodityId), Problem> {
     let h = store::parties::household(&mut *db)
         .await?
         .ok_or_else(household_needed)?;
@@ -323,17 +323,17 @@ async fn household(db: &mut PgConnection) -> Result<(PartyId, CommodityId), Prob
     Ok((PartyId::from_uuid(h.id), CommodityId::from_uuid(currency)))
 }
 
-struct Computed {
-    currency: CommodityId,
+pub(crate) struct Computed {
+    pub(crate) currency: CommodityId,
     /// The currency's precision: every amount is shown at it.
-    scale: u32,
-    settlement: ds::Settlement,
+    pub(crate) scale: u32,
+    pub(crate) settlement: ds::Settlement,
     unpriced: Vec<(SplitRef, Date)>,
     closed: HashSet<Month>,
 }
 
 /// Every settlement item in the ledger, routed through `through`.
-async fn compute(db: &mut PgConnection, through: Month) -> Result<Computed, Problem> {
+pub(crate) async fn compute(db: &mut PgConnection, through: Month) -> Result<Computed, Problem> {
     let (household, currency) = household(db).await?;
     let scale = currency_scale(db, currency).await?;
     let parties = store::parties::all(&mut *db)
@@ -405,7 +405,7 @@ async fn currency_scale(db: &mut PgConnection, currency: CommodityId) -> Result<
 
 /// `a` at exactly `scale` decimals, never `-0`. Settlement values are sums
 /// of amounts in the currency, so this never rounds.
-fn money(a: Amount, scale: u32) -> Amount {
+pub(crate) fn money(a: Amount, scale: u32) -> Amount {
     let mut d = a.as_decimal();
     if d.is_zero() {
         d = rust_decimal::Decimal::ZERO;

@@ -1,0 +1,222 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.date, t.description AS tx_description, t.notes, s.transaction_id, s.position,\n                s.from_account_id, s.from_counterparty_id, s.from_commodity_id, s.from_quantity,\n                s.to_account_id, s.to_counterparty_id, s.to_commodity_id, s.to_quantity,\n                s.purpose_id, s.category_id, s.description, s.settles\n         FROM split s JOIN transaction t ON t.id = s.transaction_id\n         WHERE ($1::date IS NULL OR t.date >= $1)\n           AND ($2::date IS NULL OR t.date <= $2)\n           AND ($3::uuid[] IS NULL OR s.from_account_id = ANY($3) OR s.to_account_id = ANY($3))\n         ORDER BY t.date, s.transaction_id, s.position",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "date",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "date"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "tx_description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "notes",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "notes"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "transaction_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "transaction_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "position",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "from_account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "from_account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "from_counterparty_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "from_counterparty_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "from_commodity_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "from_commodity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "from_quantity",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "from_quantity"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "to_account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "to_account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "to_counterparty_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "to_counterparty_id"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "to_commodity_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "to_commodity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "to_quantity",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "to_quantity"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "purpose_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "purpose_id"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "category_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "category_id"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "settles",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "split",
+            "name": "settles"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "76113a452b263f5f00008f808882b6b674f690fe42b5939c4a9b365905988c63"
+}

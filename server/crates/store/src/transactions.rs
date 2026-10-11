@@ -356,3 +356,89 @@ pub async fn settlement_splits(db: impl PgExecutor<'_>) -> Result<Vec<DatedSplit
         })
         .collect())
 }
+
+/// A split with what the query engine filters on from its transaction.
+#[derive(Debug, Clone)]
+pub struct QuerySplit {
+    pub date: Date,
+    pub description: String,
+    pub notes: Option<String>,
+    pub split: SplitRow,
+}
+
+/// Every split dated `from` to `to` (inclusive; `None` is open-ended),
+/// optionally only those touching one of `accounts`.
+pub async fn splits_between(
+    db: impl PgExecutor<'_>,
+    from: Option<Date>,
+    to: Option<Date>,
+    accounts: Option<&[Uuid]>,
+) -> Result<Vec<QuerySplit>, sqlx::Error> {
+    let rows = sqlx::query!(
+        "SELECT t.date, t.description AS tx_description, t.notes, s.transaction_id, s.position,
+                s.from_account_id, s.from_counterparty_id, s.from_commodity_id, s.from_quantity,
+                s.to_account_id, s.to_counterparty_id, s.to_commodity_id, s.to_quantity,
+                s.purpose_id, s.category_id, s.description, s.settles
+         FROM split s JOIN transaction t ON t.id = s.transaction_id
+         WHERE ($1::date IS NULL OR t.date >= $1)
+           AND ($2::date IS NULL OR t.date <= $2)
+           AND ($3::uuid[] IS NULL OR s.from_account_id = ANY($3) OR s.to_account_id = ANY($3))
+         ORDER BY t.date, s.transaction_id, s.position",
+        from,
+        to,
+        accounts,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| QuerySplit {
+            date: r.date,
+            description: r.tx_description,
+            notes: r.notes,
+            split: SplitRow {
+                transaction_id: r.transaction_id,
+                position: r.position,
+                from_account_id: r.from_account_id,
+                from_counterparty_id: r.from_counterparty_id,
+                from_commodity_id: r.from_commodity_id,
+                from_quantity: r.from_quantity,
+                to_account_id: r.to_account_id,
+                to_counterparty_id: r.to_counterparty_id,
+                to_commodity_id: r.to_commodity_id,
+                to_quantity: r.to_quantity,
+                purpose_id: r.purpose_id,
+                category_id: r.category_id,
+                description: r.description,
+                settles: r.settles,
+            },
+        })
+        .collect())
+}
+
+/// Each account's balance per commodity from everything dated before `day`.
+pub async fn balances_before(
+    db: impl PgExecutor<'_>,
+    day: Date,
+) -> Result<Vec<(Uuid, Uuid, Decimal)>, sqlx::Error> {
+    let rows = sqlx::query!(
+        r#"SELECT account_id AS "account_id!", commodity_id AS "commodity_id!",
+                  sum(quantity) AS "balance!"
+           FROM (SELECT s.from_account_id AS account_id, s.from_commodity_id AS commodity_id,
+                        -s.from_quantity AS quantity
+                 FROM split s JOIN transaction t ON t.id = s.transaction_id
+                 WHERE t.date < $1 AND s.from_account_id IS NOT NULL
+                 UNION ALL
+                 SELECT s.to_account_id, s.to_commodity_id, s.to_quantity
+                 FROM split s JOIN transaction t ON t.id = s.transaction_id
+                 WHERE t.date < $1 AND s.to_account_id IS NOT NULL) p
+           GROUP BY account_id, commodity_id"#,
+        day,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| (r.account_id, r.commodity_id, r.balance))
+        .collect())
+}

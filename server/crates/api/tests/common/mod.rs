@@ -1,6 +1,8 @@
 //! Calls the app in-process, as a client would.
 #![allow(dead_code)] // each test file uses a different subset
 
+pub mod household;
+
 use axum::body::Body;
 use axum::http::{HeaderMap, Request, StatusCode, header};
 use http_body_util::BodyExt;

@@ -10,6 +10,7 @@ pub mod commodity;
 pub mod ids;
 pub mod month;
 pub mod party;
+pub mod report;
 pub mod settlement;
 pub mod transaction;
 

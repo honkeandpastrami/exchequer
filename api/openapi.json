@@ -1650,6 +1650,157 @@
         ]
       }
     },
+    "/api/v1/query": {
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Aggregate postings: filter × group by × bucket (design §7). Read-only,\ndespite being a POST (the filters don't fit a query string).",
+        "operationId": "query",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/reports/balances": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Each account's balance in each commodity at the end of a day.",
+        "operationId": "balances",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "description": "Balances at the end of this day.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Balances"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/reports/household-pool/{month}": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "The household pool for one month: shared income and expenses, stipends,\nbusiness funding, and the change in shared savings.",
+        "operationId": "household_pool",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "path",
+            "description": "`YYYY-MM`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HouseholdPool"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No household currency yet",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/settlements": {
       "get": {
         "tags": [
@@ -3089,6 +3240,28 @@
           }
         }
       },
+      "AccountBalance": {
+        "type": "object",
+        "required": [
+          "account_id",
+          "commodity_id",
+          "balance"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "balance": {
+            "type": "string",
+            "description": "At the commodity's precision."
+          },
+          "commodity_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "AccountKind": {
         "type": "string",
         "description": "Affects display only (sign convention, icon), never a split's kind.",
@@ -3148,6 +3321,36 @@
         },
         "additionalProperties": false
       },
+      "Balances": {
+        "type": "object",
+        "required": [
+          "date",
+          "balances"
+        ],
+        "properties": {
+          "balances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccountBalance"
+            },
+            "description": "Every account and commodity whose balance on the date isn't zero."
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "BucketName": {
+        "type": "string",
+        "enum": [
+          "day",
+          "week",
+          "month",
+          "quarter",
+          "year"
+        ]
+      },
       "Category": {
         "type": "object",
         "required": [
@@ -3161,6 +3364,24 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "CategoryAmount": {
+        "type": "object",
+        "required": [
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string"
+          },
+          "category_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -3409,6 +3630,18 @@
         },
         "additionalProperties": false
       },
+      "GroupBy": {
+        "type": "string",
+        "enum": [
+          "account",
+          "owner",
+          "purpose",
+          "category",
+          "counterparty",
+          "kind",
+          "tag"
+        ]
+      },
       "Health": {
         "type": "object",
         "required": [
@@ -3445,6 +3678,66 @@
             "items": {
               "$ref": "#/components/schemas/Unpriced"
             }
+          }
+        }
+      },
+      "HouseholdPool": {
+        "type": "object",
+        "description": "The household's month (design §4.3), in the household currency. Amounts\nin other commodities aren't included until prices exist.",
+        "required": [
+          "month",
+          "currency_id",
+          "income",
+          "liquidations",
+          "expenses",
+          "stipends",
+          "business_funding",
+          "shared_savings_change"
+        ],
+        "properties": {
+          "business_funding": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PartyAmount"
+            },
+            "description": "How much each business's net funding grew this month."
+          },
+          "currency_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expenses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoryAmount"
+            },
+            "description": "Spending for the household, by category (negative)."
+          },
+          "income": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoryAmount"
+            },
+            "description": "Income for the household, by category (positive)."
+          },
+          "liquidations": {
+            "type": "string",
+            "description": "Investment proceeds that became shared (positive)."
+          },
+          "month": {
+            "type": "string",
+            "example": "2026-06"
+          },
+          "shared_savings_change": {
+            "type": "string",
+            "description": "The change in the household's own liquid accounts over the month."
+          },
+          "stipends": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PartyAmount"
+            },
+            "description": "What the household owes each person for the month."
           }
         }
       },
@@ -3485,6 +3778,15 @@
       "Kind": {
         "type": "string",
         "description": "Derived from who is on each side; never stored or entered.",
+        "enum": [
+          "expense",
+          "income",
+          "transfer",
+          "conversion"
+        ]
+      },
+      "KindName": {
+        "type": "string",
         "enum": [
           "expense",
           "income",
@@ -3562,6 +3864,13 @@
           "in_transit",
           "payment",
           "clearing"
+        ]
+      },
+      "Measure": {
+        "type": "string",
+        "enum": [
+          "flow",
+          "balance"
         ]
       },
       "NewAccount": {
@@ -4148,6 +4457,22 @@
           }
         }
       },
+      "PartyAmount": {
+        "type": "object",
+        "required": [
+          "party_id",
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string"
+          },
+          "party_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "PartyKind": {
         "type": "string",
         "enum": [
@@ -4202,6 +4527,200 @@
           "type": {
             "type": "string",
             "description": "`urn:exchequer:problem:<slug>`; stable, for clients to match on."
+          }
+        }
+      },
+      "QueryRequest": {
+        "type": "object",
+        "description": "Filters combine with AND; the values inside one filter with OR.",
+        "properties": {
+          "account_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "bucket": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BucketName",
+                "description": "Split the range into buckets, each named by its first day."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Flow only."
+          },
+          "counterparty_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Flow only."
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "First day, inclusive. For a balance, where buckets start (default: `to`)."
+          },
+          "group_by": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupBy"
+            },
+            "description": "Rows are always per commodity too. A balance groups by `account` or\n`owner` only."
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KindName"
+            },
+            "description": "Flow only."
+          },
+          "measure": {
+            "$ref": "#/components/schemas/Measure"
+          },
+          "owner_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "purpose_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Flow only. Effective purpose, as in `group_by: purpose`."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Flow only: transactions with any of these tags."
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Flow only: case-insensitive text in the description or notes."
+          },
+          "to": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "Last day, inclusive. Required for a balance."
+          }
+        },
+        "additionalProperties": false
+      },
+      "QueryResult": {
+        "type": "object",
+        "required": [
+          "rows"
+        ],
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Row"
+            }
+          }
+        }
+      },
+      "Row": {
+        "type": "object",
+        "description": "One row. A grouped field is present (`null` for \"none\", e.g. no\ncategory); a field not grouped by is absent.",
+        "required": [
+          "commodity_id",
+          "amount"
+        ],
+        "properties": {
+          "account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string",
+            "description": "At the commodity's precision. Positive: into your accounts.",
+            "example": "-80.00"
+          },
+          "bucket": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "category_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "commodity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "counterparty_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/KindName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "owner_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "purpose_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "tag": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
