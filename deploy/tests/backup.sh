@@ -74,6 +74,7 @@ PGDATABASE=$src "$backup" dump "$work/backups" > /dev/null
 set -- "$work/backups"/*
 [ "$#" -eq 1 ] || fail "expected one dump, found: $*"
 dump=$1
+[ -n "$(find "$dump" -perm 600)" ] || fail "the dump is readable by others: $(ls -l "$dump")"
 name=$(basename "$dump")
 expected_suffix=$(printf -- '-v%04d.dump' "$latest")
 case $name in

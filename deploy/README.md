@@ -26,7 +26,7 @@ Run these as the (non-root) user that will own the service, from a clone of this
 
    ```sh
    podman --version
-   mkdir -p /mnt/backup/exchequer
+   mkdir -p -m 700 /mnt/backup/exchequer
    ```
 
 2. Create the secrets once. They never appear in a unit file, an env file or this repo.

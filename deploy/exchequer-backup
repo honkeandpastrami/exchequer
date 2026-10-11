@@ -18,6 +18,8 @@
 
 set -eu
 export LC_ALL=C
+# Dumps hold the whole ledger: readable by their owner only.
+umask 077
 
 die() {
     echo "exchequer-backup: $*" >&2
