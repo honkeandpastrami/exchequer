@@ -355,9 +355,11 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
 
 1. **Format detection and parsers.** Each format is a plugin behind one Rust trait: CSV with
    a column-alias table and per-bank profiles, OFX/QFX/QBO via `ofx-rs` (OFX 1.x SGML and 2.x
-   XML), and content sniffing for OFX content under unexpected extensions. If `ofx-rs` fails
-   on a bank's quirks, that bank gets a patch, a fork, or its own parser on
-   `sgmlish`/`quick-xml` behind the same trait. Parsers emit normalized rows (date, amount,
+   XML), and content sniffing for OFX content under unexpected extensions. `ofx-rs` 0.2.0 is
+   wrapped by a hot-patch (`import::ofx`) for three bugs: bank-specific
+   tags inside a transaction (kept as *extensions*, e.g. a merchant category code, useful
+   for classification), dropped entities like `&amp;`, and mangled non-ASCII text in
+   OFX 1.x. The patch is removed once upstream fixes them. Parsers emit normalized rows (date, amount,
    description, native ID) plus the raw row for provenance.
 2. **Account resolution.** OFX account number → configured aliases and pairs → LLM
    suggestion → ask the client.
