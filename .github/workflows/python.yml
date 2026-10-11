@@ -1,0 +1,33 @@
+# The Python workspace: lint, types, tests, licences, and the generated SDK
+# matching api/openapi.json. Runs `just python-check`, the same command used
+# locally.
+name: python
+
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - python/**
+      - api/**
+      - justfile
+      - .github/workflows/python.yml
+  pull_request:
+    paths: *paths
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - run: just python-check

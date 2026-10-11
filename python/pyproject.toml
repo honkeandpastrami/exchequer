@@ -1,0 +1,41 @@
+# uv workspace for all Python code (design §16.2): one lockfile, shared lints.
+[project]
+name = "exchequer-python"
+version = "0.0.0"
+requires-python = ">=3.13"
+dependencies = ["exchequer-sdk", "firefly-migrate"]
+
+[tool.uv.sources]
+exchequer-sdk = { workspace = true }
+firefly-migrate = { workspace = true }
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["sdk", "firefly-migrate"]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.14", "ty>=0.0.1a20"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = ["sdk"]  # generated
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "PL"]
+ignore = ["PLR0912", "PLR0913", "PLR0915", "PLR2004"]
+allowed-confusables = ["×"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["firefly_migrate", "exchequer_sdk", "tests"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.ty.src]
+exclude = ["sdk"]
+
+[tool.pytest.ini_options]
+testpaths = ["firefly-migrate/tests"]

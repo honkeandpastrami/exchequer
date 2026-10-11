@@ -7,6 +7,7 @@ pgdata := justfile_directory() / "server/.pgdata"
 # and socket. It accepts no TCP connections and runs only between db-up and
 # db-down. CI points EXCHEQUER_PGHOST at its own database instead (prefixed,
 # so a PGHOST already in your shell never redirects the dev recipes).
+sdk_generator := "0.29.1"
 export PGHOST := env("EXCHEQUER_PGHOST", pgdata)
 export PGUSER := "exchequer"
 export PGDATABASE := "exchequer"
@@ -68,6 +69,27 @@ backup-test:
 spec:
     cd server && cargo run -q -p server -- openapi > ../api/openapi.json.tmp
     mv api/openapi.json.tmp api/openapi.json
+
+# Regenerate the committed Python SDK (python/sdk) from api/openapi.json.
+sdk:
+    cd python && uvx --quiet openapi-python-client@{{sdk_generator}} generate \
+        --path ../api/openapi.json --config sdk-config.yaml --meta uv \
+        --output-path sdk --overwrite
+
+# Lint, type-check and test the Python workspace; fail if the SDK is stale.
+python-check:
+    cd python && uv sync --locked --quiet
+    cd python && uv run ruff format --check
+    cd python && uv run ruff check
+    cd python && uv run ty check
+    cd python && uv run pytest -q
+    # No GPL dependencies (design §16.4).
+    cd python && uv run --quiet --with pip-licenses pip-licenses --partial-match --fail-on GPL > /dev/null
+    # No floats near money (design §3.5): the generated SDK included.
+    ! grep -rnE --include='*.py' 'float\(|: *float\b|-> *float\b' python/sdk python/firefly-migrate
+    just sdk
+    git diff --exit-code -- python/sdk
+    test -z "$(git ls-files --others --exclude-standard -- python/sdk)"
 
 # Regenerate the committed query cache (server/.sqlx), so builds work
 # without a database. Run after changing any query or migration.

@@ -84,7 +84,42 @@ fn routes() -> OpenApiRouter<AppState> {
 /// The OpenAPI document, without needing a database.
 #[must_use]
 pub fn openapi() -> utoipa::openapi::OpenApi {
-    routes().split_for_parts().1
+    let mut doc = routes().split_for_parts().1;
+    describe_responses(&mut doc);
+    doc
+}
+
+/// OpenAPI requires a description on every response; where a handler gives
+/// none, use the status's reason phrase ("Not Found").
+fn describe_responses(doc: &mut utoipa::openapi::OpenApi) {
+    use utoipa::openapi::RefOr;
+    for item in doc.paths.paths.values_mut() {
+        let operations = [
+            &mut item.get,
+            &mut item.put,
+            &mut item.post,
+            &mut item.delete,
+            &mut item.patch,
+            &mut item.head,
+            &mut item.options,
+            &mut item.trace,
+        ];
+        for op in operations.into_iter().flatten() {
+            for (status, response) in &mut op.responses.responses {
+                if let RefOr::T(r) = response
+                    && r.description.is_empty()
+                {
+                    r.description = status
+                        .parse::<u16>()
+                        .ok()
+                        .and_then(|c| axum::http::StatusCode::from_u16(c).ok())
+                        .and_then(|c| c.canonical_reason())
+                        .unwrap_or("Response")
+                        .to_owned();
+                }
+            }
+        }
+    }
 }
 
 async fn not_found() -> problem::Problem {
