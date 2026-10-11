@@ -105,6 +105,18 @@ grep -q '12345678901234567890.12' "$work/dst.sql" || fail "decimal not restored"
 # A second restore over the restored data is refused.
 refuses "not empty" env PGDATABASE=$dst "$backup" restore "$dump" "$latest"
 
+# --replace checks the dump before dropping anything: a refusal leaves the data.
+refuses "newer than this server" env PGDATABASE=$dst "$backup" restore --replace "$dump" $((latest - 1))
+refuses "not named like a backup" env PGDATABASE=$dst "$backup" restore --replace "$work/renamed.dump"
+[ "$(psql -XAtq -d $dst -c 'SELECT count(*) FROM split')" -eq 1 ] ||
+    fail "--replace touched the database before refusing"
+
+# --replace swaps whatever is there for the dump.
+psql -XAq -v ON_ERROR_STOP=1 -d $dst -c 'DELETE FROM split'
+PGDATABASE=$dst "$backup" restore --replace "$dump" "$latest" > /dev/null
+snapshot $dst > "$work/dst.sql"
+diff -u "$work/src.sql" "$work/dst.sql" || fail "the replaced database differs"
+
 # Pruning keeps the newest KEEP dumps and leaves other files alone.
 rm "$dump"
 for t in 20260101T000000Z 20260102T000000Z 20260103T000000Z; do

@@ -5,11 +5,13 @@
 #       Write DIR/exchequer-<UTC time>-v<schema>.dump (pg_dump custom format),
 #       then delete all but the newest KEEP dumps (default 30).
 #
-#   exchequer-backup restore FILE [MAX_SCHEMA]
+#   exchequer-backup restore [--replace] FILE [MAX_SCHEMA]
 #       Restore FILE into an empty database. With MAX_SCHEMA (the output of
 #       `exchequer-server schema-version`), refuse a dump whose schema is newer
 #       than the server that will run on it. An older schema is fine: the server
-#       migrates it forward at startup.
+#       migrates it forward at startup. With --replace, drop and recreate the
+#       database first, once FILE has passed those checks; this fails while
+#       anything (the API) is still connected to it.
 #
 # The connection comes from the standard libpq variables (PGHOST, PGPORT,
 # PGUSER, PGDATABASE). The password is read from the file named by
@@ -27,7 +29,7 @@ die() {
 }
 
 usage() {
-    die "usage: exchequer-backup dump DIR [KEEP] | restore FILE [MAX_SCHEMA]"
+    die "usage: exchequer-backup dump DIR [KEEP] | restore [--replace] FILE [MAX_SCHEMA]"
 }
 
 is_number() {
@@ -56,6 +58,7 @@ schema_of_db() {
 }
 
 dump() {
+    [ "$#" -le 2 ] || usage
     dir=$1
     keep=${2:-30}
     [ -d "$dir" ] || die "$dir is not a directory"
@@ -84,6 +87,14 @@ dump() {
 }
 
 restore() {
+    replace=""
+    if [ "$1" = --replace ]; then
+        replace=1
+        shift
+    fi
+    if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+        usage
+    fi
     file=$1
     max=${2:-}
     [ -f "$file" ] || die "$file not found"
@@ -96,6 +107,13 @@ restore() {
         is_number "$max" || die "MAX_SCHEMA must be a whole number"
         [ "$schema" -le "$max" ] ||
             die "the dump has schema v$schema, newer than this server's v$max: restore with a newer server"
+    fi
+
+    if [ -n "$replace" ]; then
+        # No --force: refuse rather than cut off a running API.
+        dropdb --maintenance-db=postgres -- "$PGDATABASE"
+        createdb --maintenance-db=postgres -- "$PGDATABASE"
+        echo "replaced $PGDATABASE with an empty database"
     fi
 
     tables=$(psql -XAtq -v ON_ERROR_STOP=1 \
@@ -113,7 +131,7 @@ restore() {
     echo "restored $file (schema v$schema) into $PGDATABASE"
 }
 
-if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+if [ "$#" -lt 2 ] || [ "$#" -gt 4 ]; then
     usage
 fi
 command=$1

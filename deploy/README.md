@@ -134,43 +134,14 @@ journalctl --user -u exchequer-backup.service
 ## Restore
 
 Restoring replaces the whole database. It's a command run by hand, never an API endpoint.
-The same steps run in the test suite (`just backup-test`).
 
-1. Stop the API, so nothing writes during the restore:
+```sh
+deploy/restore /mnt/backup/exchequer/exchequer-20260101T033000Z-v0002.dump
+```
 
-   ```sh
-   systemctl --user stop exchequer-api.service
-   ```
-
-2. Check the dump isn't newer than the server image. A dump from an older schema is fine:
-   the server migrates it at startup.
-
-   ```sh
-   max=$(podman run --rm localhost/exchequer-server:latest schema-version)
-   ```
-
-3. Replace the database with an empty one (this deletes the current data):
-
-   ```sh
-   podman exec exchequer-db dropdb -U exchequer exchequer
-   podman exec exchequer-db createdb -U exchequer exchequer
-   ```
-
-4. Restore. The script refuses a non-empty database, a dump newer than `$max`, or a file
-   not named like a backup.
-
-   ```sh
-   podman run --rm --network exchequer --secret exchequer_db_password \
-       -e PGHOST=exchequer-db -e PGUSER=exchequer -e PGDATABASE=exchequer \
-       -e PGPASSWORD_FILE=/run/secrets/exchequer_db_password \
-       -v /mnt/backup/exchequer:/backups:ro,Z \
-       localhost/exchequer-backup:latest \
-       exchequer-backup restore /backups/exchequer-20260101T033000Z-v0002.dump "$max"
-   ```
-
-5. Start the API again and check it:
-
-   ```sh
-   systemctl --user start exchequer-api.service
-   curl -s http://127.0.0.1:7438/version
-   ```
+It stops the API, runs `exchequer-backup restore --replace` in the backup image, and
+starts the API again. The backup script refuses a file not named like a backup or a dump
+newer than the server image (an older one is fine: the server migrates it at startup),
+and checks both before dropping anything. It also refuses while anything is still
+connected to the database. If a step fails, the API is left stopped; fix the problem and
+run it again. The same restore runs in the test suite (`just backup-test`).

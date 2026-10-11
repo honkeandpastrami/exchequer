@@ -55,7 +55,7 @@ check:
     cd server && cargo sqlx prepare --workspace --check -- --all-targets
     cd server && cargo clippy --all-targets -- -D warnings
     cd server && cargo deny check
-    shellcheck deploy/exchequer-backup deploy/build-images deploy/tests/backup.sh
+    shellcheck deploy/exchequer-backup deploy/build-images deploy/restore deploy/tests/backup.sh
     cd server && cargo test
     just backup-test
 
