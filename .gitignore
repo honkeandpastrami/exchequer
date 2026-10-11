@@ -28,3 +28,6 @@ __pycache__/
 !server/fixtures/**/*.qfx
 !server/fixtures/**/*.qbo
 .env
+
+# Local dev database (just db-up)
+/server/.pgdata/

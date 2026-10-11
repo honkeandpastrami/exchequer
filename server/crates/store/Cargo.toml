@@ -1,0 +1,17 @@
+[package]
+name = "store"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Postgres access and schema migrations (design §15)"
+
+[lints]
+workspace = true
+
+[dependencies]
+domain = { version = "0.0.0", path = "../domain" }
+sqlx = { version = "0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "migrate", "macros", "uuid", "time", "rust_decimal", "derive"] }
+
+[dev-dependencies]
+tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread"] }
