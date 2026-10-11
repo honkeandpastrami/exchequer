@@ -1,16 +1,17 @@
 # Developer commands. `just --list` shows them all.
 
-pg_bin := "/opt/homebrew/opt/postgresql@17/bin"
+pg_bin := env("EXCHEQUER_PG_BIN", "/opt/homebrew/opt/postgresql@17/bin")
 pgdata := justfile_directory() / "server/.pgdata"
 
 # The dev database lives entirely in server/.pgdata/ (git-ignored): data, log
 # and socket. It accepts no TCP connections and runs only between db-up and
-# db-down.
-export PGHOST := pgdata
+# db-down. CI points EXCHEQUER_PGHOST at its own database instead (prefixed,
+# so a PGHOST already in your shell never redirects the dev recipes).
+export PGHOST := env("EXCHEQUER_PGHOST", pgdata)
 export PGUSER := "exchequer"
 export PGDATABASE := "exchequer"
 export PSQL_HISTORY := pgdata / "psql_history"
-export DATABASE_URL := "postgres://exchequer@localhost/exchequer?host=" + pgdata
+export DATABASE_URL := "postgres://exchequer@localhost/exchequer?host=" + PGHOST
 
 [private]
 default:
@@ -48,11 +49,13 @@ db-reset:
 psql:
     "{{pg_bin}}/psql"
 
-# Format, lint and test the server.
+# Format, lint and test everything (the dev database must be up).
 check:
     cd server && cargo fmt --check
     cd server && cargo sqlx prepare --workspace --check -- --all-targets
     cd server && cargo clippy --all-targets -- -D warnings
+    cd server && cargo deny check
+    shellcheck deploy/exchequer-backup deploy/tests/backup.sh
     cd server && cargo test
     just backup-test
 

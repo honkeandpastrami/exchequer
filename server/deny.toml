@@ -1,0 +1,41 @@
+# cargo-deny: `cargo deny check` (part of `just check`). Design §16.4: the
+# project is BSD-2-Clause, so no GPL dependencies.
+
+[graph]
+all-features = true
+
+[advisories]
+# Known vulnerabilities and unmaintained crates (RustSec) fail the check.
+# Each ignore says why it doesn't apply; remove it once the fix is upgraded in.
+ignore = [
+    # quick-xml 0.39 via ofx-rs 0.2.0 (newest). ofx-rs never calls
+    # `BytesStart::attributes()`, the affected path. Tracked in docs/build-log.md.
+    { id = "RUSTSEC-2026-0194", reason = "ofx-rs doesn't iterate attributes" },
+    # Same crate; only `NsReader` is affected, and ofx-rs uses the plain `Reader`.
+    { id = "RUSTSEC-2026-0195", reason = "ofx-rs doesn't use NsReader" },
+]
+
+[licenses]
+# Permissive licenses only. A dependency offered under a choice of licenses
+# passes when one of them is here.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+[licenses.private]
+# Our own crates aren't published; their license is the repo's.
+ignore = true
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -1,0 +1,6 @@
+# Build context for the Containerfile (podman reads this file too).
+*
+!server/
+server/target/
+server/.pgdata/
+server/.env
