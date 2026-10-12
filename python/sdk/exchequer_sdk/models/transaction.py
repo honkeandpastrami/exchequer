@@ -26,6 +26,7 @@ class Transaction:
         description (str):
         external_refs (list[ExternalRef]):
         id (UUID):
+        import_batch_id (UUID): Read-only: the import batch the transaction entered with.
         splits (list[Split]):
         tags (list[str]):
         notes (None | str | Unset):
@@ -35,6 +36,7 @@ class Transaction:
     description: str
     external_refs: list[ExternalRef]
     id: UUID
+    import_batch_id: UUID
     splits: list[Split]
     tags: list[str]
     notes: None | str | Unset = UNSET
@@ -51,6 +53,8 @@ class Transaction:
             external_refs.append(external_refs_item)
 
         id = str(self.id)
+
+        import_batch_id = str(self.import_batch_id)
 
         splits = []
         for splits_item_data in self.splits:
@@ -73,6 +77,7 @@ class Transaction:
                 "description": description,
                 "external_refs": external_refs,
                 "id": id,
+                "import_batch_id": import_batch_id,
                 "splits": splits,
                 "tags": tags,
             }
@@ -101,6 +106,8 @@ class Transaction:
 
         id = UUID(d.pop("id"))
 
+        import_batch_id = UUID(d.pop("import_batch_id"))
+
         splits = []
         _splits = d.pop("splits")
         for splits_item_data in _splits:
@@ -124,6 +131,7 @@ class Transaction:
             description=description,
             external_refs=external_refs,
             id=id,
+            import_batch_id=import_batch_id,
             splits=splits,
             tags=tags,
             notes=notes,

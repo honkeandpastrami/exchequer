@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM transaction WHERE id = $1",
+  "query": "UPDATE import_batch SET version = version + 1 WHERE id = $1",
   "describe": {
     "columns": [],
     "parameters": {
@@ -10,5 +10,5 @@
     },
     "nullable": []
   },
-  "hash": "4f4cfe78822f5fdf41fa5bbafe3ee6b41b3ba3e67d0ead6b494b699200c72094"
+  "hash": "111ce81c4f2a52399ed9e1bb8f7c810d3e37b8f5df875cddb48d746ab04b4489"
 }

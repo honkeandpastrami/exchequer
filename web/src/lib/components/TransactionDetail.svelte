@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import type { Schemas } from '../api/client';
 	import { kinds } from '../labels';
 	import type { Reference } from '../reference';
@@ -51,6 +52,11 @@
 	<p class="muted meta">
 		{#each tx.external_refs as e (e.source)}<span>{e.source} {e.ref}</span>{/each}
 		<span>id {tx.id}</span>
+		<span
+			>import batch <a href={resolve(`/transactions?import_batch_id=${tx.import_batch_id}`)}
+				>{tx.import_batch_id}</a
+			></span
+		>
 	</p>
 </div>
 
@@ -62,7 +68,8 @@
 	}
 	.meta {
 		display: flex;
-		gap: var(--space-4);
+		flex-wrap: wrap;
+		gap: var(--space-1) var(--space-4);
 		margin: var(--space-2) 0 0;
 		font-size: var(--text-xs);
 		font-family: var(--font-mono);

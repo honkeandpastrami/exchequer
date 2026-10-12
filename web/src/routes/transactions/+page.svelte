@@ -17,6 +17,7 @@
 		runningBalances,
 		size
 	} from '#lib/views/transactions.ts';
+	import { batchName } from '#lib/views/batches.ts';
 
 	const KEYS = [
 		'q',
@@ -25,7 +26,8 @@
 		'account_id',
 		'counterparty_id',
 		'category_id',
-		'tag_id'
+		'tag_id',
+		'import_batch_id'
 	] as const;
 	type Filters = Partial<Record<(typeof KEYS)[number], string>>;
 	const PAGE = 100;
@@ -37,7 +39,10 @@
 
 	function set(key: (typeof KEYS)[number], value: string) {
 		const next = withParam(query, key, value);
-		goto(resolve(`/transactions?${next}`), { replace: true, reset: false });
+		goto(resolve(next ? `/transactions?${next}` : '/transactions'), {
+			replace: true,
+			reset: false
+		});
 	}
 
 	// The search box waits for a pause in typing.
@@ -93,6 +98,20 @@
 			if (mine === generation) loading = false;
 		}
 	}
+
+	// The batch being shown, when filtering by one.
+	let batch: Schemas['ImportBatch'] | null = $state(null);
+	$effect(() => {
+		const id = filters.import_batch_id;
+		batch = null;
+		if (!id) return;
+		api
+			.GET('/api/v1/import-batches/{id}', { params: { path: { id } } })
+			.then((r) => {
+				if (filters.import_batch_id === id) batch = ok(r);
+			})
+			.catch((e) => (failure = e));
+	});
 
 	$effect(() => {
 		returnTo.transactions = `/transactions${query.size ? `?${query}` : ''}`;
@@ -181,6 +200,22 @@
 		{/if}
 	</form>
 
+	{#if filters.import_batch_id}
+		<p class="batch">
+			Import batch
+			{#if batch}
+				<strong>{batchName(batch)}</strong>
+				<span class="muted"
+					>created {batch.created_at.slice(0, 10)} · {batch.transaction_count}
+					{batch.transaction_count === 1 ? 'transaction' : 'transactions'}</span
+				>
+			{/if}
+			<button type="button" class="quiet" onclick={() => set('import_batch_id', '')}
+				>Show all</button
+			>
+		</p>
+	{/if}
+
 	<table class="list">
 		<thead>
 			<tr>
@@ -251,6 +286,12 @@
 		display: inline-block;
 		margin-top: var(--space-2);
 		font-size: var(--text-sm);
+	}
+	.batch {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--space-2) var(--space-3);
 	}
 	.filters {
 		display: flex;

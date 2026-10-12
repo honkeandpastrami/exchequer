@@ -122,6 +122,7 @@ describe('editor request', () => {
 			description: 'Euros',
 			notes: null,
 			tags: ['trip'],
+			import_batch_id: 'b',
 			external_refs: [{ source: 'bank', ref: '1' }],
 			splits: [
 				{

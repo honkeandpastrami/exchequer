@@ -17,12 +17,14 @@ from exchequer_sdk.api.categories import categories_create as create_category
 from exchequer_sdk.api.commodities import commodities_create as create_commodity
 from exchequer_sdk.api.counterparties import counterparties_create as create_counterparty
 from exchequer_sdk.api.counterparties import counterparties_list as list_counterparties
+from exchequer_sdk.api.import_batches import import_batches_create as create_import_batch
 from exchequer_sdk.api.parties import parties_create as create_party
 from exchequer_sdk.api.parties import parties_list as list_parties
 from exchequer_sdk.api.transactions import transactions_create as create_transaction
 from exchequer_sdk.api.transactions import transactions_list as list_transactions
 from exchequer_sdk.models import (
     AccountKind,
+    BatchKind,
     CommodityKind,
     CreditLimit,
     ExternalRef,
@@ -31,6 +33,7 @@ from exchequer_sdk.models import (
     NewCategory,
     NewCommodity,
     NewCounterparty,
+    NewImportBatch,
     NewParty,
     NewSplit,
     NewTransaction,
@@ -79,6 +82,8 @@ class Writer:
         self.counterparties: dict[str, UUID] = {}
         self.system: dict[str, UUID] = {}
         self.categories: dict[str, UUID] = {}
+        # Import batch per label: Firefly's import tags, and one for the rest.
+        self.batches: dict[str, UUID] = {}
 
     def write(self, plan: Plan, progress: Callable[[int, int], None] | None = None) -> None:
         if not _is_empty(self.client):
@@ -151,6 +156,14 @@ class Writer:
             out.counterparty_id = self.system[leg.system]
         return out
 
+    def _batch(self, label: str) -> UUID:
+        if label not in self.batches:
+            r = create_import_batch.sync_detailed(
+                client=self.client, body=NewImportBatch(kind=BatchKind.MIGRATION, label=label)
+            )
+            self.batches[label] = _created(r, f"import batch {label!r}")
+        return self.batches[label]
+
     def _transaction(self, t: PlanTransaction) -> None:
         splits = [
             NewSplit(
@@ -171,6 +184,7 @@ class Writer:
             external_refs=(
                 [ExternalRef(source=FIREFLY, ref=t.firefly_id)] if t.firefly_id else UNSET
             ),
+            import_batch_id=self._batch(t.import_batch or f"Migrated from {FIREFLY}"),
         )
         r = create_transaction.sync_detailed(client=self.client, body=body)
         where = f"Firefly transaction {t.firefly_id}" if t.firefly_id else t.description

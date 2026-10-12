@@ -46,6 +46,7 @@ const tx = (splits: Schemas['Split'][]): Schemas['Transaction'] => ({
 	date: '2026-03-01',
 	description: 'x',
 	tags: [],
+	import_batch_id: 'b',
 	external_refs: [],
 	splits
 });

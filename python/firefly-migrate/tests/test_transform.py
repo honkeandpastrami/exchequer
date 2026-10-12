@@ -46,9 +46,10 @@ def test_conflicting_labels_use_the_budget_and_are_reported(m):
     assert ids == ["10"]
 
 
-def test_retired_and_import_tags_are_not_carried(m):
+def test_retired_tags_are_dropped_and_import_tags_become_batches(m):
     j = journal(2, "Expense:Grocer", "1", tags=["Shared", "batch 2026-01-01", "Trip"])
-    assert only(plan(m, group(10, "2026-03-01", j))).tags == ["Trip"]
+    t = only(plan(m, group(10, "2026-03-01", j)))
+    assert (t.tags, t.import_batch) == (["Trip"], "batch 2026-01-01")
 
 
 def test_brokerage_accounts_collapse_and_a_sale_is_a_conversion(m):

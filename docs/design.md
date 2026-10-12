@@ -387,7 +387,9 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    can finish in another. Rows are `new`, `duplicate`, `near-duplicate`, `transfer-match` or
    `needs-account`.
 7. **Commit** is all or nothing. Each transaction keeps its `import_batch_id`, so undoing a
-   batch is one call. Uploaded files aren't kept; only each row's parsed raw form is.
+   batch is one call. Every transaction has one and edits never change it: a migration is a
+   batch, and a transaction entered by hand is a batch of its own. Uploaded files aren't
+   kept; only each row's parsed raw form is.
 8. **Balance check.** An OFX `LEDGERBAL` is recorded as a balance check, and a mismatch is
    shown after commit (§7.1).
 

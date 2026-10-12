@@ -13,6 +13,8 @@ pub struct TransactionRow {
     pub description: String,
     pub notes: Option<String>,
     pub version: i64,
+    /// Set when the transaction is created, never changed.
+    pub import_batch_id: Uuid,
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +62,7 @@ pub struct Filter {
     pub text: Option<String>,
     /// `(source, ref)`: the transaction with this external reference.
     pub external_ref: Option<(String, String)>,
+    pub import_batch: Option<Uuid>,
 }
 
 /// `text` as an `ILIKE` pattern matching it anywhere, wildcards escaped.
@@ -84,7 +87,7 @@ pub async fn list(
     let pattern = filter.text.as_deref().map(contains_pattern);
     sqlx::query_as!(
         TransactionRow,
-        r#"SELECT t.id, t.date, t.description, t.notes, t.version
+        r#"SELECT t.id, t.date, t.description, t.notes, t.version, t.import_batch_id
            FROM transaction t
            WHERE ($1::date IS NULL OR (t.date, t.id) < ($1, $2::uuid))
              AND ($3::date IS NULL OR t.date >= $3)
@@ -102,6 +105,7 @@ pub async fn list(
              AND ($12::text IS NULL OR t.description ILIKE $12 OR t.notes ILIKE $12
                   OR EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = t.id
                              AND s.description ILIKE $12))
+             AND ($13::uuid IS NULL OR t.import_batch_id = $13)
            ORDER BY t.date DESC, t.id DESC
            LIMIT $10"#,
         after_date,
@@ -116,6 +120,7 @@ pub async fn list(
         limit,
         filter.tag,
         pattern,
+        filter.import_batch,
     )
     .fetch_all(db)
     .await
@@ -214,7 +219,8 @@ pub async fn get(db: &mut PgConnection, id: Uuid, lock: bool) -> Result<Option<F
     let row = if lock {
         sqlx::query_as!(
             TransactionRow,
-            "SELECT id, date, description, notes, version FROM transaction WHERE id = $1 FOR UPDATE",
+            "SELECT id, date, description, notes, version, import_batch_id
+             FROM transaction WHERE id = $1 FOR UPDATE",
             id
         )
         .fetch_optional(&mut *db)
@@ -222,7 +228,8 @@ pub async fn get(db: &mut PgConnection, id: Uuid, lock: bool) -> Result<Option<F
     } else {
         sqlx::query_as!(
             TransactionRow,
-            "SELECT id, date, description, notes, version FROM transaction WHERE id = $1",
+            "SELECT id, date, description, notes, version, import_batch_id
+             FROM transaction WHERE id = $1",
             id
         )
         .fetch_optional(&mut *db)
@@ -235,11 +242,12 @@ pub async fn get(db: &mut PgConnection, id: Uuid, lock: bool) -> Result<Option<F
 }
 
 /// Inserts a new transaction, or replaces every part of an existing one
-/// (bumping its version). Returns the stored version.
+/// (bumping its version) except its import batch. Returns the stored version.
 pub async fn upsert(db: &mut PgConnection, full: &Full) -> Result<i64, sqlx::Error> {
     let t = &full.transaction;
     let version = sqlx::query_scalar!(
-        "INSERT INTO transaction (id, date, description, notes) VALUES ($1, $2, $3, $4)
+        "INSERT INTO transaction (id, date, description, notes, import_batch_id)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (id) DO UPDATE SET date = $2, description = $3, notes = $4,
              version = transaction.version + 1, updated_at = now()
          RETURNING version",
@@ -247,9 +255,11 @@ pub async fn upsert(db: &mut PgConnection, full: &Full) -> Result<i64, sqlx::Err
         t.date,
         t.description,
         t.notes,
+        t.import_batch_id,
     )
     .fetch_one(&mut *db)
     .await?;
+    crate::import_batches::touch(&mut *db, t.import_batch_id).await?;
 
     sqlx::query!("DELETE FROM split WHERE transaction_id = $1", t.id)
         .execute(&mut *db)
@@ -325,10 +335,16 @@ pub async fn upsert(db: &mut PgConnection, full: &Full) -> Result<i64, sqlx::Err
     Ok(version)
 }
 
-pub async fn delete(db: impl PgExecutor<'_>, id: Uuid) -> Result<(), sqlx::Error> {
-    sqlx::query!("DELETE FROM transaction WHERE id = $1", id)
-        .execute(db)
-        .await?;
+pub async fn delete(db: &mut PgConnection, id: Uuid) -> Result<(), sqlx::Error> {
+    let batch = sqlx::query_scalar!(
+        "DELETE FROM transaction WHERE id = $1 RETURNING import_batch_id",
+        id
+    )
+    .fetch_optional(&mut *db)
+    .await?;
+    if let Some(batch) = batch {
+        crate::import_batches::touch(&mut *db, batch).await?;
+    }
     Ok(())
 }
 

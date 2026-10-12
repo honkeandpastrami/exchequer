@@ -22,6 +22,7 @@ def _get_kwargs(
     q: str | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
+    import_batch_id: UUID | Unset = UNSET,
     limit: int | Unset = UNSET,
     cursor: str | Unset = UNSET,
 ) -> dict[str, Any]:
@@ -63,6 +64,11 @@ def _get_kwargs(
     params["external_source"] = external_source
 
     params["external_ref"] = external_ref
+
+    json_import_batch_id: str | Unset = UNSET
+    if not isinstance(import_batch_id, Unset):
+        json_import_batch_id = str(import_batch_id)
+    params["import_batch_id"] = json_import_batch_id
 
     params["limit"] = limit
 
@@ -112,6 +118,7 @@ def sync_detailed(
     q: str | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
+    import_batch_id: UUID | Unset = UNSET,
     limit: int | Unset = UNSET,
     cursor: str | Unset = UNSET,
 ) -> Response[PageTransaction]:
@@ -127,6 +134,7 @@ def sync_detailed(
         q (str | Unset):
         external_source (str | Unset):
         external_ref (str | Unset):
+        import_batch_id (UUID | Unset):
         limit (int | Unset):
         cursor (str | Unset):
 
@@ -148,6 +156,7 @@ def sync_detailed(
         q=q,
         external_source=external_source,
         external_ref=external_ref,
+        import_batch_id=import_batch_id,
         limit=limit,
         cursor=cursor,
     )
@@ -171,6 +180,7 @@ def sync(
     q: str | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
+    import_batch_id: UUID | Unset = UNSET,
     limit: int | Unset = UNSET,
     cursor: str | Unset = UNSET,
 ) -> PageTransaction | None:
@@ -186,6 +196,7 @@ def sync(
         q (str | Unset):
         external_source (str | Unset):
         external_ref (str | Unset):
+        import_batch_id (UUID | Unset):
         limit (int | Unset):
         cursor (str | Unset):
 
@@ -208,6 +219,7 @@ def sync(
         q=q,
         external_source=external_source,
         external_ref=external_ref,
+        import_batch_id=import_batch_id,
         limit=limit,
         cursor=cursor,
     ).parsed
@@ -225,6 +237,7 @@ async def asyncio_detailed(
     q: str | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
+    import_batch_id: UUID | Unset = UNSET,
     limit: int | Unset = UNSET,
     cursor: str | Unset = UNSET,
 ) -> Response[PageTransaction]:
@@ -240,6 +253,7 @@ async def asyncio_detailed(
         q (str | Unset):
         external_source (str | Unset):
         external_ref (str | Unset):
+        import_batch_id (UUID | Unset):
         limit (int | Unset):
         cursor (str | Unset):
 
@@ -261,6 +275,7 @@ async def asyncio_detailed(
         q=q,
         external_source=external_source,
         external_ref=external_ref,
+        import_batch_id=import_batch_id,
         limit=limit,
         cursor=cursor,
     )
@@ -282,6 +297,7 @@ async def asyncio(
     q: str | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
+    import_batch_id: UUID | Unset = UNSET,
     limit: int | Unset = UNSET,
     cursor: str | Unset = UNSET,
 ) -> PageTransaction | None:
@@ -297,6 +313,7 @@ async def asyncio(
         q (str | Unset):
         external_source (str | Unset):
         external_ref (str | Unset):
+        import_batch_id (UUID | Unset):
         limit (int | Unset):
         cursor (str | Unset):
 
@@ -320,6 +337,7 @@ async def asyncio(
             q=q,
             external_source=external_source,
             external_ref=external_ref,
+            import_batch_id=import_batch_id,
             limit=limit,
             cursor=cursor,
         )

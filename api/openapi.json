@@ -1557,6 +1557,240 @@
         ]
       }
     },
+    "/api/v1/import-batches": {
+      "get": {
+        "tags": [
+          "import-batches"
+        ],
+        "summary": "List import batches, newest first.",
+        "operationId": "import_batches_list",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Only batches of this kind.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/BatchKind"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Items per page (default 100, max 500).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "`next_cursor` from the previous page. Opaque.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ImportBatch"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "import-batches"
+        ],
+        "summary": "Start a migration batch; transactions join it by naming it when they're\ncreated.",
+        "operationId": "import_batches_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewImportBatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportBatch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/import-batches/{id}": {
+      "get": {
+        "tags": [
+          "import-batches"
+        ],
+        "summary": "Get one import batch.",
+        "operationId": "import_batches_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportBatch"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "import-batches"
+        ],
+        "summary": "Undo a batch: delete every transaction in it, and the batch. All or\nnothing; refused if any of them is dated in a closed month.",
+        "operationId": "import_batches_undo",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A transaction is dated in a closed month",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/parties": {
       "get": {
         "tags": [
@@ -3064,6 +3298,16 @@
             }
           },
           {
+            "name": "import_batch_id",
+            "in": "query",
+            "description": "Only transactions in this import batch.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "description": "Items per page (default 100, max 500).",
@@ -3685,6 +3929,14 @@
           }
         }
       },
+      "BatchKind": {
+        "type": "string",
+        "enum": [
+          "manual",
+          "migration",
+          "file"
+        ]
+      },
       "BucketName": {
         "type": "string",
         "enum": [
@@ -4139,6 +4391,39 @@
           }
         }
       },
+      "ImportBatch": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "created_at",
+          "transaction_count"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/BatchKind"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "transaction_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many transactions are in it now."
+          }
+        }
+      },
       "InTransit": {
         "allOf": [
           {
@@ -4393,6 +4678,26 @@
         },
         "additionalProperties": false
       },
+      "NewImportBatch": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/BatchKind",
+            "description": "Only `migration`: manual batches come with each new transaction, and\nfile batches from committing an import."
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "1-200 characters, e.g. where the transactions came from."
+          }
+        },
+        "additionalProperties": false
+      },
       "NewParty": {
         "type": "object",
         "required": [
@@ -4501,6 +4806,14 @@
             "items": {
               "$ref": "#/components/schemas/ExternalRef"
             }
+          },
+          "import_batch_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "On create: a migration batch to add the transaction to (see\n`POST /import-batches`); omitted, the transaction gets a batch of its\nown. On replace: omitted or unchanged, since a transaction never\nleaves the batch it entered with."
           },
           "notes": {
             "type": [
@@ -4814,6 +5127,58 @@
           }
         }
       },
+      "Page_ImportBatch": {
+        "type": "object",
+        "description": "One page of results.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "kind",
+                "created_at",
+                "transaction_count"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "$ref": "#/components/schemas/BatchKind"
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "transaction_count": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "How many transactions are in it now."
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` to get the next page; absent on the last page."
+          }
+        }
+      },
       "Page_Party": {
         "type": "object",
         "description": "One page of results.",
@@ -4905,6 +5270,7 @@
                 "description",
                 "tags",
                 "external_refs",
+                "import_batch_id",
                 "splits"
               ],
               "properties": {
@@ -4924,6 +5290,11 @@
                 "id": {
                   "type": "string",
                   "format": "uuid"
+                },
+                "import_batch_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Read-only: the import batch the transaction entered with."
                 },
                 "notes": {
                   "type": [
@@ -5485,6 +5856,7 @@
           "description",
           "tags",
           "external_refs",
+          "import_batch_id",
           "splits"
         ],
         "properties": {
@@ -5504,6 +5876,11 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "import_batch_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Read-only: the import batch the transaction entered with."
           },
           "notes": {
             "type": [

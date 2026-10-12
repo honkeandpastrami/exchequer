@@ -30,7 +30,10 @@
 	function set(changes: Record<string, string>) {
 		let q = query;
 		for (const [k, v] of Object.entries(changes)) q = new URLSearchParams(withParam(q, k, v));
-		goto(resolve(`/reports/balances?${q}`), { replace: true, reset: false });
+		goto(resolve(q.size ? `/reports/balances?${q}` : '/reports/balances'), {
+			replace: true,
+			reset: false
+		});
 	}
 
 	async function load(

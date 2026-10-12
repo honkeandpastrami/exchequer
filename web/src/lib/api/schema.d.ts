@@ -191,6 +191,48 @@ export interface paths {
 		patch: operations['counterparties_update'];
 		trace?: never;
 	};
+	'/api/v1/import-batches': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** List import batches, newest first. */
+		get: operations['import_batches_list'];
+		put?: never;
+		/**
+		 * Start a migration batch; transactions join it by naming it when they're
+		 *     created.
+		 */
+		post: operations['import_batches_create'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/import-batches/{id}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Get one import batch. */
+		get: operations['import_batches_get'];
+		put?: never;
+		post?: never;
+		/**
+		 * Undo a batch: delete every transaction in it, and the batch. All or
+		 *     nothing; refused if any of them is dated in a closed month.
+		 */
+		delete: operations['import_batches_undo'];
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/parties': {
 		parameters: {
 			query?: never;
@@ -614,6 +656,8 @@ export interface components {
 			date: string;
 		};
 		/** @enum {string} */
+		BatchKind: 'manual' | 'migration' | 'file';
+		/** @enum {string} */
 		BucketName: 'day' | 'week' | 'month' | 'quarter' | 'year';
 		/** @description A possible explanation for the difference, most likely first. */
 		Candidate: {
@@ -785,6 +829,19 @@ export interface components {
 			/** @description What the household owes each person for the month. */
 			stipends: components['schemas']['PartyAmount'][];
 		};
+		ImportBatch: {
+			/** Format: date-time */
+			created_at: string;
+			/** Format: uuid */
+			id: string;
+			kind: components['schemas']['BatchKind'];
+			label?: string | null;
+			/**
+			 * Format: int64
+			 * @description How many transactions are in it now.
+			 */
+			transaction_count: number;
+		};
 		InTransit: components['schemas']['SplitPointer'] & {
 			amount: string;
 			cleared_by?: components['schemas']['SplitPointer'] | null;
@@ -867,6 +924,15 @@ export interface components {
 		NewCounterparty: {
 			name: string;
 		};
+		NewImportBatch: {
+			/**
+			 * @description Only `migration`: manual batches come with each new transaction, and
+			 *     file batches from committing an import.
+			 */
+			kind: components['schemas']['BatchKind'];
+			/** @description 1-200 characters, e.g. where the transactions came from. */
+			label?: string | null;
+		};
 		NewParty: {
 			kind: components['schemas']['PartyKind'];
 			name: string;
@@ -905,6 +971,14 @@ export interface components {
 			date: string;
 			description: string;
 			external_refs?: components['schemas']['ExternalRef'][];
+			/**
+			 * Format: uuid
+			 * @description On create: a migration batch to add the transaction to (see
+			 *     `POST /import-batches`); omitted, the transaction gets a batch of its
+			 *     own. On replace: omitted or unchanged, since a transaction never
+			 *     leaves the batch it entered with.
+			 */
+			import_batch_id?: string | null;
 			notes?: string | null;
 			splits: components['schemas']['NewSplit'][];
 			/** @description Tag names; unknown ones are created. */
@@ -1014,6 +1088,24 @@ export interface components {
 			next_cursor?: string | null;
 		};
 		/** @description One page of results. */
+		Page_ImportBatch: {
+			items: {
+				/** Format: date-time */
+				created_at: string;
+				/** Format: uuid */
+				id: string;
+				kind: components['schemas']['BatchKind'];
+				label?: string | null;
+				/**
+				 * Format: int64
+				 * @description How many transactions are in it now.
+				 */
+				transaction_count: number;
+			}[];
+			/** @description Pass as `cursor` to get the next page; absent on the last page. */
+			next_cursor?: string | null;
+		};
+		/** @description One page of results. */
 		Page_Party: {
 			items: {
 				/** Format: uuid */
@@ -1043,6 +1135,11 @@ export interface components {
 				external_refs: components['schemas']['ExternalRef'][];
 				/** Format: uuid */
 				id: string;
+				/**
+				 * Format: uuid
+				 * @description Read-only: the import batch the transaction entered with.
+				 */
+				import_batch_id: string;
 				notes?: string | null;
 				splits: components['schemas']['Split'][];
 				tags: string[];
@@ -1224,6 +1321,11 @@ export interface components {
 			external_refs: components['schemas']['ExternalRef'][];
 			/** Format: uuid */
 			id: string;
+			/**
+			 * Format: uuid
+			 * @description Read-only: the import batch the transaction entered with.
+			 */
+			import_batch_id: string;
 			notes?: string | null;
 			splits: components['schemas']['Split'][];
 			tags: string[];
@@ -2231,6 +2333,150 @@ export interface operations {
 			};
 		};
 	};
+	import_batches_list: {
+		parameters: {
+			query?: {
+				/** @description Only batches of this kind. */
+				kind?: components['schemas']['BatchKind'];
+				/** @description Items per page (default 100, max 500). */
+				limit?: number;
+				/** @description `next_cursor` from the previous page. Opaque. */
+				cursor?: string;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Page_ImportBatch'];
+				};
+			};
+		};
+	};
+	import_batches_create: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['NewImportBatch'];
+			};
+		};
+		responses: {
+			/** @description Created */
+			201: {
+				headers: {
+					ETag?: string;
+					Location?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ImportBatch'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	import_batches_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					ETag?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ImportBatch'];
+				};
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	import_batches_undo: {
+		parameters: {
+			query?: never;
+			header: {
+				/** @description ETag from your last read */
+				'If-Match': string;
+			};
+			path: {
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description No Content */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description A transaction is dated in a closed month */
+			409: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Precondition Failed */
+			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
 	parties_list: {
 		parameters: {
 			query?: {
@@ -3197,6 +3443,8 @@ export interface operations {
 				external_source?: string;
 				/** @description With `external_source`. */
 				external_ref?: string;
+				/** @description Only transactions in this import batch. */
+				import_batch_id?: string;
 				/** @description Items per page (default 100, max 500). */
 				limit?: number;
 				/** @description `next_cursor` from the previous page. Opaque. */

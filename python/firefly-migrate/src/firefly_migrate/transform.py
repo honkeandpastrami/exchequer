@@ -53,6 +53,8 @@ class Transaction:
     notes: str | None = None
     tags: list[str] = field(default_factory=list)
     firefly_id: str | None = None  # the group ID; None for opening balances
+    # The import tag it came in with in Firefly, if any: its import batch.
+    import_batch: str | None = None
 
 
 @dataclass(frozen=True)
@@ -337,13 +339,14 @@ class _Builder:
                     description=j.description,
                 )
             splits.append(split)
+        prefix = self.m.import_batch_prefix
+        batches = sorted({t for j in journals for t in j.tags if prefix and t.startswith(prefix)})
         tags = sorted(
             {
                 t
                 for j in journals
                 for t in j.tags
-                if t not in self.m.retire_tags
-                and not (self.m.import_batch_prefix and t.startswith(self.m.import_batch_prefix))
+                if t not in self.m.retire_tags and t not in batches
             }
         )
         notes = "\n\n".join(dict.fromkeys(j.notes for j in journals if j.notes)) or None
@@ -354,6 +357,7 @@ class _Builder:
             notes=notes,
             tags=tags,
             firefly_id=first.group_id,
+            import_batch=batches[0] if batches else None,
         )
 
 

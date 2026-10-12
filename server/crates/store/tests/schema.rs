@@ -73,8 +73,11 @@ async fn split_constraints(pool: PgPool) {
          INSERT INTO counterparty VALUES
              ('00000000-0000-0000-0000-0000000000c1', 'Grocer', NULL),
              ('00000000-0000-0000-0000-0000000000c2', 'Store', NULL);
-         INSERT INTO transaction (id, date, description)
-             VALUES ('00000000-0000-0000-0000-0000000000d1', '2026-03-14', 'Test');",
+         INSERT INTO import_batch (id, kind)
+             VALUES ('00000000-0000-0000-0000-0000000000e1', 'manual');
+         INSERT INTO transaction (id, date, description, import_batch_id)
+             VALUES ('00000000-0000-0000-0000-0000000000d1', '2026-03-14', 'Test',
+                     '00000000-0000-0000-0000-0000000000e1');",
     )
     .execute(&pool)
     .await

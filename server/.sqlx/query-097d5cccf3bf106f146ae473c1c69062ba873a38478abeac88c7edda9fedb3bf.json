@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM transaction WHERE id = $1 RETURNING import_batch_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "import_batch_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "import_batch_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "097d5cccf3bf106f146ae473c1c69062ba873a38478abeac88c7edda9fedb3bf"
+}

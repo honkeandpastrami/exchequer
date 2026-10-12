@@ -56,8 +56,11 @@ INSERT INTO party (id, name, kind) VALUES
 INSERT INTO account (id, name, kind, owner_id, liquid) VALUES
     ('01900000-0000-7000-8000-000000000004', 'Brokerage', 'brokerage',
      '01900000-0000-7000-8000-000000000003', false);
-INSERT INTO transaction (id, date, description, notes) VALUES
-    ('01900000-0000-7000-8000-000000000005', '2026-01-02', 'Café ☕ purchase', NULL);
+INSERT INTO import_batch (id, kind) VALUES
+    ('01900000-0000-7000-8000-000000000006', 'manual');
+INSERT INTO transaction (id, date, description, notes, import_batch_id) VALUES
+    ('01900000-0000-7000-8000-000000000005', '2026-01-02', 'Café ☕ purchase', NULL,
+     '01900000-0000-7000-8000-000000000006');
 INSERT INTO split (transaction_id, position,
                    from_account_id, from_commodity_id, from_quantity,
                    to_account_id, to_commodity_id, to_quantity) VALUES

@@ -135,6 +135,11 @@ pub struct NewTransaction {
     tags: Vec<String>,
     #[serde(default)]
     external_refs: Vec<ExternalRef>,
+    /// On create: a migration batch to add the transaction to (see
+    /// `POST /import-batches`); omitted, the transaction gets a batch of its
+    /// own. On replace: omitted or unchanged, since a transaction never
+    /// leaves the batch it entered with.
+    import_batch_id: Option<Uuid>,
     splits: Vec<NewSplit>,
 }
 
@@ -147,6 +152,8 @@ pub struct Transaction {
     notes: Option<String>,
     tags: Vec<String>,
     external_refs: Vec<ExternalRef>,
+    /// Read-only: the import batch the transaction entered with.
+    import_batch_id: Uuid,
     splits: Vec<Split>,
     #[serde(skip)]
     version: i64,
@@ -272,9 +279,16 @@ async fn classify(db: &mut PgConnection, splits: &[NewSplit]) -> Result<Vec<Clas
     classify_with(&book, splits)
 }
 
-fn output(id: Uuid, version: i64, req: NewTransaction, classified: Vec<Classified>) -> Transaction {
+fn output(
+    id: Uuid,
+    version: i64,
+    batch: Uuid,
+    req: NewTransaction,
+    classified: Vec<Classified>,
+) -> Transaction {
     Transaction {
         id,
+        import_batch_id: batch,
         date: req.date,
         description: req.description,
         notes: req.notes,
@@ -316,6 +330,7 @@ async fn from_full(db: &mut PgConnection, fulls: Vec<Full>) -> Result<Vec<Transa
                     .into_iter()
                     .map(|(source, reference)| ExternalRef { source, reference })
                     .collect(),
+                import_batch_id: Some(f.transaction.import_batch_id),
                 splits,
             };
             (f.transaction, req)
@@ -337,7 +352,7 @@ async fn from_full(db: &mut PgConnection, fulls: Vec<Full>) -> Result<Vec<Transa
         .map(|(t, req)| {
             let splits = domain_splits(&req.splits).map_err(internal)?;
             let classified = classify_with(&book, splits).map_err(internal)?;
-            Ok(output(t.id, t.version, req, classified))
+            Ok(output(t.id, t.version, t.import_batch_id, req, classified))
         })
         .collect()
 }
@@ -383,7 +398,7 @@ fn normalize(mut req: NewTransaction) -> Result<NewTransaction, Problem> {
     Ok(req)
 }
 
-fn to_full(id: Uuid, req: &NewTransaction) -> Full {
+fn to_full(id: Uuid, batch: Uuid, req: &NewTransaction) -> Full {
     let leg = |l: &Leg| {
         (
             l.account_id,
@@ -399,6 +414,7 @@ fn to_full(id: Uuid, req: &NewTransaction) -> Full {
             description: req.description.clone(),
             notes: req.notes.clone(),
             version: 0,
+            import_batch_id: batch,
         },
         splits: req
             .splits
@@ -442,6 +458,30 @@ async fn check_open(db: &mut PgConnection, dates: &[Date]) -> Result<(), Problem
     }
 }
 
+/// The batch a new transaction joins: the migration batch it names, or a
+/// new batch of its own.
+async fn batch_for(
+    db: &mut PgConnection,
+    principal: Principal,
+    requested: Option<Uuid>,
+) -> Result<Uuid, Problem> {
+    let Some(id) = requested else {
+        let id = Uuid::now_v7();
+        let token = principal.actor().map(|t| *t.as_uuid());
+        store::import_batches::insert(&mut *db, id, "manual", None, token).await?;
+        return Ok(id);
+    };
+    let batch = store::import_batches::get(&mut *db, id)
+        .await?
+        .ok_or_else(|| Problem::invalid(format!("unknown import batch {id}")))?;
+    if batch.kind != "migration" {
+        return Err(Problem::invalid(
+            "only migration batches take new transactions",
+        ));
+    }
+    Ok(id)
+}
+
 fn duplicate_ref() -> String {
     "another transaction already has one of these external_refs".to_owned()
 }
@@ -470,6 +510,8 @@ pub struct ListParams {
     external_source: Option<String>,
     /// With `external_source`.
     external_ref: Option<String>,
+    /// Only transactions in this import batch.
+    import_batch_id: Option<Uuid>,
     /// Items per page (default 100, max 500).
     limit: Option<u32>,
     /// `next_cursor` from the previous page. Opaque.
@@ -513,6 +555,7 @@ async fn list(
                 ));
             }
         },
+        import_batch: p.import_batch_id,
     };
     let mut conn = state.pool.acquire().await?;
     let rows = store::transactions::list(&mut *conn, &filter, after, limit + 1).await?;
@@ -552,10 +595,11 @@ async fn create(
     let mut tx = state.pool.begin().await?;
     check_open(&mut tx, &[req.date]).await?;
     let classified = classify(&mut tx, &req.splits).await?;
-    let version = store::transactions::upsert(&mut tx, &to_full(id, &req))
+    let batch = batch_for(&mut tx, principal, req.import_batch_id).await?;
+    let version = store::transactions::upsert(&mut tx, &to_full(id, batch, &req))
         .await
         .map_err(|e| write_error(e, duplicate_ref))?;
-    let created = output(id, version, req, classified);
+    let created = output(id, version, batch, req, classified);
     audit(
         &mut tx,
         principal,
@@ -599,13 +643,19 @@ async fn replace(
     if before.transaction.version != version {
         return Err(Problem::stale());
     }
+    let batch = before.transaction.import_batch_id;
+    if req.import_batch_id.is_some_and(|b| b != batch) {
+        return Err(Problem::invalid(
+            "import_batch_id never changes: omit it or send the current one",
+        ));
+    }
     check_open(&mut tx, &[before.transaction.date, req.date]).await?;
     let before = from_one(&mut tx, before).await?;
     let classified = classify(&mut tx, &req.splits).await?;
-    let new_version = store::transactions::upsert(&mut tx, &to_full(id, &req))
+    let new_version = store::transactions::upsert(&mut tx, &to_full(id, batch, &req))
         .await
         .map_err(|e| write_error(e, duplicate_ref))?;
-    let after = output(id, new_version, req, classified);
+    let after = output(id, new_version, batch, req, classified);
     audit(
         &mut tx,
         principal,
@@ -634,19 +684,33 @@ async fn delete(
     IfMatch(version): IfMatch,
 ) -> Result<StatusCode, Problem> {
     let mut tx = state.pool.begin().await?;
-    let before = store::transactions::get(&mut tx, id, true)
+    let current = store::transactions::get(&mut tx, id, true)
         .await?
         .ok_or_else(Problem::not_found)?;
-    if before.transaction.version != version {
+    if current.transaction.version != version {
         return Err(Problem::stale());
     }
-    check_open(&mut tx, &[before.transaction.date]).await?;
-    let before = from_one(&mut tx, before).await?;
-    store::transactions::delete(&mut *tx, id)
+    delete_one(&mut tx, principal, id).await?;
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Deletes a transaction, if its month is open, and records it.
+pub(crate) async fn delete_one(
+    db: &mut PgConnection,
+    principal: Principal,
+    id: Uuid,
+) -> Result<(), Problem> {
+    let before = store::transactions::get(&mut *db, id, true)
+        .await?
+        .ok_or_else(Problem::not_found)?;
+    check_open(&mut *db, &[before.transaction.date]).await?;
+    let before = from_one(&mut *db, before).await?;
+    store::transactions::delete(&mut *db, id)
         .await
         .map_err(delete_error)?;
     audit(
-        &mut tx,
+        db,
         principal,
         Action::Delete,
         "transaction",
@@ -654,7 +718,5 @@ async fn delete(
         Some(&before),
         None,
     )
-    .await?;
-    tx.commit().await?;
-    Ok(StatusCode::NO_CONTENT)
+    .await
 }

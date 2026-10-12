@@ -19,6 +19,7 @@ pub mod categories;
 pub mod commodities;
 pub mod counterparties;
 pub mod idempotency;
+pub mod import_batches;
 pub mod parties;
 pub mod settlements;
 pub mod tags;

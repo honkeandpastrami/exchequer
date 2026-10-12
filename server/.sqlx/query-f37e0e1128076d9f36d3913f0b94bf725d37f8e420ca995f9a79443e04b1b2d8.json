@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, date, description, notes, version FROM transaction WHERE id = $1 FOR UPDATE",
+  "query": "SELECT id, date, description, notes, version, import_batch_id\n             FROM transaction WHERE id = $1 FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -57,6 +57,17 @@
             "name": "version"
           }
         }
+      },
+      {
+        "ordinal": 5,
+        "name": "import_batch_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "import_batch_id"
+          }
+        }
       }
     ],
     "parameters": {
@@ -69,8 +80,9 @@
       false,
       false,
       true,
+      false,
       false
     ]
   },
-  "hash": "78e16831b39195121aff49e6a277c1d89f850a18cbeddef5c5f87eb8937b5e30"
+  "hash": "f37e0e1128076d9f36d3913f0b94bf725d37f8e420ca995f9a79443e04b1b2d8"
 }
