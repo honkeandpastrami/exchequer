@@ -16,8 +16,10 @@ WORKDIR /src
 COPY server/ server/
 # Pure Rust (no TLS, no C libraries), so the musl build is fully static. sqlx
 # checks queries against the committed cache in server/.sqlx, no database needed.
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/server/target \
+# The build cache is keyed to the toolchain, and locked so concurrent builds
+# can't corrupt it. Bump the id to start a cache from scratch.
+RUN --mount=type=cache,id=exchequer-cargo-registry,sharing=locked,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=exchequer-target-1.99-v2,sharing=locked,target=/src/server/target \
     cd server \
     && target="$(uname -m)-unknown-linux-musl" \
     && rustup target add "$target" \
