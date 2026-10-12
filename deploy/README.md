@@ -36,12 +36,11 @@ Run these as the (non-root) user that will own the service, from a clone of this
    openssl rand -base64 32 | tr -d '\n' | podman secret create exchequer_bootstrap_token -
    ```
 
-3. Pull the server and backup images of the newest release. `OWNER` here and in the
-   quadlets is the owner of the GitHub repository the releases come from, in lowercase:
+3. Pull the server and backup images of the newest release:
 
    ```sh
-   podman pull ghcr.io/OWNER/exchequer-server:latest \
-       ghcr.io/OWNER/exchequer-backup:latest
+   podman pull ghcr.io/honkeandpastrami/exchequer-server:latest \
+       ghcr.io/honkeandpastrami/exchequer-backup:latest
    ```
 
 4. Install the units. Podman reads the container, network and volume files from
@@ -111,7 +110,7 @@ git tag v0.2.0 && git push origin v0.2.0
 ```
 
 The `release` workflow checks every piece is at that version, builds and smoke-tests
-both images, and publishes them as `ghcr.io/OWNER/exchequer-server` and
+both images, and publishes them as `ghcr.io/honkeandpastrami/exchequer-server` and
 `…/exchequer-backup`, tagged `0.2.0`, `0.2` and `latest`, with a GitHub Release carrying
 the Python packages.
 

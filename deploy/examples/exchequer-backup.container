@@ -7,7 +7,7 @@ After=exchequer-db.service
 
 [Container]
 ContainerName=exchequer-backup
-Image=ghcr.io/OWNER/exchequer-backup:latest
+Image=ghcr.io/honkeandpastrami/exchequer-backup:latest
 # Each run first pulls a newer release of the image, if there is one.
 Pull=newer
 Network=exchequer.network
