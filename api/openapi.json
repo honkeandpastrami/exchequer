@@ -2267,7 +2267,7 @@
         "tags": [
           "imports"
         ],
-        "summary": "Commit the import: all or nothing. Every row's status is worked out\nagain first; if any changed (the ledger moved on since), nothing is\ncommitted and the import comes back with a 409 to review again. Then each\nrow's decision is carried out: new transactions go into one `file`\nimport batch; transfer matches turn the matched transaction into a\ntransfer; every row that's now in the ledger is recorded as imported, so\nthe same row is a duplicate next time. Each statement's ledger balance\nbecomes a balance check. The staged import is then gone.",
+        "summary": "Commit the import: all or nothing. Every row's status is worked out\nagain first; if any changed (the ledger moved on since), nothing is\ncommitted and the import comes back with a 409 to review again. Then each\nrow's decision is carried out: new transactions go into one `file`\nimport batch; transfer matches turn the matched transaction into a\ntransfer; every row that's now in the ledger is recorded as imported, so\nthe same row is a duplicate next time, and what this file says about it is\nkept with its transaction (once per file, whatever its name). Each\nstatement's ledger balance becomes a balance check. The staged import is\nthen gone.",
         "operationId": "imports_commit",
         "parameters": [
           {
@@ -4512,6 +4512,56 @@
         ]
       }
     },
+    "/api/v1/transactions/{id}/imported-rows": {
+      "get": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "The bank rows a transaction was imported from or matched, one entry per\nrow and file.",
+        "operationId": "transactions_imported_rows",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ImportedRow"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/healthz": {
       "get": {
         "tags": [
@@ -5342,6 +5392,7 @@
         "type": "object",
         "required": [
           "id",
+          "file_sha256",
           "format",
           "created_at",
           "statements"
@@ -5356,6 +5407,10 @@
               "string",
               "null"
             ]
+          },
+          "file_sha256": {
+            "type": "string",
+            "description": "The file's identity: its bytes' SHA-256 (hex), whatever it's called."
           },
           "format": {
             "$ref": "#/components/schemas/FileFormat"
@@ -5455,6 +5510,45 @@
             "format": "int64",
             "description": "Already recorded for the same transaction.",
             "minimum": 0
+          }
+        }
+      },
+      "ImportedRow": {
+        "type": "object",
+        "description": "A bank row behind a transaction, and a file it came in.",
+        "required": [
+          "account_id",
+          "fingerprint"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "file_sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The file it came in (its SHA-256); absent for rows recorded another\nway, such as by a migration."
+          },
+          "fingerprint": {
+            "type": "string",
+            "description": "The row's ID: the bank's own, or a hash of its date, description and\namount."
+          },
+          "imported_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "raw": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The row's fields as that file had them."
           }
         }
       },
@@ -6247,6 +6341,7 @@
               "type": "object",
               "required": [
                 "id",
+                "file_sha256",
                 "format",
                 "created_at",
                 "statements"
@@ -6261,6 +6356,10 @@
                     "string",
                     "null"
                   ]
+                },
+                "file_sha256": {
+                  "type": "string",
+                  "description": "The file's identity: its bytes' SHA-256 (hex), whatever it's called."
                 },
                 "format": {
                   "$ref": "#/components/schemas/FileFormat"

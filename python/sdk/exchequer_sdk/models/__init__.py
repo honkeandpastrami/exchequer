@@ -33,6 +33,8 @@ from .import_ import Import
 from .import_batch import ImportBatch
 from .import_fingerprint import ImportFingerprint
 from .import_fingerprints_added import ImportFingerprintsAdded
+from .imported_row import ImportedRow
+from .imported_row_raw_type_0 import ImportedRowRawType0
 from .in_transit import InTransit
 from .kind import Kind
 from .kind_name import KindName
@@ -139,6 +141,8 @@ __all__ = (
     "HouseholdPool",
     "Import",
     "ImportBatch",
+    "ImportedRow",
+    "ImportedRowRawType0",
     "ImportFingerprint",
     "ImportFingerprintsAdded",
     "InTransit",

@@ -13,6 +13,8 @@ use uuid::Uuid;
 pub struct ImportRow {
     pub id: Uuid,
     pub file_name: Option<String>,
+    /// The file's bytes' SHA-256, hex.
+    pub file_sha256: String,
     /// `ofx` or `csv`.
     pub format: String,
     pub created_at: OffsetDateTime,
@@ -63,13 +65,16 @@ pub async fn insert(
     db: impl PgExecutor<'_>,
     id: Uuid,
     file_name: Option<&str>,
+    file_sha256: &str,
     format: &str,
     token_id: Option<Uuid>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "INSERT INTO staged_import (id, file_name, format, token_id) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO staged_import (id, file_name, file_sha256, format, token_id)
+         VALUES ($1, $2, $3, $4, $5)",
         id,
         file_name,
+        file_sha256,
         format,
         token_id,
     )
@@ -141,7 +146,8 @@ pub async fn insert_rows(
 pub async fn get(db: impl PgExecutor<'_>, id: Uuid) -> Result<Option<ImportRow>, sqlx::Error> {
     sqlx::query_as!(
         ImportRow,
-        "SELECT id, file_name, format, created_at, version FROM staged_import WHERE id = $1",
+        "SELECT id, file_name, file_sha256, format, created_at, version
+         FROM staged_import WHERE id = $1",
         id
     )
     .fetch_optional(db)
@@ -156,7 +162,8 @@ pub async fn list(
 ) -> Result<Vec<ImportRow>, sqlx::Error> {
     sqlx::query_as!(
         ImportRow,
-        "SELECT i.id, i.file_name, i.format, i.created_at, i.version FROM staged_import i
+        "SELECT i.id, i.file_name, i.file_sha256, i.format, i.created_at, i.version
+         FROM staged_import i
          WHERE $1::uuid IS NULL OR (i.created_at, i.id)
                < (SELECT a.created_at, a.id FROM staged_import a WHERE a.id = $1)
          ORDER BY i.created_at DESC, i.id DESC LIMIT $2",
@@ -436,8 +443,6 @@ pub struct Fingerprint {
     pub account_id: Uuid,
     pub fingerprint: String,
     pub transaction_id: Uuid,
-    /// The row as the bank file had it, if known.
-    pub raw: Option<Value>,
 }
 
 /// Of `items`, those whose transaction has no split on the account.
@@ -473,15 +478,13 @@ pub async fn add_fingerprints(
     let accounts: Vec<Uuid> = items.iter().map(|f| f.account_id).collect();
     let fps: Vec<String> = items.iter().map(|f| f.fingerprint.clone()).collect();
     let transactions: Vec<Uuid> = items.iter().map(|f| f.transaction_id).collect();
-    let raw: Vec<Option<Value>> = items.iter().map(|f| f.raw.clone()).collect();
     let r = sqlx::query!(
-        "INSERT INTO import_fingerprint (account_id, fingerprint, transaction_id, raw)
-         SELECT * FROM unnest($1::uuid[], $2::text[], $3::uuid[], $4::jsonb[])
+        "INSERT INTO import_fingerprint (account_id, fingerprint, transaction_id)
+         SELECT * FROM unnest($1::uuid[], $2::text[], $3::uuid[])
          ON CONFLICT (account_id, fingerprint) DO NOTHING",
         &accounts,
         &fps,
         &transactions,
-        &raw as &[Option<Value>],
     )
     .execute(db)
     .await?;
@@ -497,7 +500,7 @@ pub async fn recorded_fingerprints(
     let fps: Vec<String> = keys.iter().map(|k| k.1.clone()).collect();
     sqlx::query_as!(
         Fingerprint,
-        "SELECT f.account_id, f.fingerprint, f.transaction_id, f.raw FROM import_fingerprint f
+        "SELECT f.account_id, f.fingerprint, f.transaction_id FROM import_fingerprint f
          JOIN unnest($1::uuid[], $2::text[]) AS u(account_id, fingerprint)
            ON u.account_id = f.account_id AND u.fingerprint = f.fingerprint",
         &accounts,
@@ -529,4 +532,66 @@ pub async fn set_decision(
     .execute(db)
     .await?;
     Ok(done.rows_affected() > 0)
+}
+
+/// One bank row as one file had it.
+#[derive(Debug, Clone)]
+pub struct ImportedRow {
+    pub account_id: Uuid,
+    pub fingerprint: String,
+    pub file_sha256: String,
+    pub raw: Value,
+}
+
+/// Records rows as files had them; a file already recorded for a row adds
+/// nothing. Each row's fingerprint must be recorded first.
+pub async fn add_imported_rows(
+    db: impl PgExecutor<'_>,
+    rows: &[ImportedRow],
+) -> Result<(), sqlx::Error> {
+    let accounts: Vec<Uuid> = rows.iter().map(|r| r.account_id).collect();
+    let fps: Vec<String> = rows.iter().map(|r| r.fingerprint.clone()).collect();
+    let files: Vec<String> = rows.iter().map(|r| r.file_sha256.clone()).collect();
+    let raw: Vec<Value> = rows.iter().map(|r| r.raw.clone()).collect();
+    sqlx::query!(
+        "INSERT INTO imported_row (account_id, fingerprint, file_sha256, raw)
+         SELECT * FROM unnest($1::uuid[], $2::text[], $3::text[], $4::jsonb[])
+         ON CONFLICT DO NOTHING",
+        &accounts,
+        &fps,
+        &files,
+        &raw,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// The bank rows recorded for a transaction, each with the files it came
+/// in (none for rows recorded another way, e.g. by a migration).
+#[derive(Debug, Clone)]
+pub struct RowOfTransaction {
+    pub account_id: Uuid,
+    pub fingerprint: String,
+    pub file_sha256: Option<String>,
+    pub raw: Option<Value>,
+    pub imported_at: Option<OffsetDateTime>,
+}
+
+pub async fn rows_of_transaction(
+    db: impl PgExecutor<'_>,
+    transaction_id: Uuid,
+) -> Result<Vec<RowOfTransaction>, sqlx::Error> {
+    sqlx::query_as!(
+        RowOfTransaction,
+        r#"SELECT f.account_id, f.fingerprint, r.file_sha256 AS "file_sha256?",
+                  r.raw AS "raw?", r.imported_at AS "imported_at?"
+           FROM import_fingerprint f
+           LEFT JOIN imported_row r USING (account_id, fingerprint)
+           WHERE f.transaction_id = $1
+           ORDER BY f.account_id, f.fingerprint, r.imported_at"#,
+        transaction_id
+    )
+    .fetch_all(db)
+    .await
 }

@@ -32,6 +32,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(list, create))
         .routes(routes!(get, replace, delete))
+        .routes(routes!(imported_rows))
 }
 
 const MAX_SPLITS: usize = 200;
@@ -860,4 +861,54 @@ impl Transaction {
     pub(crate) const fn id(&self) -> Uuid {
         self.id
     }
+}
+
+/// A bank row behind a transaction, and a file it came in.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ImportedRow {
+    account_id: Uuid,
+    /// The row's ID: the bank's own, or a hash of its date, description and
+    /// amount.
+    fingerprint: String,
+    /// The file it came in (its SHA-256); absent for rows recorded another
+    /// way, such as by a migration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_sha256: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "time::serde::rfc3339::option"
+    )]
+    imported_at: Option<time::OffsetDateTime>,
+    /// The row's fields as that file had them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Object>)]
+    raw: Option<serde_json::Value>,
+}
+
+/// The bank rows a transaction was imported from or matched, one entry per
+/// row and file.
+#[utoipa::path(get, path = "/transactions/{id}/imported-rows", tag = "transactions", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = OK, body = Vec<ImportedRow>),
+              (status = NOT_FOUND, body = Problem, content_type = "application/problem+json")))]
+async fn imported_rows(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<axum::Json<Vec<ImportedRow>>, Problem> {
+    let mut db = state.pool.acquire().await?;
+    store::transactions::get(&mut db, id, false)
+        .await?
+        .ok_or_else(Problem::not_found)?;
+    let rows = store::imports::rows_of_transaction(&mut *db, id).await?;
+    Ok(axum::Json(
+        rows.into_iter()
+            .map(|r| ImportedRow {
+                account_id: r.account_id,
+                fingerprint: r.fingerprint,
+                file_sha256: r.file_sha256,
+                imported_at: r.imported_at,
+                raw: r.raw,
+            })
+            .collect(),
+    ))
 }

@@ -8,7 +8,20 @@ ALTER TABLE staged_row
     ADD COLUMN category_id     uuid REFERENCES category ON DELETE SET NULL,
     ADD COLUMN purpose_id      uuid REFERENCES party ON DELETE SET NULL;
 
--- Each imported row's fields as the bank file had them: the transaction's
--- provenance, since the file itself isn't kept (§6.7). None for rows recorded
--- some other way (e.g. a migration).
-ALTER TABLE import_fingerprint ADD COLUMN raw jsonb;
+-- The file's identity: its bytes' SHA-256 (hex), whatever it's called.
+ALTER TABLE staged_import ADD COLUMN file_sha256 text NOT NULL DEFAULT ''
+    CHECK (file_sha256 ~ '^([0-9a-f]{64})?$');
+ALTER TABLE staged_import ALTER COLUMN file_sha256 DROP DEFAULT;
+
+-- Each bank row as each file had it: what a row adds to the transaction it
+-- became or matched (design §6.7), since files aren't kept. One per file,
+-- however many copies of it are imported.
+CREATE TABLE imported_row (
+    account_id  uuid NOT NULL,
+    fingerprint text NOT NULL,
+    file_sha256 text NOT NULL CHECK (file_sha256 ~ '^[0-9a-f]{64}$'),
+    raw         jsonb NOT NULL,
+    imported_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (account_id, fingerprint, file_sha256),
+    FOREIGN KEY (account_id, fingerprint) REFERENCES import_fingerprint ON DELETE CASCADE
+);

@@ -14,9 +14,10 @@ use domain::{AccountNumber, Amount};
 use import::fingerprint::fingerprints;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use sqlx::PgConnection;
 use store::audit::Action;
-use store::imports::{Fingerprint, ImportRow, NearCandidate, RowRow, StatementRow};
+use store::imports::{Fingerprint, ImportRow, ImportedRow, NearCandidate, RowRow, StatementRow};
 use time::{Date, OffsetDateTime};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
@@ -166,6 +167,8 @@ pub struct Import {
     id: Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]
     file_name: Option<String>,
+    /// The file's identity: its bytes' SHA-256 (hex), whatever it's called.
+    file_sha256: String,
     format: FileFormat,
     #[serde(with = "time::serde::rfc3339")]
     created_at: OffsetDateTime,
@@ -407,6 +410,7 @@ async fn output(db: &mut PgConnection, imports: Vec<ImportRow>) -> Result<Vec<Im
             Ok(Import {
                 id: i.id,
                 file_name: i.file_name,
+                file_sha256: i.file_sha256,
                 format: format_of(&i.format)?,
                 created_at: i.created_at,
                 statements,
@@ -657,6 +661,10 @@ async fn upload(
     }
     let zone = state.zone.clone();
     let bytes = body.to_vec();
+    let sha256: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     let statements = tokio::task::spawn_blocking(move || import::parse(bytes, &zone))
         .await
         .map_err(|_| Problem::internal())?
@@ -674,7 +682,7 @@ async fn upload(
     let id = Uuid::now_v7();
     let mut tx = state.pool.begin().await?;
     let token = principal.actor().map(|t| *t.as_uuid());
-    store::imports::insert(&mut *tx, id, file_name, format, token).await?;
+    store::imports::insert(&mut *tx, id, file_name, &sha256, format, token).await?;
     for (i, s) in statements.into_iter().enumerate() {
         let position = i16::try_from(i).map_err(|_| Problem::invalid("too many statements"))?;
         let code = s.currency.as_deref().unwrap_or("USD");
@@ -1037,8 +1045,10 @@ async fn set_row(
 /// row's decision is carried out: new transactions go into one `file`
 /// import batch; transfer matches turn the matched transaction into a
 /// transfer; every row that's now in the ledger is recorded as imported, so
-/// the same row is a duplicate next time. Each statement's ledger balance
-/// becomes a balance check. The staged import is then gone.
+/// the same row is a duplicate next time, and what this file says about it is
+/// kept with its transaction (once per file, whatever its name). Each
+/// statement's ledger balance becomes a balance check. The staged import is
+/// then gone.
 #[utoipa::path(post, path = "/imports/{id}/commit", tag = "imports", security(("bearer" = [])),
     params(("id" = Uuid, Path), ("If-Match" = String, Header, description = "ETag from your last read")),
     responses((status = OK, body = Committed),
@@ -1100,6 +1110,7 @@ async fn commit(
         balance_checks: Vec::new(),
     };
     let mut imported = Vec::new();
+    let mut seen_in_file = Vec::new();
     for r in &rows {
         let s = statements
             .iter()
@@ -1179,11 +1190,19 @@ async fn commit(
             account_id: account,
             fingerprint: r.fingerprint.clone(),
             transaction_id: became,
-            raw: Some(r.raw.clone()),
+        });
+        seen_in_file.push(ImportedRow {
+            account_id: account,
+            fingerprint: r.fingerprint.clone(),
+            file_sha256: import.file_sha256.clone(),
+            raw: r.raw.clone(),
         });
     }
     if !imported.is_empty() {
+        // A row already recorded (an exact duplicate) keeps its transaction;
+        // what this file says about it is added either way.
         store::imports::add_fingerprints(&mut *tx, &imported).await?;
+        store::imports::add_imported_rows(&mut *tx, &seen_in_file).await?;
     }
     if let Some(b) = out.import_batch_id {
         store::import_batches::touch(&mut *tx, b).await?;

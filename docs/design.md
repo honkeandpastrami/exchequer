@@ -418,8 +418,12 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    `new` rows become one-split transactions in one `file` import batch (the outside side is
    the chosen counterparty, or unknown); a transfer match puts the statement's account on
    the matched transaction's outside side, making it a transfer (purpose and category go);
-   every row now in the ledger is recorded in `import_fingerprint` with its raw fields, the
-   transaction's provenance. A closed month or a broken ledger rule refuses the whole commit,
+   every row now in the ledger is recorded in `import_fingerprint`. **A row that matches a
+   transaction already in the ledger (a duplicate or near-duplicate) never creates
+   anything: what it says is added to that transaction.** Each row is kept as each file had
+   it (`imported_row`: raw fields, when), the transaction's provenance; a file is identified
+   by its bytes' SHA-256, so a copy under another name adds nothing (`GET
+   /transactions/{id}/imported-rows`). A closed month or a broken ledger rule refuses the whole commit,
    naming the row. Each transaction keeps its `import_batch_id`, so undoing a batch is one
    call; it deletes the new transactions and their recorded rows, but a transaction made a
    transfer stays one (it belongs to its own batch). Every transaction has a batch and

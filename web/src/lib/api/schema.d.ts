@@ -350,8 +350,10 @@ export interface paths {
 		 *     row's decision is carried out: new transactions go into one `file`
 		 *     import batch; transfer matches turn the matched transaction into a
 		 *     transfer; every row that's now in the ledger is recorded as imported, so
-		 *     the same row is a duplicate next time. Each statement's ledger balance
-		 *     becomes a balance check. The staged import is then gone.
+		 *     the same row is a duplicate next time, and what this file says about it is
+		 *     kept with its transaction (once per file, whatever its name). Each
+		 *     statement's ledger balance becomes a balance check. The staged import is
+		 *     then gone.
 		 */
 		post: operations['imports_commit'];
 		delete?: never;
@@ -719,6 +721,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v1/transactions/{id}/imported-rows': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * The bank rows a transaction was imported from or matched, one entry per
+		 *     row and file.
+		 */
+		get: operations['transactions_imported_rows'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/healthz': {
 		parameters: {
 			query?: never;
@@ -1061,6 +1083,8 @@ export interface components {
 			/** Format: date-time */
 			created_at: string;
 			file_name?: string | null;
+			/** @description The file's identity: its bytes' SHA-256 (hex), whatever it's called. */
+			file_sha256: string;
 			format: components['schemas']['FileFormat'];
 			/** Format: uuid */
 			id: string;
@@ -1106,6 +1130,25 @@ export interface components {
 			 * @description Already recorded for the same transaction.
 			 */
 			unchanged: number;
+		};
+		/** @description A bank row behind a transaction, and a file it came in. */
+		ImportedRow: {
+			/** Format: uuid */
+			account_id: string;
+			/**
+			 * @description The file it came in (its SHA-256); absent for rows recorded another
+			 *     way, such as by a migration.
+			 */
+			file_sha256?: string | null;
+			/**
+			 * @description The row's ID: the bank's own, or a hash of its date, description and
+			 *     amount.
+			 */
+			fingerprint: string;
+			/** Format: date-time */
+			imported_at?: string | null;
+			/** @description The row's fields as that file had them. */
+			raw?: Record<string, never> | null;
 		};
 		InTransit: components['schemas']['SplitPointer'] & {
 			amount: string;
@@ -1385,6 +1428,8 @@ export interface components {
 				/** Format: date-time */
 				created_at: string;
 				file_name?: string | null;
+				/** @description The file's identity: its bytes' SHA-256 (hex), whatever it's called. */
+				file_sha256: string;
 				format: components['schemas']['FileFormat'];
 				/** Format: uuid */
 				id: string;
@@ -4649,6 +4694,37 @@ export interface operations {
 			};
 			/** @description Precondition Failed */
 			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	transactions_imported_rows: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ImportedRow'][];
+				};
+			};
+			/** @description Not Found */
+			404: {
 				headers: {
 					[name: string]: unknown;
 				};

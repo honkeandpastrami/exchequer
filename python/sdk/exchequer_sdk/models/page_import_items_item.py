@@ -23,6 +23,7 @@ class PageImportItemsItem:
     """
     Attributes:
         created_at (datetime.datetime):
+        file_sha256 (str): The file's identity: its bytes' SHA-256 (hex), whatever it's called.
         format_ (FileFormat):
         id (UUID):
         statements (list[StagedStatement]):
@@ -30,6 +31,7 @@ class PageImportItemsItem:
     """
 
     created_at: datetime.datetime
+    file_sha256: str
     format_: FileFormat
     id: UUID
     statements: list[StagedStatement]
@@ -38,6 +40,8 @@ class PageImportItemsItem:
 
     def to_dict(self) -> dict[str, Any]:
         created_at = self.created_at.isoformat()
+
+        file_sha256 = self.file_sha256
 
         format_ = self.format_.value
 
@@ -59,6 +63,7 @@ class PageImportItemsItem:
         field_dict.update(
             {
                 "created_at": created_at,
+                "file_sha256": file_sha256,
                 "format": format_,
                 "id": id,
                 "statements": statements,
@@ -75,6 +80,8 @@ class PageImportItemsItem:
 
         d = dict(src_dict)
         created_at = datetime.datetime.fromisoformat(d.pop("created_at"))
+
+        file_sha256 = d.pop("file_sha256")
 
         format_ = FileFormat(d.pop("format"))
 
@@ -98,6 +105,7 @@ class PageImportItemsItem:
 
         page_import_items_item = cls(
             created_at=created_at,
+            file_sha256=file_sha256,
             format_=format_,
             id=id,
             statements=statements,

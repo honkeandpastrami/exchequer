@@ -176,18 +176,43 @@ async fn a_card_statement_becomes_transactions_and_a_balance_check(pool: PgPool)
             ),
         ]
     );
-    // Each row's provenance is kept with its fingerprint.
-    assert_eq!(
-        count(
+    // What the file said about each row is kept with its transaction.
+    let grocer = list.body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["description"] == json!("GROCER"))
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let seen = |pool: PgPool, t: String, token: String| async move {
+        call(
             &pool,
-            "SELECT count(*) FROM import_fingerprint WHERE raw->>'FITID' IN ('F1', 'F2')"
+            "GET",
+            format!("/api/v1/transactions/{t}/imported-rows"),
         )
-        .await,
-        2
+        .token(&token)
+        .send()
+        .await
+        .body
+    };
+    let first = seen(pool.clone(), grocer.clone(), h.t.clone()).await;
+    assert_eq!(first.as_array().unwrap().len(), 1, "{first}");
+    assert_eq!(
+        (
+            &first[0]["fingerprint"],
+            &first[0]["account_id"],
+            &first[0]["raw"]["FITID"]
+        ),
+        (&json!("F1"), &json!(h.alex_credit), &json!("F1"))
     );
-
-    // The same file again: all duplicates, nothing new.
-    let r = upload(&pool, &h, "", &ofx()).await;
+    let sha = first[0]["file_sha256"].as_str().unwrap().to_owned();
+    assert_eq!(sha.len(), 64);
+    // The same file again, under another name: all duplicates, nothing new,
+    // and nothing more to say about the rows.
+    let r = upload(&pool, &h, "?file_name=copy.ofx", &ofx()).await;
+    assert_eq!(r.body["file_sha256"], json!(sha));
     assert_eq!(r.body["statements"][0]["counts"]["duplicate"], json!(2));
     let r = commit(&pool, &h, &r.id(), &r.etag()).await;
     assert_eq!(
@@ -198,6 +223,21 @@ async fn a_card_statement_becomes_transactions_and_a_balance_check(pool: PgPool)
         ),
         (&json!(0), &json!(2), None)
     );
+    assert_eq!(count(&pool, "SELECT count(*) FROM imported_row").await, 2);
+    // Another file with the same rows adds what it says to the same
+    // transactions.
+    let other = ofx().replace("<NAME>GROCER", "<NAME>GROCER<MEMO>store 12");
+    let r = upload(&pool, &h, "", &other).await;
+    assert_ne!(r.body["file_sha256"], json!(sha));
+    commit(&pool, &h, &r.id(), &r.etag()).await;
+    let now = seen(pool.clone(), grocer.clone(), h.t.clone()).await;
+    let memos: Vec<_> = now
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["raw"]["MEMO"].clone())
+        .collect();
+    assert_eq!(memos, [Value::Null, json!("store 12")]);
 
     // Undoing the batch forgets the rows: the file is new again.
     let etag = h
@@ -327,17 +367,19 @@ async fn commit_rechecks_and_is_all_or_nothing(pool: PgPool) {
     let r = upload(&pool, &h, &format!("?account_id={}", h.alex_checking), CSV).await;
     let (id, etag) = (r.id(), r.etag());
     // Meanwhile, the pay was entered by hand.
-    h.send(
-        &pool,
-        "POST",
-        "/api/v1/transactions",
-        Some(
-            json!({ "date": "2026-03-03", "description": "Salary", "splits": [{
+    let salary = h
+        .send(
+            &pool,
+            "POST",
+            "/api/v1/transactions",
+            Some(
+                json!({ "date": "2026-03-03", "description": "Salary", "splits": [{
             "from": h.leg(("counterparty_id", &h.store), "1500.00"),
             "to": h.leg(h.acct(&h.alex_checking), "1500.00") }] }),
-        ),
-    )
-    .await;
+            ),
+        )
+        .await
+        .id();
     let r = commit(&pool, &h, &id, &etag).await;
     assert_eq!(r.status, StatusCode::CONFLICT, "{}", r.body);
     assert_eq!(count(&pool, "SELECT count(*) FROM transaction").await, 1);
@@ -379,5 +421,20 @@ async fn commit_rechecks_and_is_all_or_nothing(pool: PgPool) {
     assert_eq!(
         (&r.body["created"], &r.body["matched"]),
         (&json!(2), &json!(1))
+    );
+    // The bank's row is kept with the transaction entered by hand.
+    let rows = h
+        .send(
+            &pool,
+            "GET",
+            &format!("/api/v1/transactions/{salary}/imported-rows"),
+            None,
+        )
+        .await;
+    assert_eq!(
+        rows.body[0]["raw"]["Description"],
+        json!("PAYROLL"),
+        "{}",
+        rows.body
     );
 }

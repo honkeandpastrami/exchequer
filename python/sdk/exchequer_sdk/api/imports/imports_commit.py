@@ -84,8 +84,10 @@ def sync_detailed(
     row's decision is carried out: new transactions go into one `file`
     import batch; transfer matches turn the matched transaction into a
     transfer; every row that's now in the ledger is recorded as imported, so
-    the same row is a duplicate next time. Each statement's ledger balance
-    becomes a balance check. The staged import is then gone.
+    the same row is a duplicate next time, and what this file says about it is
+    kept with its transaction (once per file, whatever its name). Each
+    statement's ledger balance becomes a balance check. The staged import is
+    then gone.
 
     Args:
         id (UUID):
@@ -123,8 +125,10 @@ def sync(
     row's decision is carried out: new transactions go into one `file`
     import batch; transfer matches turn the matched transaction into a
     transfer; every row that's now in the ledger is recorded as imported, so
-    the same row is a duplicate next time. Each statement's ledger balance
-    becomes a balance check. The staged import is then gone.
+    the same row is a duplicate next time, and what this file says about it is
+    kept with its transaction (once per file, whatever its name). Each
+    statement's ledger balance becomes a balance check. The staged import is
+    then gone.
 
     Args:
         id (UUID):
@@ -157,8 +161,10 @@ async def asyncio_detailed(
     row's decision is carried out: new transactions go into one `file`
     import batch; transfer matches turn the matched transaction into a
     transfer; every row that's now in the ledger is recorded as imported, so
-    the same row is a duplicate next time. Each statement's ledger balance
-    becomes a balance check. The staged import is then gone.
+    the same row is a duplicate next time, and what this file says about it is
+    kept with its transaction (once per file, whatever its name). Each
+    statement's ledger balance becomes a balance check. The staged import is
+    then gone.
 
     Args:
         id (UUID):
@@ -194,8 +200,10 @@ async def asyncio(
     row's decision is carried out: new transactions go into one `file`
     import batch; transfer matches turn the matched transaction into a
     transfer; every row that's now in the ledger is recorded as imported, so
-    the same row is a duplicate next time. Each statement's ledger balance
-    becomes a balance check. The staged import is then gone.
+    the same row is a duplicate next time, and what this file says about it is
+    kept with its transaction (once per file, whatever its name). Each
+    statement's ledger balance becomes a balance check. The staged import is
+    then gone.
 
     Args:
         id (UUID):

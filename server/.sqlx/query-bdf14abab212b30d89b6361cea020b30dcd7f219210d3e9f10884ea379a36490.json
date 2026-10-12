@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT f.account_id, f.fingerprint, f.transaction_id, f.raw FROM import_fingerprint f\n         JOIN unnest($1::uuid[], $2::text[]) AS u(account_id, fingerprint)\n           ON u.account_id = f.account_id AND u.fingerprint = f.fingerprint",
+  "query": "SELECT f.account_id, f.fingerprint, r.file_sha256 AS \"file_sha256?\",\n                  r.raw AS \"raw?\", r.imported_at AS \"imported_at?\"\n           FROM import_fingerprint f\n           LEFT JOIN imported_row r USING (account_id, fingerprint)\n           WHERE f.transaction_id = $1\n           ORDER BY f.account_id, f.fingerprint, r.imported_at",
   "describe": {
     "columns": [
       {
@@ -27,39 +27,50 @@
       },
       {
         "ordinal": 2,
-        "name": "transaction_id",
-        "type_info": "Uuid",
+        "name": "file_sha256?",
+        "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "import_fingerprint",
-            "name": "transaction_id"
+            "table": "imported_row",
+            "name": "file_sha256"
           }
         }
       },
       {
         "ordinal": 3,
-        "name": "raw",
+        "name": "raw?",
         "type_info": "Jsonb",
         "origin": {
           "Table": {
-            "table": "import_fingerprint",
+            "table": "imported_row",
             "name": "raw"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "imported_at?",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "imported_row",
+            "name": "imported_at"
           }
         }
       }
     ],
     "parameters": {
       "Left": [
-        "UuidArray",
-        "TextArray"
+        "Uuid"
       ]
     },
     "nullable": [
       false,
       false,
       false,
-      true
+      false,
+      false
     ]
   },
-  "hash": "b7d8e1cd629d2fae8d881256f5700e0aedee78c3c8066e8f2f634c6ff045cd96"
+  "hash": "bdf14abab212b30d89b6361cea020b30dcd7f219210d3e9f10884ea379a36490"
 }

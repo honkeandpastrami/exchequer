@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO imported_row (account_id, fingerprint, file_sha256, raw)\n         SELECT * FROM unnest($1::uuid[], $2::text[], $3::text[], $4::jsonb[])\n         ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "TextArray",
+        "TextArray",
+        "JsonbArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6ab0076cb52fbbe3d32e41e404458e70d2a68032c4a4cf38bd346710024101d3"
+}

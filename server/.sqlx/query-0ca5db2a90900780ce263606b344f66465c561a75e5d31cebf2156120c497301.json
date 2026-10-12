@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO import_fingerprint (account_id, fingerprint, transaction_id)\n         SELECT * FROM unnest($1::uuid[], $2::text[], $3::uuid[])\n         ON CONFLICT (account_id, fingerprint) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "TextArray",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0ca5db2a90900780ce263606b344f66465c561a75e5d31cebf2156120c497301"
+}
