@@ -12,7 +12,7 @@ since paths and schedules are yours.
 | `exchequer-api.container` | The API, published on `127.0.0.1:7438` |
 | `exchequer-backup.container`, `exchequer-backup.timer` | Daily `pg_dump` to a local drive |
 | `../exchequer-backup`, `../backup.Containerfile` | The dump/restore script, and the backup image that carries it |
-| `../build-images` | Builds the server and backup images |
+| `../build-images` | Builds both images from a checkout, as a fallback to the released ones |
 
 Needs podman 5 or newer (`Notify=healthy`).
 
@@ -36,10 +36,12 @@ Run these as the (non-root) user that will own the service, from a clone of this
    openssl rand -base64 32 | tr -d '\n' | podman secret create exchequer_bootstrap_token -
    ```
 
-3. Build the server and backup images (a few minutes the first time):
+3. Pull the server and backup images of the newest release. `OWNER` here and in the
+   quadlets is the owner of the GitHub repository the releases come from, in lowercase:
 
    ```sh
-   deploy/build-images
+   podman pull ghcr.io/OWNER/exchequer-server:latest \
+       ghcr.io/OWNER/exchequer-backup:latest
    ```
 
 4. Install the units. Podman reads the container, network and volume files from
@@ -101,14 +103,26 @@ Open the web app with the trailing slash (`/exchequer/`): its paths are relative
 
 ## Updating
 
-Pull, then rebuild both images with `deploy/build-images`. The API's `AutoUpdate=local`
-lets `podman-auto-update.timer` restart it on the new image overnight (enable it once with
-`systemctl --user enable --now podman-auto-update.timer`); to switch now, run
-`systemctl --user restart exchequer-api.service`. The backup uses the new image on its
-next run.
+Releases are published by GitHub (design §15). Everything in the repo shares one
+version: `just set-version X.Y.Z`, commit, push, then tag that commit on `main`:
 
-Both images carry the label `local-build`: they can't be pulled again, so keep them out
-of any image prune, e.g. `podman image prune -af --filter label!=local-build`.
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The `release` workflow checks every piece is at that version, builds and smoke-tests
+both images, and publishes them as `ghcr.io/OWNER/exchequer-server` and
+`…/exchequer-backup`, tagged `0.2.0`, `0.2` and `latest`, with a GitHub Release carrying
+the Python packages.
+
+The API's `AutoUpdate=registry` lets `podman-auto-update.timer` pull the new release and
+restart the API on it overnight (enable it once with
+`systemctl --user enable --now podman-auto-update.timer`); to update now, run
+`podman auto-update`. The backup quadlet has `Pull=newer`, so each run uses the newest
+release. To go back to a release, set the quadlet's `Image=` to its version tag.
+
+`deploy/build-images` builds both images from a checkout under the same names, if a
+release can't be pulled; the next release replaces them.
 
 ## First-run rehearsal
 

@@ -1,6 +1,6 @@
 [package]
 name = "ofx-check"
-version = "0.0.0"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
@@ -11,7 +11,7 @@ workspace = true
 
 [dependencies]
 csv = "1.4"
-import = { version = "0.0.0", path = "../import" }
+import = { path = "../import" }
 ofx-rs = "0.2"
 rust_decimal = "1.43"
 time = "0.3.55"

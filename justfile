@@ -56,7 +56,7 @@ check:
     cd server && cargo sqlx prepare --workspace --check -- --all-targets
     cd server && cargo clippy --all-targets -- -D warnings
     cd server && cargo deny check
-    shellcheck deploy/exchequer-backup deploy/build-images deploy/restore deploy/tests/backup.sh
+    shellcheck deploy/exchequer-backup deploy/build-images deploy/restore deploy/tests/backup.sh deploy/tests/image-smoke.sh
     cd server && cargo test
     just backup-test
 
@@ -112,3 +112,38 @@ web-check:
     cd web && npm run build
     cd web && npm run gen > /dev/null
     git diff --exit-code -- web/src/lib/api
+
+# Every piece's version, one per line: `<piece> <version>`.
+versions:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{justfile_directory()}}"
+    echo "server $(sed -n 's/^version = "\(.*\)"$/\1/p' server/Cargo.toml)"
+    echo "api-spec $(python3 -c 'import json; print(json.load(open("api/openapi.json"))["info"]["version"])')"
+    echo "web $(python3 -c 'import json; print(json.load(open("web/package.json"))["version"])')"
+    for p in python/pyproject.toml python/sdk/pyproject.toml python/firefly-migrate/pyproject.toml; do
+        echo "$p $(sed -n 's/^version = "\(.*\)"$/\1/p' "$p")"
+    done
+
+# Fail unless every piece is at `version` (the release workflow passes the tag).
+versions-match version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    wrong=$(just versions | awk -v v="{{version}}" '$2 != v')
+    if [ -n "$wrong" ]; then echo "not at {{version}}:"; echo "$wrong"; exit 1; fi
+
+# Set every piece to one version (X.Y.Z), regenerating what derives from it.
+# Commit, then tag vX.Y.Z on main to release.
+set-version version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ "{{version}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "expected X.Y.Z"; exit 1; }
+    cd "{{justfile_directory()}}"
+    sed -i.bak 's/^version = ".*"$/version = "{{version}}"/' server/Cargo.toml \
+        python/pyproject.toml python/firefly-migrate/pyproject.toml
+    rm -f server/Cargo.toml.bak python/pyproject.toml.bak python/firefly-migrate/pyproject.toml.bak
+    (cd server && cargo update -w -q)
+    (cd web && npm version "{{version}}" --no-git-tag-version --allow-same-version > /dev/null)
+    just spec sdk
+    (cd python && uv lock -q)
+    just versions-match "{{version}}"

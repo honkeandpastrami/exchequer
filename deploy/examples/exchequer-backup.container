@@ -7,7 +7,9 @@ After=exchequer-db.service
 
 [Container]
 ContainerName=exchequer-backup
-Image=localhost/exchequer-backup:latest
+Image=ghcr.io/OWNER/exchequer-backup:latest
+# Each run first pulls a newer release of the image, if there is one.
+Pull=newer
 Network=exchequer.network
 Secret=exchequer_db_password
 Environment=PGHOST=exchequer-db PGUSER=exchequer PGDATABASE=exchequer

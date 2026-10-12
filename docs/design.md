@@ -745,9 +745,11 @@ exchequer/
 - **Generated SDKs are committed,** so API changes show up as readable diffs.
 - **One container serves the API and the web app** (`/` and `/api/v1`): one origin, one
   image, one quadlet.
-- **Independent releases** via prefixed tags: `server-vX.Y.Z` publishes a public container
-  image to GHCR (it holds no household data); `cli-vX.Y.Z` builds the CLI and updates the
-  Homebrew formula. Each component keeps its own changelog.
+- **One version for everything** (server, web, spec, SDK, CLI), set with
+  `just set-version`: they're built from one spec and move together. A tag `vX.Y.Z` on
+  `main` publishes both images to GHCR, public since they hold no household data, and a
+  GitHub Release with the Python packages. The deployment runs the newest release and
+  updates through `podman auto-update`; nothing is built on the server.
 - **Real bank files never enter the repo, not even anonymized.** Fixtures are **synthetic**:
   generated files for the fictional household that reproduce each format's quirks (SGML vs
   XML OFX, QBO headers, CSV layouts). Tests on real files read from a local path given at

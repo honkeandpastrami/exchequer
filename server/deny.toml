@@ -35,6 +35,8 @@ ignore = true
 [bans]
 multiple-versions = "allow"
 wildcards = "deny"
+# Workspace crates refer to each other by path only; none is published.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

@@ -1,0 +1,81 @@
+# Releases everything at one version (design §15): pushing a tag vX.Y.Z on
+# main builds both images, smoke-tests them, publishes them to GitHub's
+# container registry as X.Y.Z, X.Y and latest, and creates a GitHub Release
+# with the Python packages attached. Every piece must already be at X.Y.Z
+# (`just set-version X.Y.Z`).
+name: release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: docker.io/library/postgres:17
+        env:
+          POSTGRES_USER: exchequer
+          POSTGRES_DB: exchequer
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U exchequer"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - uses: astral-sh/setup-uv@v6
+      - name: Check the tag
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main ||
+              { echo "$GITHUB_REF_NAME is not on main"; exit 1; }
+          just versions-match "$version"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "MINOR=${version%.*}" >> "$GITHUB_ENV"
+          echo "REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+      - name: Build images
+        run: |
+          labels=(--label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+                  --label "org.opencontainers.image.version=$VERSION"
+                  --label "org.opencontainers.image.revision=$GITHUB_SHA"
+                  --label "org.opencontainers.image.licenses=BSD-2-Clause")
+          docker build -f Containerfile "${labels[@]}" -t exchequer-server .
+          docker build -f deploy/backup.Containerfile "${labels[@]}" -t exchequer-backup deploy
+      - name: Smoke test
+        run: deploy/tests/image-smoke.sh exchequer-server exchequer-backup "$VERSION"
+      - name: Build the Python packages
+        working-directory: python
+        run: |
+          uv build --package exchequer-sdk --out-dir dist
+          uv build --package firefly-migrate --out-dir dist
+      - name: Publish images
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          for image in exchequer-server exchequer-backup; do
+              for tag in "$VERSION" "$MINOR" latest; do
+                  docker tag "$image" "$REGISTRY/$image:$tag"
+                  docker push -q "$REGISTRY/$image:$tag"
+              done
+          done
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" python/dist/* --verify-tag --generate-notes \
+              --title "Exchequer $VERSION" \
+              --notes "Images: \`$REGISTRY/exchequer-server:$VERSION\`, \`$REGISTRY/exchequer-backup:$VERSION\`."

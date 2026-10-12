@@ -1,16 +1,20 @@
 #!/bin/sh
-# build-images: build the server and backup images from this checkout.
+# build-images: build the server and backup images from this checkout, as a
+# fallback to the released ones (deploy/README.md, "Updating").
 #
 #   deploy/build-images
 #
-# Both are tagged :latest under localhost/, the names the quadlets in
-# deploy/examples/ use. A running API switches to the new image when it is
-# restarted (or overnight, through AutoUpdate=local).
+# Both are tagged with the names the quadlets in deploy/examples/ use, so a
+# restart runs them. The next release replaces them when auto-update pulls.
 
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+# The registry the release workflow publishes to: ghcr.io/<owner of this
+# checkout's GitHub remote>, unless EXCHEQUER_REGISTRY says otherwise.
+owner=$(git -C "$root" remote get-url origin | sed -E 's#.*[:/]([^/]+)/[^/]+$#\1#' | tr '[:upper:]' '[:lower:]')
+registry=${EXCHEQUER_REGISTRY:-ghcr.io/$owner}
 
-podman build -t exchequer-server "$root"
-podman build -t exchequer-backup -f "$root/deploy/backup.Containerfile" "$root/deploy"
-echo "built exchequer-server (schema v$(podman run --rm localhost/exchequer-server:latest schema-version)) and exchequer-backup"
+podman build -t "$registry/exchequer-server:latest" "$root"
+podman build -t "$registry/exchequer-backup:latest" -f "$root/deploy/backup.Containerfile" "$root/deploy"
+echo "built exchequer-server (schema v$(podman run --rm "$registry/exchequer-server:latest" schema-version)) and exchequer-backup"

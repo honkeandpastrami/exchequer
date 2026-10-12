@@ -29,8 +29,6 @@ RUN --mount=type=cache,id=exchequer-cargo-registry,sharing=locked,target=/usr/lo
 FROM scratch
 COPY --from=build /exchequer-server /exchequer-server
 COPY --from=web /src/web/build /web
-# Built locally, so it can't be pulled again: a prune can skip it by this label.
-LABEL local-build="true"
 USER 65532:65532
 ENV EXCHEQUER_BIND=0.0.0.0:7438 EXCHEQUER_WEB_DIR=/web
 EXPOSE 7438

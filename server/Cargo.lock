@@ -69,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "api"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "domain",
@@ -519,7 +519,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bigdecimal",
  "proptest",
@@ -992,7 +992,7 @@ dependencies = [
 
 [[package]]
 name = "import"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "ofx-rs",
 ]
@@ -1190,7 +1190,7 @@ dependencies = [
 
 [[package]]
 name = "ofx-check"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "csv",
  "import",
@@ -1612,7 +1612,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "api",
  "axum",
@@ -1902,7 +1902,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "store"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "domain",
  "rust_decimal",

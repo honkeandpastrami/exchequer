@@ -1,7 +1,7 @@
 # uv workspace for all Python code (design §16.2): one lockfile, shared lints.
 [project]
 name = "exchequer-python"
-version = "0.0.0"
+version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = ["exchequer-sdk", "firefly-migrate"]
 
