@@ -37,8 +37,7 @@
 		['due', 'Due'],
 		['paid', 'Paid'],
 		['outstanding', 'Outstanding'],
-		['to_settle', 'To settle'],
-		['implied_stipend', 'Implied stipend']
+		['to_settle', 'To settle']
 	] as const;
 
 	function split(txs: Map<string, Schemas['Transaction']>, p: Schemas['SplitPointer']) {
