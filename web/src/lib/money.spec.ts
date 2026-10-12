@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAmount, minus, sign, sum } from './money';
+import { formatAmount, minus, negate, sign, sum, zero } from './money';
 
 describe('money', () => {
 	it('formats without rounding', () => {
@@ -21,5 +21,15 @@ describe('money', () => {
 		expect(sign('-0.01')).toBe(-1);
 		expect(sign('0.00')).toBe(0);
 		expect(sign('3')).toBe(1);
+	});
+});
+
+describe('negate', () => {
+	it('flips the sign, keeping the scale', () => {
+		expect(negate('12.50')).toBe('-12.50');
+		expect(negate('-3')).toBe('3');
+		expect(negate('0.00')).toBe('0.00');
+		expect(zero(2)).toBe('0.00');
+		expect(zero(0)).toBe('0');
 	});
 });

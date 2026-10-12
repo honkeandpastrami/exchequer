@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addMonths, monthName } from './dates';
+import { addMonths, lastDay, monthName, monthsBetween } from './dates';
 
 describe('dates', () => {
 	it('moves across years', () => {
@@ -10,5 +10,19 @@ describe('dates', () => {
 
 	it('names months', () => {
 		expect(monthName('2026-08')).toBe('Aug 2026');
+	});
+});
+
+describe('month ranges', () => {
+	it('lists months and last days', () => {
+		expect(monthsBetween('2025-11', '2026-02')).toEqual([
+			'2025-11',
+			'2025-12',
+			'2026-01',
+			'2026-02'
+		]);
+		expect(monthsBetween('2026-03', '2026-02')).toEqual([]);
+		expect(lastDay('2028-02')).toBe('2028-02-29');
+		expect(lastDay('2026-12')).toBe('2026-12-31');
 	});
 });

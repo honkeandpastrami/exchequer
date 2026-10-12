@@ -13,7 +13,8 @@
 	const sections = [
 		{ href: resolve('/'), label: 'Accounts', route: '/' },
 		{ href: resolve('/transactions'), label: 'Transactions', route: '/transactions' },
-		{ href: resolve('/settlement'), label: 'Settlement', route: '/settlement' }
+		{ href: resolve('/settlement'), label: 'Settlement', route: '/settlement' },
+		{ href: resolve('/reports'), label: 'Reports', route: '/reports' }
 	];
 </script>
 
@@ -33,8 +34,9 @@
 <style>
 	.bar {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
-		gap: var(--space-5);
+		gap: var(--space-2) var(--space-5);
 		padding: var(--space-2) var(--gutter);
 		background: var(--color-surface);
 		border-bottom: var(--border-width) solid var(--color-border);
@@ -54,6 +56,17 @@
 		display: flex;
 		gap: var(--space-4);
 		flex: 1;
+		overflow-x: auto;
+	}
+	/* Narrow screens: brand and sign-out on top, the sections below. */
+	@media (max-width: 40rem) {
+		nav {
+			order: 1;
+			flex-basis: 100%;
+		}
+		.brand {
+			flex: 1;
+		}
 	}
 	nav a {
 		text-decoration: none;

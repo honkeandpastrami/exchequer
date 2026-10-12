@@ -27,3 +27,14 @@ export function minus(a: string, b: string): string {
 	const scale = Math.max(...[a, b].map((v) => v.split('.')[1]?.length ?? 0));
 	return new Big(a).minus(b).toFixed(scale);
 }
+
+/** `−value`, at the same scale. */
+export function negate(value: string): string {
+	if (value.startsWith('-')) return value.slice(1);
+	return sign(value) === 0 ? value : `-${value}`;
+}
+
+/** Zero with `decimals` places: `zero(2)` → `0.00`. */
+export function zero(decimals: number): string {
+	return decimals > 0 ? `0.${'0'.repeat(decimals)}` : '0';
+}

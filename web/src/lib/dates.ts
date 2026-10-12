@@ -25,3 +25,17 @@ export function monthName(month: string): string {
 		timeZone: 'UTC'
 	});
 }
+
+/** Every month from `from` through `to` (`YYYY-MM`), in order. */
+export function monthsBetween(from: string, to: string): string[] {
+	const out: string[] = [];
+	for (let m = from; m <= to; m = addMonths(m, 1)) out.push(m);
+	return out;
+}
+
+/** The last day of `month`, as `YYYY-MM-DD`. */
+export function lastDay(month: string): string {
+	const [y, m] = month.split('-').map((x) => parseInt(x, 10));
+	const d = new Date(Date.UTC(y, m, 0)).getUTCDate();
+	return `${month}-${String(d).padStart(2, '0')}`;
+}
