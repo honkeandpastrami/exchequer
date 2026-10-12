@@ -6,9 +6,13 @@
 
 	let { children }: { children: Snippet } = $props();
 
+	const current = (route: string) =>
+		route === '/' ? page.route.id === '/' : !!page.route.id?.startsWith(route);
+
 	const sections = [
 		{ href: resolve('/'), label: 'Accounts', route: '/' },
-		{ href: resolve('/transactions'), label: 'Transactions', route: '/transactions' }
+		{ href: resolve('/transactions'), label: 'Transactions', route: '/transactions' },
+		{ href: resolve('/settlement'), label: 'Settlement', route: '/settlement' }
 	];
 </script>
 
@@ -16,7 +20,7 @@
 	<span class="brand">Exchequer</span>
 	<nav>
 		{#each sections as s (s.route)}
-			<a href={s.href} aria-current={page.route.id === s.route ? 'page' : undefined}>{s.label}</a>
+			<a href={s.href} aria-current={current(s.route) ? 'page' : undefined}>{s.label}</a>
 		{/each}
 	</nav>
 	<button class="quiet" onclick={signOut}>Sign out</button>

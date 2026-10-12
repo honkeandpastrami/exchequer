@@ -29,3 +29,10 @@ export const kinds: Record<Schemas['Kind'], string> = {
 	transfer: 'Transfer',
 	conversion: 'Conversion'
 };
+
+export const lineKinds: Record<Schemas['LineKind'], string> = {
+	claim: 'Claim',
+	payment: 'Payment',
+	in_transit: 'In transit',
+	clearing: 'Clearing'
+};

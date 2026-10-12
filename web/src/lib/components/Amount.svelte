@@ -4,7 +4,7 @@
 	let { value, code }: { value: string; code?: string } = $props();
 </script>
 
-<span class="amount" class:negative={sign(value) < 0}
+<span class="amount" class:negative={sign(value) < 0} class:zero={sign(value) === 0}
 	>{formatAmount(value)}{#if code}<span class="code">{code}</span>{/if}</span
 >
 
@@ -15,6 +15,9 @@
 	}
 	.negative {
 		color: var(--color-negative);
+	}
+	.zero {
+		color: var(--color-text-muted);
 	}
 	.code {
 		margin-left: var(--space-1);
