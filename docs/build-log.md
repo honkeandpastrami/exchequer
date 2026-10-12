@@ -1,0 +1,157 @@
+# Build log
+
+Progress against the build order in [`design.md` §17](design.md#17-build-order). Newest
+entries go at the top of each section. This file is public: it records code facts only. Nothing from real data (results of runs,
+counts, amounts, patterns, names) goes here or in any commit.
+
+## Done
+
+| Step | What | Commit |
+|---|---|---|
+| 4.5a | `firefly-migrate settle` and `settlement`: the settlement pass over a migrated ledger, through the API and without reading Firefly (household currency, payment links by Firefly ID, each month's stipends and funders from schedules carried forward, closing through `closed_through`), then the §4.5 check: stipend set vs. implied stipend per person and month, flagging closed months that differ. Re-runnable: changes only what differs. Mapping gains `[settlement]`. 13 new Python tests (38). | `1ceebbf` |
+| 4.4 | Balance checks (migration `0005_balance_checks.sql`): `POST/GET /balance-checks`, `GET/DELETE /balance-checks/{id}`. A check stores what the bank showed (default commodity: the household currency; default date: today); whether it matches, the ledger balance, the difference and `verified_through` are computed live, so fixing the ledger fixes the check. A mismatch gets candidates from `domain::discrepancy`, searched since the last verified date: duplicate pair, a posting equal to the difference, date boundary (±3 days), sign flip, 2–3 postings summing to it, transposed digits, multiple of 9, near-duplicates. 5 new tests (94 server tests) | `4ef0b24` |
+| 4.3 | Query engine: `domain::report` (postings from classified splits, signed, with default purposes; flows by any of account, owner, purpose, category, counterparty, kind, tag, per commodity; day/week/month/quarter/year buckets; balances at each bucket end from opening sums). `POST /query` (flow or balance, filters ANDed, at most 20,000 rows) and named reports `GET /reports/balances?date=` and `GET /reports/household-pool/{month}` (household income and expenses by category, liquidations, stipends, business funding, change in shared savings). Income vs. expense, spending by category/tag and balance history are single queries. 7 new tests (89 server tests) | `8df46aa` |
+| 4.2 | Settlement API (migration `0004_settlement.sql`): the household's `currency_id` (PATCH the household party); `GET`/`PUT /settlements/{month}` (stipends, funders; carried forward from the latest earlier month, with `params_from`); `GET …/statement` (edges with lines, in-transit liquidations, unpriced splits; amounts at the currency's precision); `POST …/close` (needs every stipend and funder set for the month) and `…/reopen`; `GET /settlements?from=&to=` (per-month history with each edge's `implied_stipend`, §4.5). Transactions dated in a closed month can't be created, replaced or deleted (409 `month-closed`). Splits take `settles` (`YYYY-MM`). SDK regenerated. 4 new API tests | `673b1d0` |
+| 4.1 | Settlement math in `domain` (`settlement.rs`, `month.rs`): each split's effect (claim, liquidation claim, settlement payment) valued in the household currency; items routed over each month's tree; per-edge statement with `claims`, `stipend`, `due`, `paid`, `outstanding`, `to_settle`, in-transit liquidations and their clearing, lines; implied stipend; parameters carried forward; a split's optional `settles` month (payments only). 9 tests incl. a property test (claims paid back in their month net to zero under any funder) | `81f6d33`, `8d058be` |
+| 3.2–3.3 | Python workspace `python/` (uv, one lockfile; ruff, ty, pytest; no-float grep; no-GPL licence scan) with `just python-check` and a `python` CI workflow. Generated SDK `python/sdk` (`openapi-python-client`, pinned; `just sdk`; CI fails if stale). `firefly-migrate`: GET-only Firefly client, mapping loader, pure transform, writer through the SDK, Markdown report, acceptance check (balances per account/commodity at month ends, category totals per month). 25 tests on a fictional household. The OpenAPI spec now gives every response a description (required by OpenAPI; the generator rejected the spec without them) | `6b3fb15` |
+| 3.1 | Migration support in the server (migration `0003_external_refs.sql`): transactions carry `external_refs` (`{source, ref}`, unique per source, replaced with the transaction, 409 on reuse) and can be listed by `?external_source=&external_ref=`; accounts gain `archived` and an optional `credit_limit` (`{commodity_id, quantity}`, positive, within the commodity's precision; `null` in a PATCH clears it). 66 tests | `a322f04` |
+| 2.6 | Repo tooling: `cargo-deny` (`server/deny.toml`: permissive licenses only, RustSec advisories, crates.io only) and `shellcheck` added to `just check`; `Containerfile` (static musl binary on `scratch`, non-root); GitHub Actions `server` workflow with path filters: `just check` against a Postgres 17 service (fmt, query cache, clippy, deny, tests incl. spec drift, backup round trip), and an image build + smoke test (`/healthz`, `/version` against a real database) | `3f06b6c`, `5656d7c` |
+| 2.5 | Local backups: `deploy/exchequer-backup` (POSIX sh) dumps to `exchequer-<UTC time>-v<schema>.dump` (`pg_dump -Fc`), keeps the newest N, and restores into an empty database after checking the schema version against `exchequer-server schema-version` (new subcommand). Password only from `PGPASSWORD_FILE`. Example quadlets in `deploy/examples/` (network, db volume + container, API, backup container + daily `Persistent=true` timer) and an install/backup/restore runbook in `deploy/README.md`. Restore test `just backup-test` (part of `just check`): dump, restore, byte-compare both databases, re-check migration checksums, refusals, pruning | `f8f90bb` |
+| 2.4c | Transactions with splits and tags: create (`POST`), replace whole (`PUT` + `If-Match`), delete, get, list newest first with filters (date range, account, counterparty, category) and cursor pagination. Every split is checked by `domain` against data loaded from the database; responses carry each split's derived `kind` and `liquidation` flag. Rule violations are 422 `ledger-rule` naming the split. `domain::Book` (in-memory lookup) moved out of the tests. 65 tests | `2173647` |
+| 2.4b | Commodities (validated by `domain`; precision can only increase), accounts (owner fixed at creation; `liquid` defaults to false for brokerages), counterparties (the two built-ins can be renamed, not deleted), categories, tags. All with pagination, ETag/If-Match, audit log; request bodies reject unknown fields. 61 tests | `549ed05` |
+| 2.4a | §5 conventions: `Amount` JSON is a string only (numbers rejected); `ETag` on reads, `If-Match` required on edits (428 if missing, 412 if stale); cursor pagination (`?limit=&cursor=`, `{items, next_cursor}`); `Idempotency-Key` on POST (per token, 24 h, replays marked `Idempotency-Replayed: true`, pruned on write). Migration `0002_versions.sql`. Parties resource as the first user of all of them. 57 tests | `1ed7f91` |
+| 2.3 | Bearer-token auth on every `/api/v1` path (unknown paths included): tokens `exq_<id>_<secret>`, SHA-256 of the secret stored, compared in constant time. `POST/GET /api/v1/tokens`, `DELETE /api/v1/tokens/{id}` (revoke). Bootstrap token from `BOOTSTRAP_TOKEN_FILE` (≥ 32 chars), allowed only on `/tokens`. Errors as RFC 9457 Problem Details, including bad JSON and bad path parameters. Audit log entries for token create/revoke, never containing secrets or hashes. 52 tests | `45e6788`, `240c2d2` |
+| 2.2 | `api` crate (axum + utoipa-axum, OpenAPI 3.1) with `/healthz` (503 when the DB is down) and `/version` (server + schema version); request log of method, path, status, latency only. `exchequer-server` binary: config from env, secrets only via `X_FILE` (plain `X` refused), startup migrations, graceful SIGTERM shutdown, `openapi` subcommand. `api/openapi.json` committed with a drift test. Smoke-tested end to end | `90be10d` |
+| 2.1 | Dev database contained in `server/.pgdata/` (socket only, no TCP, `just db-up`/`db-down`/`db-reset`); `store` crate with embedded migrations; schema `0001_ledger.sql` for the step 1 entities, tokens, audit log and idempotency keys, with the lookup-free split invariants repeated as CHECK constraints. 5 tests: no float columns, exact NUMERIC round trips, one household, split constraints | `99b6248` |
+| 1 | Ledger core in `domain`: `Amount`/`Rate` (exact, checked, no float API), `Commodity` precision checks, masked `AccountNumber`, typed UUIDv7 IDs, parties and the monthly settlement tree with claim routing, accounts/counterparties, splits with derived kind and every §3 invariant. 32 tests incl. property tests; `clippy.toml` float ban verified to fire | `8fc71ba` |
+| 0.3 | `ofx-check` dev tool (compares `ofx-rs` output with the importer in use, on files read from a local path) and `import::ofx`, a hot-patch for three `ofx-rs` 0.2.0 bugs: bank-specific tags inside `STMTTRN`, dropped `&amp;` entities, mangled non-ASCII text | `b464df6`, `b79e037` |
+| 0.2 | Public GitHub repo, secret scanning and push protection on; Cargo workspace with float lints; toolchain pinned to 1.99.0 | `e8c9121` |
+| 0.1 | Generic docs: `design.md`, `requirements.md`, README, BSD-2-Clause license | `b3f5b6f` |
+
+## Next
+
+- **Step 4, household settlement (§4) + query/report engine (§7) + balance checks (§7.1).**
+  Substeps:
+  1. Settlement math in `domain` (pure, property-tested): claims from splits (owner ≠
+     purpose, liquidations), settlement payments, stipends, routing over the month's tree,
+     per-edge `due`/`paid`/`outstanding`, investment proceeds in transit, implied stipends.
+  2. Storage and API: the household currency, each month's stipends and funders,
+     `GET …/statement`, `POST …/close` / `…/reopen`, the closed-month guard on
+     transactions, a split's optional link to the month it settles, implied stipends.
+  3. Query engine: one aggregation endpoint (filter × group by × bucket) and the named
+     reports that need no prices (balances and balance history, income vs. expense,
+     spending by category/tag, household pool).
+  4. Balance checks and the deterministic discrepancy finder.
+  5. Migration pass: the household currency, stipends, closed months through the last
+     closed one, and the §4.5 comparison (implied stipend per person per month).
+- *Scope decided for step 3:* the ledger only (commodities, parties, accounts,
+  counterparties, categories, tags, transactions with purposes), one year at a time with a
+  cutoff date. Rules (step 6), import batches (step 5), bills (step 9) and settlement links
+  and month closing (step 4) are migrated by those steps, as new passes over the same
+  Firefly data, linked through the external references: additive, nothing rebuilt.
+
+## To do
+
+5. Import pipeline (§6) + CLI import/review (§12).
+6. Classification (§8).
+7. Price fetching + valuation (§3.4).
+8. Web app (§13).
+9. Bills/recurrences (§9), Entra OIDC (§10 tier 2).
+10. *Low priority:* learned bills (§9.1).
+11. *Nice-to-have:* encrypted offsite backups (§14.2).
+
+## Decisions made while building
+
+| Step | Decision |
+|---|---|
+| 4.4 | Balance-check amounts are entered as the bank shows them: on credit cards and mortgages the amount owed is positive. They're stored in the ledger's sign. |
+| 4.4 | A check's result is never stored: it's recomputed against the ledger on every read, and `verified_through` is the latest matching check up to its date. Checks are immutable (delete and re-enter); their ETag is fixed. |
+| 4.4 | Import coverage gaps (§7.1) wait for import batches (step 5). The candidates are ranked by kind of reason, in the order listed above, at most 25. |
+| 4.3 | Grouping and bucketing run in Rust over splits classified by `domain`, not in SQL: kinds and default purposes have one implementation. SQL only selects splits by date and account and sums opening balances. §7 allows it: no materialized summaries until profiling asks. |
+| 4.3 | `/query` is a POST although it only reads: the filters are lists. Rows are always per commodity (nothing is valued until step 7); a grouped field is `null` for "none" and absent when not grouped. Tags multiply: a transaction with two tags counts in both. |
+| 4.3 | The household pool counts only amounts in the household currency, and liquidations by their side landing in a liquid account. "Shared savings" are the household's own liquid accounts (a household-owned mortgage counts). |
+| 4.2 | The household currency is a field of the household party, not a separate settings resource. Statements need it (409 until it's set). |
+| 4.2 | Each month's parameters are a resource (`/settlements/{month}`) with an ETag; a month never set has ETag `"0"`, so the first `PUT` uses `If-Match: "0"`. A closed month's parameters can't change; links to it (`settles`) can, since `paid` is never frozen (§4.4). |
+| 4.2 | Statements are computed from every relevant split on each request. Payments made after a month still settle it, so no date cutoff applies. |
+| 4.1 | A settlement payment settles the month **before** the one it's made in, unless a split says otherwise (`settles`). Stored links are only the exceptions. |
+| 4.1 | A liquidation is "in transit" whenever it lands with someone other than its purpose. It is cleared by the first later payment of exactly its amount from that party to its purpose that has no hand-set month; that payment isn't a regular one. Clearing by a large household expense (§4.3 b) isn't automatic yet: the line carries forward until cleared or relabelled. |
+| 4.1 | A split's value for the settlement is its account-side leg when that's in the household currency, else the other leg; with neither (e.g. a EUR expense from a EUR account) it is *unpriced* and listed, until prices exist (step 7). |
+| 4.1 | Settlement starts with the first month that has parameters: `outstanding` ignores earlier months. A migrated year begins mid-stream (payments in its first month settle the month before it), and before any parameters there's nothing to settle against. |
+| 4.1 | A month without parameters uses the latest earlier month's; before any, stipends are 0 and every business is household-funded. Statements state where their parameters come from. |
+| 3 | The migration sums every Firefly transaction before Jan 1 for the opening balances, instead of asking Firefly for a balance: exact, and independent of how Firefly reports credit cards. The acceptance check then compares against Firefly's own balances (credit cards minus their virtual balance). |
+| 3 | When a budget and a purpose tag disagree, the budget wins; every such case is in the report. Liquidations default to Household unless labeled. Labels Exchequer can't hold (a budget or category on a transfer, a purpose on investment activity) are dropped and listed. |
+| 3 | Report notes from years before the migrated one are counted, not listed (only their sums matter); errors are always listed. |
+| 3 | The SDK keeps amounts as strings (`openapi-python-client` has no decimal mapping); client code converts them with `Decimal`. A grep in `just python-check` bans `float(` and float annotations in all Python, the SDK included. |
+| 3 | Python tests run with `uv run pytest` from `just python-check`, not tox (§16.3): one Python version, so tox only added a layer. |
+| 3.1 | External references live on the transaction, not the split: Firefly keeps split structure, so a Firefly journal is the split at the same position. A credit limit carries its own commodity, since accounts have no fixed currency. |
+| 3 | The migration has its own GET-only Firefly client and its own Firefly token (a file whose path is in the private mapping), not the importer's client and token: it shares no code or credential with the importer, and the token is revoked when the migration is done. |
+| 1 | A liquidation is a flag on a transfer (non-liquid account → liquid account), not a fifth kind. |
+| 1 | A split moving the *same* commodity from an account into itself is rejected; a conversion within one account (sell stock → USD) is allowed. |
+| 1 | IDs are UUIDv7, wrapped in one type per entity (`AccountId`, `PartyId`, …). The inner type is defined in one macro, so changing it touches only `ids.rs`. |
+| 1 | Amounts parse from plain decimal notation only; exponents (`1e3`) are rejected. Trailing zeros don't count against a commodity's precision (`80.000` is valid USD). |
+| 2.6 | Two RustSec advisories in `quick-xml` 0.39 (pulled in by `ofx-rs` 0.2.0, the newest) are ignored in `deny.toml` with reasons: `ofx-rs` never calls the affected functions (`attributes()`, `NsReader`). |
+| 2.6 | The `justfile` takes `EXCHEQUER_PGHOST` / `EXCHEQUER_PG_BIN` to point at another Postgres (CI); prefixed so a `PGHOST` already in a shell can't redirect the dev recipes. |
+| 2.6 | CI's throwaway Postgres uses trust auth, so no password exists anywhere, not even a dummy one. GitHub Actions are pinned by major tag, not commit SHA (revisit if the repo gains a release pipeline). |
+| 2.6 | The backup runs from its own image (`deploy/backup.Containerfile`: `postgres:17` plus `exchequer-backup`), so nothing is installed on the host and the script always matches the checkout the images came from. Both local images carry a `local-build` label, so an image prune can skip them: they can't be pulled again. The example API quadlet sets `AutoUpdate=local`. |
+| 2.5 | Backup and restore are one shell script run in the stock `postgres:17` image (it has `pg_dump`/`pg_restore`), not a server subcommand: the server image stays a single binary. |
+| 2.5 | Restore only into an empty database, in one transaction, with objects owned by the restoring user. Dropping the old database is a separate, deliberate step in the runbook. A dump with an older schema is accepted (the server migrates it); a newer one is refused. |
+| 2.5 | `deploy/restore` takes a safety dump (through `exchequer-backup.service`) after stopping the API and before replacing anything, so a wrong file can be undone; `--no-safety-dump` skips it for a database too damaged to dump. It restores from a private copy of the file, because the safety dump prunes old dumps and could delete the one being restored. `--replace` uses `dropdb --if-exists`, so a run that failed between drop and create can be repeated. |
+| 2.5 | `exchequer-backup restore --replace` drops and recreates the database itself, after the file name and schema checks pass, and without `--force`, so it refuses while the API is still connected. `deploy/restore FILE` wraps the whole runbook on the host: stop the API, read the server image's schema version, restore with the backup image, start the API. On failure it leaves the API stopped. |
+| 2.4c | Transactions are replaced whole (`PUT`), splits and tags included, rather than patched: splits only make sense together, and `domain` validates the full set. |
+| 2.4c | Tags are given by name and created on first use (convenient for imports); names are trimmed, sorted and de-duplicated. |
+| 2.4c | `kind` is computed by `domain` on every read, never stored, so the API and the ledger rules can't disagree. A page of transactions loads what it refers to in one batch. |
+| 2.4b | Request bodies reject unknown fields (422), so a field that can't change, such as an account's `owner_id`, is refused rather than silently ignored. |
+| 2.4b | An account's `liquid` flag can be changed after creation; its owner can't. |
+| 2.4a | Edits are `PATCH` with only the editable fields; every edit and delete requires `If-Match`. ETags are the entity's version number. |
+| 2.4a | A party's kind is fixed at creation; only its name can change. Deleting anything still referenced is a 409. |
+| 2.4a | Idempotency keys apply to real tokens only (the bootstrap token has no token ID to scope them to). Responses replayed from a key carry the original status and body but not the original headers (e.g. `ETag`). |
+| 2.3 | Token secrets are stored as SHA-256, not argon2 (design §10 updated): a 256-bit random secret can't be guessed, so a slow password hash only added ~17 ms per request. |
+| 2.3 | Token format `exq_<32 hex id>_<64 hex secret>`: the server looks the token up by ID (one indexed read), then compares the secret's SHA-256 in constant time. The `exq_` prefix lets secret scanners recognize leaked tokens. |
+| 2.3 | The bootstrap token can only call `/api/v1/tokens*`; anything else is 403. It's recorded in the audit log as actor `null`. |
+| 2.3 | Problem `type` values are URNs (`urn:exchequer:problem:<slug>`): stable identifiers that need no hosted documentation. |
+| 2.3 | Queries use sqlx's compile-time-checked macros (§15): a misspelled column or a type mismatch is a compile error. Builds without a database read the committed query cache `server/.sqlx/`; `just prepare` regenerates it, `just check` fails if it's stale. Requires `sqlx-cli` (`cargo install sqlx-cli --no-default-features --features postgres,rustls`). `just db-up` applies migrations so the macros see the current schema. |
+| 2.2 | Env names follow §14.1 (`DB_HOST`, `DB_USER`, `DB_NAME`, `DB_PASSWORD_FILE`) plus `EXCHEQUER_BIND` (default `127.0.0.1:7438`, a port unlikely to collide with other local services). `DB_HOST` may be a socket directory; the password is optional for local socket connections. |
+| 2.2 | `/healthz` and `/version` live at the root, outside `/api/v1`, and need no token. |
+| 2.1 | Enumerations are `text` + CHECK rather than Postgres enum types (simpler to migrate). Amounts are unconstrained `NUMERIC`; precision is enforced in `domain`. |
+| 1 | Rounding mode is half-even, applied once at the end of a conversion; derived rates are stored at scale 20. |
+
+## Needs more work
+
+Items finished enough to move on, with known follow-ups.
+
+- **Step 2.5 — dumps were world-readable (fixed):** the script now sets `umask 077`, and the
+  test checks for mode 600. Dumps written before the fix keep their old mode: `chmod 600`
+  them, and `chmod 700` the backup directory.
+- **Step 2.5 — the network isn't `Internal=true`:** the database container can reach the
+  internet. Making it internal also blocks the API's published port, so it needs a second
+  network for the API. Worth doing when the quadlets are tested.
+- **Step 2.4c — not yet wired:** implied prices from conversion splits are computed but not
+  stored (`Price` arrives with step 7); the closed-month guard comes with settlement
+  (step 4); splits have no `bill_id` until bills exist (step 9).
+- **Step 2.1 — tests need a database:** locally `just db-up`; CI runs a Postgres service.
+
+- **Step 1 — entities not yet modeled** (each lands with the step that uses it): `Amount`
+  JSON (strings only, 422 on numbers) with step 2; account import metadata (institution,
+  number aliases, pairs) and counterparty aliases/merge with steps 5–6; `Settlement`,
+  `BalanceCheck` with step 4; `Price` with step 7; `Bill`/`Recurrence` with step 9;
+  `RuleScript` with step 6; `AuditLog` and categories/tags as entities with step 2.
+- **Step 0.3 — OFX coverage:** XML OFX (v2), QFX and non-ASCII text are covered by
+  synthetic tests.
+- **Step 0.3 — upstream the `ofx-rs` fixes** (optional): file the three bugs with synthetic
+  examples; delete the hot-patch once fixed upstream. Also ask for `quick-xml` ≥ 0.41, then
+  drop the two advisory ignores in `server/deny.toml` (2.6).
+
+## To discuss later
+
+- **Changing an account's `liquid` flag** (step 2.4b): allowed, but it changes which of the
+  account's existing splits may carry a purpose (§4.1), and existing purposes aren't
+  re-checked. Options: forbid the change once the account has splits, or re-validate them.
+- **Foreign-currency purchases** (step 1): a split *yours → external* with different
+  commodities on its legs (USD 110 charged for a EUR 100 purchase) is currently an
+  **expense** that also yields an implied price. §3.3 says "if A ≠ B, the split is a
+  conversion", which the kind table limits to yours → yours. Confirm, then align §3.3.
+- **Cross-account conversion out of investments** (step 1): selling in Alex Brokerage with
+  the cash landing directly in Alex Checking (ACME → USD across accounts) is a conversion,
+  so it is not flagged as a liquidation and can't carry a purpose. Should it count as one?
+- **LLM prompt contents and minimization** (§3.6, §8). Open item in the design; due before
+  step 6.
