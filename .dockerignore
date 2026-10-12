@@ -4,6 +4,9 @@
 server/target/
 server/.pgdata/
 server/.env
+# The image tag pins the toolchain; this file would make rustup download
+# clippy and rustfmt during the build.
+server/rust-toolchain.toml
 !web/
 web/node_modules/
 web/build/

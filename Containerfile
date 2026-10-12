@@ -11,20 +11,20 @@ RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund --loglevel=
 COPY web/ ./
 RUN npm run build
 
-FROM docker.io/library/rust:1.99-slim AS build
+FROM docker.io/library/rust:1.99-alpine AS build
 WORKDIR /src
 COPY server/ server/
-# Pure Rust (no TLS, no C libraries), so the musl build is fully static. sqlx
-# checks queries against the committed cache in server/.sqlx, no database needed.
+# Pure Rust (no TLS, no C libraries). On Alpine the host target is musl, whose
+# standard library ships with the image (nothing to download), and musl
+# binaries are static by default. sqlx checks queries against the committed
+# cache in server/.sqlx, no database needed.
 # The build cache is keyed to the toolchain, and locked so concurrent builds
 # can't corrupt it. Bump the id to start a cache from scratch.
 RUN --mount=type=cache,id=exchequer-cargo-registry,sharing=locked,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=exchequer-target-1.99-v2,sharing=locked,target=/src/server/target \
+    --mount=type=cache,id=exchequer-target-1.99-alpine,sharing=locked,target=/src/server/target \
     cd server \
-    && target="$(uname -m)-unknown-linux-musl" \
-    && rustup target add "$target" \
-    && SQLX_OFFLINE=true cargo build --release --locked -p server --target "$target" \
-    && cp "target/$target/release/exchequer-server" /exchequer-server
+    && SQLX_OFFLINE=true cargo build --release --locked -p server \
+    && cp target/release/exchequer-server /exchequer-server
 
 FROM scratch
 COPY --from=build /exchequer-server /exchequer-server
