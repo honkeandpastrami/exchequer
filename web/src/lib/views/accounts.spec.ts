@@ -14,7 +14,8 @@ const account = (id: string, owner_id: string, kind: Schemas['AccountKind'], arc
 	owner_id,
 	kind,
 	liquid: true,
-	archived
+	archived,
+	numbers: []
 });
 const accounts: Schemas['Account'][] = [
 	account('card', 'sam', 'credit_card'),

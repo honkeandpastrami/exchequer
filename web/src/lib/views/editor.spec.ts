@@ -19,7 +19,8 @@ const acct = (id: string, owner: string, liquid = true): Schemas['Account'] => (
 	owner_id: owner,
 	kind: liquid ? 'checking' : 'brokerage',
 	liquid,
-	archived: false
+	archived: false,
+	numbers: []
 });
 const ref: Reference = {
 	parties: new Map(),

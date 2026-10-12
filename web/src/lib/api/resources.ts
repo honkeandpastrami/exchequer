@@ -79,3 +79,20 @@ export type Named = Resource<
 	{ name: string },
 	{ name: string }
 >;
+
+/** An account's numbers. Each change returns the account and its new ETag. */
+export const accountNumbers = {
+	async add(id: string, etag: string, number: string) {
+		const r = await api.POST('/api/v1/accounts/{id}/numbers', {
+			params: { path: { id }, header: { 'If-Match': etag } },
+			body: { number }
+		});
+		return { item: ok(r), etag: r.response.headers.get('etag') ?? '' };
+	},
+	async remove(id: string, etag: string, numberId: string) {
+		const r = await api.DELETE('/api/v1/accounts/{id}/numbers/{number_id}', {
+			params: { path: { id, number_id: numberId }, header: { 'If-Match': etag } }
+		});
+		return { item: ok(r), etag: r.response.headers.get('etag') ?? '' };
+	}
+};

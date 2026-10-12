@@ -2,7 +2,7 @@
 	import { usd } from '#lib/usd.ts';
 	import { resolve } from '$app/paths';
 	import type { Schemas } from '#lib/api/client.ts';
-	import { accounts } from '#lib/api/resources.ts';
+	import { accountNumbers, accounts } from '#lib/api/resources.ts';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
 	import { accountKinds, partyKinds, rank } from '#lib/labels.ts';
@@ -20,6 +20,8 @@
 		archived: boolean;
 		limit: string;
 		limitCommodity: string;
+		numbers: Schemas['Number'][];
+		newNumber: string;
 	};
 
 	const { state: s, reload } = referenceState();
@@ -77,7 +79,9 @@
 				liquid: item.liquid,
 				archived: item.archived,
 				limit: item.credit_limit?.quantity ?? '',
-				limitCommodity: item.credit_limit?.commodity_id ?? household(r)
+				limitCommodity: item.credit_limit?.commodity_id ?? household(r),
+				numbers: item.numbers,
+				newNumber: ''
 			};
 		} catch (e) {
 			failure = e;
@@ -98,6 +102,31 @@
 			});
 			editing = null;
 		});
+
+	/** Number changes apply at once, not on Save. */
+	async function changeNumbers(
+		change: (id: string, etag: string) => Promise<{ item: Schemas['Account']; etag: string }>
+	) {
+		if (!editing) return;
+		const e = editing;
+		busy = true;
+		failure = null;
+		try {
+			const { item, etag } = await change(e.id, e.etag);
+			e.etag = etag;
+			e.numbers = item.numbers;
+			e.newNumber = '';
+		} catch (err) {
+			failure = err;
+		} finally {
+			busy = false;
+		}
+	}
+
+	const addNumber = () =>
+		changeNumbers((id, etag) => accountNumbers.add(id, etag, editing?.newNumber.trim() ?? ''));
+	const removeNumber = (n: Schemas['Number']) =>
+		changeNumbers((id, etag) => accountNumbers.remove(id, etag, n.id));
 
 	const remove = (a: Schemas['Account']) =>
 		run(async () => {
@@ -150,6 +179,7 @@
 					<col class="c-kind" />
 					<col class="c-liquid" />
 					<col class="c-limit" />
+					<col class="c-numbers" />
 					<col />
 				</colgroup>
 				<thead>
@@ -158,6 +188,7 @@
 						<th>Kind</th>
 						<th>Liquid</th>
 						<th class="num">Credit limit</th>
+						<th>Numbers</th>
 						<th></th>
 					</tr>
 				</thead>
@@ -186,6 +217,34 @@
 										{#each commodities as c (c.id)}<option value={c.id}>{c.code}</option>{/each}
 									</select>
 								</td>
+								<td>
+									{#each editing.numbers as n (n.id)}
+										<span class="number"
+											>…{n.last4}<button
+												class="link danger"
+												onclick={() => removeNumber(n)}
+												disabled={busy}
+												aria-label={`Remove the number ending ${n.last4}`}>×</button
+											></span
+										>
+									{/each}
+									<form
+										class="add-number"
+										onsubmit={(e) => {
+											e.preventDefault();
+											addNumber();
+										}}
+									>
+										<input
+											bind:value={editing.newNumber}
+											placeholder="Add number"
+											autocomplete="off"
+											maxlength="60"
+											aria-label="Account number to add"
+										/>
+										<button type="submit" disabled={busy || !editing.newNumber.trim()}>Add</button>
+									</form>
+								</td>
 								<td class="actions">
 									<label class="toggle"
 										><input type="checkbox" bind:checked={editing.archived} /> Archived</label
@@ -210,6 +269,9 @@
 										/>
 									{/if}
 								</td>
+								<td>
+									{#each a.numbers as n (n.id)}<span class="number">…{n.last4}</span>{/each}
+								</td>
 								<td class="actions">
 									<a href={resolve(`/transactions?account_id=${a.id}`)}>Transactions</a>
 									<button class="link" onclick={() => edit(a, r)} disabled={busy}>Edit</button>
@@ -226,7 +288,9 @@
 	{/each}
 	<p class="muted note">
 		Liquid accounts hold spendable money; activity inside investment accounts is never shared. An
-		account's owner can't change once it has been created.
+		account's owner can't change once it has been created. Numbers are the ones bank files name the
+		account by (a card may have two: one for purchases, one for payments); only their last four are
+		ever shown, and number changes are saved at once.
 	</p>
 {:else if s.failure}
 	<Failure error={s.failure} />
@@ -264,19 +328,37 @@
 	/* The same columns in every owner's card. */
 	table {
 		table-layout: fixed;
-		min-width: 48rem;
+		min-width: 56rem;
 	}
 	.c-name {
-		width: 28%;
+		width: 20%;
 	}
 	.c-kind {
-		width: 16%;
+		width: 12%;
 	}
 	.c-liquid {
-		width: 9%;
+		width: 8%;
 	}
 	.c-limit {
-		width: 20%;
+		width: 18%;
+	}
+	.c-numbers {
+		width: 17%;
+	}
+	.number {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		margin-right: var(--space-2);
+		font-variant-numeric: tabular-nums;
+	}
+	.add-number {
+		display: flex;
+		gap: var(--space-1);
+		margin-top: var(--space-1);
+	}
+	.add-number input {
+		width: 7rem;
 	}
 	.archived td {
 		color: var(--color-text-muted);

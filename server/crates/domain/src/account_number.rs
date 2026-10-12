@@ -12,11 +12,15 @@ use std::fmt;
 pub struct AccountNumber(String);
 
 impl AccountNumber {
-    /// Returns `None` for an empty (or all-whitespace) number.
+    /// Spaces and dashes are dropped, so `1234-5678` and `1234 5678` are the
+    /// same number. Returns `None` if nothing is left.
     #[must_use]
     pub fn new(number: &str) -> Option<Self> {
-        let trimmed = number.trim();
-        (!trimmed.is_empty()).then(|| Self(trimmed.to_owned()))
+        let n: String = number
+            .chars()
+            .filter(|c| !c.is_whitespace() && *c != '-')
+            .collect();
+        (!n.is_empty()).then_some(Self(n))
     }
 
     /// The full number. Never log or display the result.
@@ -58,6 +62,11 @@ mod tests {
         assert_eq!(n.reveal(), "000123456789");
         assert_eq!(AccountNumber::new("12").unwrap().to_string(), "…12");
         assert!(AccountNumber::new("  ").is_none());
+        assert!(AccountNumber::new(" - ").is_none());
+        assert_eq!(
+            AccountNumber::new("1234-5678 90"),
+            AccountNumber::new("1234567890")
+        );
     }
 
     proptest! {

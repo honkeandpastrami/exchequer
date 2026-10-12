@@ -71,7 +71,7 @@ Where outside data comes from:
 |---|---|---|
 | **Commodity** | USD, EUR, VTI, BTC… | `code`, `kind` (fiat/security/fund/crypto/other), `precision` (2 for USD, 0 for JPY, 3+ for shares). |
 | **Party** | Who money belongs to | *Household*, people and businesses, arranged as a settlement tree (§4.1). |
-| **Account** | Something of **yours** that holds value | Required **`owner`** (a Party) and a **`liquid`** flag (investment accounts aren't liquid, §4.1). Checking, savings, credit card, brokerage, mortgage, cash. It has **no fixed currency** and holds any commodities. `kind` only affects display: sign convention, icon, credit-card metadata such as the credit limit. Import metadata: institution, account-number aliases, and "pairs" (a card whose payments and purchases arrive under two account numbers). |
+| **Account** | Something of **yours** that holds value | Required **`owner`** (a Party) and a **`liquid`** flag (investment accounts aren't liquid, §4.1). Checking, savings, credit card, brokerage, mortgage, cash. It has **no fixed currency** and holds any commodities. `kind` only affects display: sign convention, icon, credit-card metadata such as the credit limit. Import metadata: the account numbers bank files name it by. A card whose payments and purchases arrive under two numbers simply has both; a number belongs to one account only. |
 | **Counterparty** | Anyone **outside** you | Merchants, employers, utilities, tax agencies. It has **no direction**: the same store is where you spend and who refunds you. Cheap to create (imports create them), mergeable, with *aliases* (raw bank strings → canonical name). Two system counterparties: `Opening balances` and `Reconciliation`. |
 | **Transaction** | One real-world event | Date, description, notes, tags, provenance (import batch, raw row, external IDs). Contains one or more splits. |
 | **Split** | One movement inside a transaction | A **from-leg** and a **to-leg**, each `(account or counterparty, commodity, quantity)`; an outside leg may leave the counterparty unknown (none, never a placeholder name), plus **`purpose`** (a Party: *who is this money for?*), `category`, `bill`, and an optional own description. Purpose and category apply only to income/expense and liquidations, never to transfers or conversions. |
@@ -370,8 +370,10 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    dates (`TZ`): a time written with a zone is converted, one written without is taken as
    written. Parsers emit normalized rows (date, amount,
    description, native ID) plus the raw row for provenance.
-2. **Account resolution.** OFX account number → configured aliases and pairs → LLM
-   suggestion → ask the client.
+2. **Account resolution.** An OFX statement's account number is looked up among the
+   accounts' numbers (stored without spaces or dashes, shown only as their last four). A
+   CSV names no account, so its upload says which. Unknown numbers: LLM suggestion (later)
+   → ask the client, who can add the number to the account.
 3. **Deduplication,** done once, on the server, with full DB access:
    - *Exact:* native ID (FITID or bank reference), or a content hash with an occurrence
      suffix for identical rows in one file; unique per account.

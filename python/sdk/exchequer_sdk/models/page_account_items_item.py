@@ -12,6 +12,7 @@ from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.credit_limit import CreditLimit
+    from ..models.number import Number
 
 
 T = TypeVar("T", bound="PageAccountItemsItem")
@@ -27,6 +28,7 @@ class PageAccountItemsItem:
         liquid (bool): Investment accounts are not liquid; activity inside them is never
             shared (design §4.1).
         name (str):
+        numbers (list[Number]): Numbers bank files name this account by, oldest first.
         owner_id (UUID): The party the account belongs to.
         credit_limit (CreditLimit | None | Unset):
     """
@@ -36,6 +38,7 @@ class PageAccountItemsItem:
     kind: AccountKind
     liquid: bool
     name: str
+    numbers: list[Number]
     owner_id: UUID
     credit_limit: CreditLimit | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -52,6 +55,11 @@ class PageAccountItemsItem:
         liquid = self.liquid
 
         name = self.name
+
+        numbers = []
+        for numbers_item_data in self.numbers:
+            numbers_item = numbers_item_data.to_dict()
+            numbers.append(numbers_item)
 
         owner_id = str(self.owner_id)
 
@@ -72,6 +80,7 @@ class PageAccountItemsItem:
                 "kind": kind,
                 "liquid": liquid,
                 "name": name,
+                "numbers": numbers,
                 "owner_id": owner_id,
             }
         )
@@ -83,6 +92,7 @@ class PageAccountItemsItem:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.credit_limit import CreditLimit  # noqa: PLC0415
+        from ..models.number import Number  # noqa: PLC0415
 
         d = dict(src_dict)
         archived = d.pop("archived")
@@ -94,6 +104,13 @@ class PageAccountItemsItem:
         liquid = d.pop("liquid")
 
         name = d.pop("name")
+
+        numbers = []
+        _numbers = d.pop("numbers")
+        for numbers_item_data in _numbers:
+            numbers_item = Number.from_dict(numbers_item_data)
+
+            numbers.append(numbers_item)
 
         owner_id = UUID(d.pop("owner_id"))
 
@@ -120,6 +137,7 @@ class PageAccountItemsItem:
             kind=kind,
             liquid=liquid,
             name=name,
+            numbers=numbers,
             owner_id=owner_id,
             credit_limit=credit_limit,
         )

@@ -12,6 +12,7 @@ pub fn schema_version() -> i64 {
     MIGRATOR.iter().map(|m| m.version).max().unwrap_or(0)
 }
 
+pub mod account_numbers;
 pub mod accounts;
 pub mod audit;
 pub mod balance_checks;

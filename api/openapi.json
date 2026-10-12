@@ -336,6 +336,191 @@
         ]
       }
     },
+    "/api/v1/accounts/{id}/numbers": {
+      "post": {
+        "tags": [
+          "accounts"
+        ],
+        "summary": "Add a number bank files name this account by. A number belongs to one\naccount only; adding one the account already has changes nothing.",
+        "operationId": "accounts_add_number",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewNumber"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another account has the number",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/accounts/{id}/numbers/{number_id}": {
+      "delete": {
+        "tags": [
+          "accounts"
+        ],
+        "summary": "Remove one of the account's numbers.",
+        "operationId": "accounts_remove_number",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "number_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/balance-checks": {
       "get": {
         "tags": [
@@ -3708,7 +3893,8 @@
           "kind",
           "owner_id",
           "liquid",
-          "archived"
+          "archived",
+          "numbers"
         ],
         "properties": {
           "archived": {
@@ -3738,6 +3924,13 @@
           },
           "name": {
             "type": "string"
+          },
+          "numbers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Number"
+            },
+            "description": "Numbers bank files name this account by, oldest first."
           },
           "owner_id": {
             "type": "string",
@@ -4698,6 +4891,19 @@
         },
         "additionalProperties": false
       },
+      "NewNumber": {
+        "type": "object",
+        "required": [
+          "number"
+        ],
+        "properties": {
+          "number": {
+            "type": "string",
+            "description": "The full number, as a bank file shows it: letters and digits, up to\n34; spaces and dashes are ignored. Never shown again in full."
+          }
+        },
+        "additionalProperties": false
+      },
       "NewParty": {
         "type": "object",
         "required": [
@@ -4837,6 +5043,24 @@
         },
         "additionalProperties": false
       },
+      "Number": {
+        "type": "object",
+        "description": "An account number, shown only by its last four characters.",
+        "required": [
+          "id",
+          "last4"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last4": {
+            "type": "string",
+            "example": "6789"
+          }
+        }
+      },
       "Page_Account": {
         "type": "object",
         "description": "One page of results.",
@@ -4854,7 +5078,8 @@
                 "kind",
                 "owner_id",
                 "liquid",
-                "archived"
+                "archived",
+                "numbers"
               ],
               "properties": {
                 "archived": {
@@ -4884,6 +5109,13 @@
                 },
                 "name": {
                   "type": "string"
+                },
+                "numbers": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Number"
+                  },
+                  "description": "Numbers bank files name this account by, oldest first."
                 },
                 "owner_id": {
                   "type": "string",

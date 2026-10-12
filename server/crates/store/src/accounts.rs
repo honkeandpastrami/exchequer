@@ -103,3 +103,12 @@ pub async fn get_many(
     .fetch_all(db)
     .await
 }
+
+/// Bumps the version, for changes to what hangs off the account (its
+/// numbers).
+pub async fn touch(db: impl PgExecutor<'_>, id: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query!("UPDATE account SET version = version + 1 WHERE id = $1", id)
+        .execute(db)
+        .await?;
+    Ok(())
+}

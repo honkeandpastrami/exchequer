@@ -40,11 +40,13 @@ from .new_category import NewCategory
 from .new_commodity import NewCommodity
 from .new_counterparty import NewCounterparty
 from .new_import_batch import NewImportBatch
+from .new_number import NewNumber
 from .new_party import NewParty
 from .new_split import NewSplit
 from .new_tag import NewTag
 from .new_token import NewToken
 from .new_transaction import NewTransaction
+from .number import Number
 from .page_account import PageAccount
 from .page_account_items_item import PageAccountItemsItem
 from .page_balance_check import PageBalanceCheck
@@ -124,11 +126,13 @@ __all__ = (
     "NewCommodity",
     "NewCounterparty",
     "NewImportBatch",
+    "NewNumber",
     "NewParty",
     "NewSplit",
     "NewTag",
     "NewToken",
     "NewTransaction",
+    "Number",
     "PageAccount",
     "PageAccountItemsItem",
     "PageBalanceCheck",

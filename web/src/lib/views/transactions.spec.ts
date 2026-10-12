@@ -10,7 +10,8 @@ const acct = (id: string): Schemas['Account'] => ({
 	owner_id: 'sam',
 	kind: 'checking',
 	liquid: true,
-	archived: false
+	archived: false,
+	numbers: []
 });
 const ref: Reference = {
 	parties: new Map([['sam', { id: 'sam', name: 'Sam', kind: 'person' }]]),

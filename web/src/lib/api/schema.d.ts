@@ -41,6 +41,43 @@ export interface paths {
 		patch: operations['accounts_update'];
 		trace?: never;
 	};
+	'/api/v1/accounts/{id}/numbers': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Add a number bank files name this account by. A number belongs to one
+		 *     account only; adding one the account already has changes nothing.
+		 */
+		post: operations['accounts_add_number'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/accounts/{id}/numbers/{number_id}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		post?: never;
+		/** Remove one of the account's numbers. */
+		delete: operations['accounts_remove_number'];
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/balance-checks': {
 		parameters: {
 			query?: never;
@@ -586,6 +623,8 @@ export interface components {
 			 */
 			liquid: boolean;
 			name: string;
+			/** @description Numbers bank files name this account by, oldest first. */
+			numbers: components['schemas']['Number'][];
 			/**
 			 * Format: uuid
 			 * @description The party the account belongs to.
@@ -933,6 +972,13 @@ export interface components {
 			/** @description 1-200 characters, e.g. where the transactions came from. */
 			label?: string | null;
 		};
+		NewNumber: {
+			/**
+			 * @description The full number, as a bank file shows it: letters and digits, up to
+			 *     34; spaces and dashes are ignored. Never shown again in full.
+			 */
+			number: string;
+		};
 		NewParty: {
 			kind: components['schemas']['PartyKind'];
 			name: string;
@@ -984,6 +1030,13 @@ export interface components {
 			/** @description Tag names; unknown ones are created. */
 			tags?: string[];
 		};
+		/** @description An account number, shown only by its last four characters. */
+		Number: {
+			/** Format: uuid */
+			id: string;
+			/** @example 6789 */
+			last4: string;
+		};
 		/** @description One page of results. */
 		Page_Account: {
 			items: {
@@ -999,6 +1052,8 @@ export interface components {
 				 */
 				liquid: boolean;
 				name: string;
+				/** @description Numbers bank files name this account by, oldest first. */
+				numbers: components['schemas']['Number'][];
 				/**
 				 * Format: uuid
 				 * @description The party the account belongs to.
@@ -1556,6 +1611,117 @@ export interface operations {
 			};
 			/** @description Precondition Required */
 			428: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	accounts_add_number: {
+		parameters: {
+			query?: never;
+			header: {
+				/** @description ETag from your last read */
+				'If-Match': string;
+			};
+			path: {
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['NewNumber'];
+			};
+		};
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					ETag?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Account'];
+				};
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Another account has the number */
+			409: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Precondition Failed */
+			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	accounts_remove_number: {
+		parameters: {
+			query?: never;
+			header: {
+				/** @description ETag from your last read */
+				'If-Match': string;
+			};
+			path: {
+				id: string;
+				number_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					ETag?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Account'];
+				};
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Precondition Failed */
+			412: {
 				headers: {
 					[name: string]: unknown;
 				};
