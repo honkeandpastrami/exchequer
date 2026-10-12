@@ -104,19 +104,6 @@ impl H {
         c.send().await
     }
 
-    pub async fn set_currency(&self, pool: &PgPool) {
-        let path = format!("/api/v1/parties/{}", self.household);
-        let etag = self.send(pool, "GET", &path, None).await.etag();
-        let r = call(pool, "PATCH", &path)
-            .token(&self.t)
-            .if_match(&etag)
-            .json(json!({ "currency_id": self.usd }))
-            .send()
-            .await;
-        assert_eq!(r.status, StatusCode::OK, "{}", r.body);
-        assert_eq!(r.body["currency_id"], json!(self.usd));
-    }
-
     pub fn leg(&self, side: (&str, &str), qty: &str) -> Value {
         json!({ side.0: side.1, "commodity_id": self.usd, "quantity": qty })
     }

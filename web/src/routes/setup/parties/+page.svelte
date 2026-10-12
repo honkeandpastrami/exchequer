@@ -6,7 +6,7 @@
 	import { referenceState } from '#lib/setup.svelte.ts';
 
 	type Kind = Schemas['PartyKind'];
-	type Edit = { id: string; etag: string; name: string; household: boolean; currency: string };
+	type Edit = { id: string; etag: string; name: string };
 
 	const { state: s, reload } = referenceState();
 	let editing: Edit | null = $state(null);
@@ -33,13 +33,7 @@
 		failure = null;
 		try {
 			const { item, etag } = await parties.read(p.id);
-			editing = {
-				id: p.id,
-				etag,
-				name: item.name,
-				household: item.kind === 'household',
-				currency: item.currency_id ?? ''
-			};
+			editing = { id: p.id, etag, name: item.name };
 		} catch (e) {
 			failure = e;
 		}
@@ -49,10 +43,7 @@
 		run(async () => {
 			if (!editing) return;
 			const e = editing;
-			await parties.update(e.id, e.etag, {
-				name: e.name.trim(),
-				...(e.household ? { currency_id: e.currency || null } : {})
-			});
+			await parties.update(e.id, e.etag, { name: e.name.trim() });
 			editing = null;
 		});
 
@@ -95,7 +86,7 @@
 
 	<table class="list">
 		<thead>
-			<tr><th>Name</th><th>Kind</th><th>Currency</th><th></th></tr>
+			<tr><th>Name</th><th>Kind</th><th></th></tr>
 		</thead>
 		<tbody>
 			{#each [...r.parties.values()].sort((a, b) => rank(partyKinds, a.kind) - rank(partyKinds, b.kind) || a.name.localeCompare(b.name)) as p (p.id)}
@@ -103,16 +94,6 @@
 					<tr class="editing">
 						<td><input bind:value={editing.name} maxlength="100" aria-label="Name" /></td>
 						<td>{partyKinds[p.kind]}</td>
-						<td>
-							{#if editing.household}
-								<select bind:value={editing.currency} aria-label="Household currency">
-									<option value="">None</option>
-									{#each [...r.commodities.values()] as c (c.id)}
-										<option value={c.id}>{c.code}</option>
-									{/each}
-								</select>
-							{/if}
-						</td>
 						<td class="actions">
 							<button onclick={save} disabled={busy || !editing.name.trim()}>Save</button>
 							<button class="quiet" onclick={() => (editing = null)}>Cancel</button>
@@ -122,7 +103,6 @@
 					<tr>
 						<td>{p.name}</td>
 						<td>{partyKinds[p.kind]}</td>
-						<td>{p.currency_id ? (r.commodities.get(p.currency_id)?.code ?? '?') : ''}</td>
 						<td class="actions">
 							<button class="link" onclick={() => edit(p)} disabled={busy}>Edit</button>
 							<button class="link danger" onclick={() => remove(p)} disabled={busy}>Delete</button>
@@ -133,8 +113,8 @@
 		</tbody>
 	</table>
 	<p class="muted note">
-		The household's currency is what settlement statements and reports are in. A party's kind can't
-		change once it has been created.
+		Settlement statements and the household pool are in USD. A party's kind can't change once it has
+		been created.
 	</p>
 {:else if s.failure}
 	<Failure error={s.failure} />

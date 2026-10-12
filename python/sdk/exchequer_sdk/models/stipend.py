@@ -14,7 +14,7 @@ class Stipend:
     """What the Household owes a person for the month.
 
     Attributes:
-        amount (str): In the household currency; zero or more. Example: 650.00.
+        amount (str): In USD; zero or more. Example: 650.00.
         party_id (UUID):
     """
 

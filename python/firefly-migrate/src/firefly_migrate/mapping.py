@@ -78,7 +78,6 @@ class Settlement:
     from the month they're given for, and payments that settle a month other
     than the default (the one before they're made)."""
 
-    currency: str
     # person -> {month "YYYY-MM": stipend}
     stipends: dict[str, dict[str, Decimal]]
     # business -> {month: funder}
@@ -232,8 +231,6 @@ def parse(raw: dict[str, Any]) -> Mapping:
     if isinstance(settlement, list):
         problems += settlement
         settlement = None
-    elif settlement is not None and settlement.currency not in commodities:
-        problems.append(f"settlement.currency {settlement.currency!r} is not a commodity")
 
     if problems:
         raise MappingError(problems)
@@ -269,9 +266,8 @@ def _settlement(
     if raw is None:
         return None
     problems: list[str] = []
-    currency = raw.get("currency")
-    if not isinstance(currency, str):
-        problems.append("settlement.currency is missing")
+    if "currency" in raw:
+        problems.append("settlement.currency: remove it, settlement is always in USD")
 
     def months(table: Any, where: str) -> dict[str, Any]:
         if not isinstance(table, dict):
@@ -325,7 +321,6 @@ def _settlement(
     if problems:
         return problems
     return Settlement(
-        currency=str(currency),
         stipends=stipends,
         funders=funders,
         settles={str(k): str(v) for k, v in settles.items()},

@@ -3,8 +3,8 @@
 plan        read Firefly and print the report; writes nothing anywhere.
 run         plan, then write everything into an empty Exchequer server.
 check       compare Firefly with what Exchequer holds (the acceptance check).
-settle      the settlement pass over a migrated ledger: household currency,
-            payment links, stipends and funders, closed months; then the
+settle      the settlement pass over a migrated ledger: payment links,
+            stipends and funders, closed months; then the
             settlement check. Doesn't read Firefly.
 settlement  only the settlement check (implied stipends, design §4.5).
 
@@ -106,7 +106,6 @@ def _settlement(m: mapping.Mapping, *, apply: bool) -> int:
                 print(f"settlement pass failed: {e}", file=sys.stderr)
                 return 1
             print(
-                f"Household currency {'set' if out.currency_set else 'already set'}; "
                 f"{len(out.linked)} payments linked, {len(out.params_set)} months' parameters "
                 f"set, {len(out.closed)} months closed.\n"
             )

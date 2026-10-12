@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, kind, currency_id, version FROM party\n         WHERE $1::uuid IS NULL OR id > $1 ORDER BY id LIMIT $2",
+  "query": "SELECT id, name, kind, version FROM party WHERE kind = 'household'",
   "describe": {
     "columns": [
       {
@@ -38,17 +38,6 @@
       },
       {
         "ordinal": 3,
-        "name": "currency_id",
-        "type_info": "Uuid",
-        "origin": {
-          "Table": {
-            "table": "party",
-            "name": "currency_id"
-          }
-        }
-      },
-      {
-        "ordinal": 4,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -60,18 +49,14 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Uuid",
-        "Int8"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
       false,
       false,
-      true,
       false
     ]
   },
-  "hash": "4e8e238690bb4b2fd32386a9d836e21048c5f6f967ee757b17145957d8eeb983"
+  "hash": "380fb9e173fc5506f2b4129c679a2154d92461d71d2fdf6004ec556444ec4c22"
 }

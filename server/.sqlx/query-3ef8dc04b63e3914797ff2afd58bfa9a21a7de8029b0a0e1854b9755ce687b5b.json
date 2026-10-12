@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO party (id, name, kind) VALUES ($1, $2, $3)\n         RETURNING id, name, kind, currency_id, version",
+  "query": "SELECT id, name, kind, version FROM party WHERE id = $1 FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -38,17 +38,6 @@
       },
       {
         "ordinal": 3,
-        "name": "currency_id",
-        "type_info": "Uuid",
-        "origin": {
-          "Table": {
-            "table": "party",
-            "name": "currency_id"
-          }
-        }
-      },
-      {
-        "ordinal": 4,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -61,18 +50,15 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text",
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
       false,
       false,
       false,
-      true,
       false
     ]
   },
-  "hash": "a5e7a6ae611309150ee2535325b23254f741669defbacb543c2c13b6c696a6ae"
+  "hash": "3ef8dc04b63e3914797ff2afd58bfa9a21a7de8029b0a0e1854b9755ce687b5b"
 }

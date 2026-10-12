@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, kind, currency_id, version FROM party WHERE kind = 'household'",
+  "query": "UPDATE party SET name = $2, version = version + 1 WHERE id = $1\n         RETURNING id, name, kind, version",
   "describe": {
     "columns": [
       {
@@ -38,17 +38,6 @@
       },
       {
         "ordinal": 3,
-        "name": "currency_id",
-        "type_info": "Uuid",
-        "origin": {
-          "Table": {
-            "table": "party",
-            "name": "currency_id"
-          }
-        }
-      },
-      {
-        "ordinal": 4,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -60,15 +49,17 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
     },
     "nullable": [
       false,
       false,
       false,
-      true,
       false
     ]
   },
-  "hash": "45d958528d13f6c93b7b120e8739855ecbb3d905458acc9455ee9f3c9f42f366"
+  "hash": "276dec38af4421c1350514009fb94da0b0c70405edec2c9f48ccb2e2d20421d8"
 }

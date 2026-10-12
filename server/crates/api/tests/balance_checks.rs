@@ -21,7 +21,6 @@ async fn check(h: &H, pool: &PgPool, body: Value) -> Value {
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn checks_and_candidates(pool: PgPool) {
     let h = H::new(&pool).await;
-    h.set_currency(&pool).await;
     let store = ("counterparty_id", h.store.as_str());
     let salary = h
         .tx(
@@ -53,11 +52,7 @@ async fn checks_and_candidates(pool: PgPool) {
     assert_eq!(c["matches"], true);
     assert_eq!(c["ledger"], "1000.00");
     assert_eq!(c["amount"], "1000.00");
-    assert_eq!(
-        c["commodity_id"],
-        json!(h.usd),
-        "the household currency by default"
-    );
+    assert_eq!(c["commodity_id"], json!(h.usd), "USD by default");
     assert_eq!(c["verified_through"], "2026-10-01");
     assert!(c.get("candidates").is_none());
 
@@ -135,17 +130,6 @@ async fn cards_show_owed_as_positive(pool: PgPool) {
         json!({}),
     )
     .await;
-    // No household currency: the commodity must be given.
-    let r = h
-        .send(
-            &pool,
-            "POST",
-            "/api/v1/balance-checks",
-            Some(json!({ "account_id": h.alex_credit, "amount": "50" })),
-        )
-        .await;
-    assert_eq!(r.status, StatusCode::CONFLICT, "{}", r.body);
-
     let c = check(
         &h,
         &pool,

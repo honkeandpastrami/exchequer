@@ -4,6 +4,7 @@
 import type { Schemas } from '../api/client';
 import type { Reference } from '../reference';
 import { cleanQuantity } from './editor';
+import { SETTLEMENT_CODE, usd } from '../usd';
 
 export type ParamsDraft = {
 	/** Person ID → stipend as typed. */
@@ -23,11 +24,8 @@ export const businesses = (ref: Reference) =>
 export const household = (ref: Reference) =>
 	[...ref.parties.values()].find((p) => p.kind === 'household');
 
-/** The household currency, which stipends are in. */
-export const currency = (ref: Reference) => {
-	const id = household(ref)?.currency_id;
-	return id ? ref.commodities.get(id) : undefined;
-};
+/** Stipends are in USD. */
+export const currency = usd;
 
 /** The parameters in force for the month; a business with none is funded by the household. */
 export function draftFrom(s: Schemas['Settlement'], ref: Reference): ParamsDraft {
@@ -43,7 +41,10 @@ export function draftFrom(s: Schemas['Settlement'], ref: Reference): ParamsDraft
 /** Problems the form can point out before asking the server. */
 export function paramProblems(d: ParamsDraft, ref: Reference): string[] {
 	const c = currency(ref);
-	if (!c) return ['Set the household currency first (Setup → Parties).'];
+	if (!c)
+		return [
+			`Settlement is in ${SETTLEMENT_CODE}: add the ${SETTLEMENT_CODE} commodity first (Setup → Commodities).`
+		];
 	const out: string[] = [];
 	for (const p of people(ref)) {
 		const typed = d.stipends[p.id] ?? '';

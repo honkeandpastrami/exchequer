@@ -12,7 +12,6 @@ from firefly_migrate.settle import Row, carried, month_params, months, render
 from .conftest import RAW
 
 SETTLEMENT = {
-    "currency": "USD",
     "stipends": {"Alex": {"2026-01": "500.00", "2026-06": "600.00"}, "Sam": {"2026-03": "0"}},
     "funders": {"Studio": {"2026-01": "Household", "2026-07": "Sam"}},
     "settles": {"1234": "2026-03"},
@@ -57,7 +56,7 @@ def test_month_params():
         ({"funders": {"Alex": {"2026-01": "Household"}}}, "not a business"),
         ({"settles": {"abc": "2026-03"}}, "not a Firefly transaction ID"),
         ({"settles": {"1234": "March"}}, "not a month"),
-        ({"currency": "EUR"}, "not a commodity"),
+        ({"currency": "USD"}, "always in USD"),
     ],
 )
 def test_bad_settlement_sections(change, problem):

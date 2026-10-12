@@ -250,8 +250,8 @@ data through side channels:
 
 ### 4.2 What creates a claim between parties
 
-Every value is in the household currency **at the transaction's own date** (§3.4), computed
-in `Decimal` (§3.5).
+Every value is in USD, the settlement currency, **at the transaction's own date** (§3.4),
+computed in `Decimal` (§3.5).
 
 | Event | Example | Claim |
 |---|---|---|

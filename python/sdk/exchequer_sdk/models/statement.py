@@ -26,7 +26,7 @@ class Statement:
         currency_id (UUID):
         edges (list[Edge]):
         month (str):  Example: 2026-06.
-        unpriced (list[Unpriced]): Splits left out because they have no value in the household currency.
+        unpriced (list[Unpriced]): Splits left out because they have no value in USD.
         params_from (None | str | Unset):
     """
 

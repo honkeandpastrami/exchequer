@@ -85,7 +85,7 @@ def sync_detailed(
     body: PartyUpdate,
     if_match: str,
 ) -> Response[Party | Problem]:
-    """Rename a party, or set the household currency.
+    """Rename a party.
 
     Args:
         id (UUID):
@@ -120,7 +120,7 @@ def sync(
     body: PartyUpdate,
     if_match: str,
 ) -> Party | Problem | None:
-    """Rename a party, or set the household currency.
+    """Rename a party.
 
     Args:
         id (UUID):
@@ -150,7 +150,7 @@ async def asyncio_detailed(
     body: PartyUpdate,
     if_match: str,
 ) -> Response[Party | Problem]:
-    """Rename a party, or set the household currency.
+    """Rename a party.
 
     Args:
         id (UUID):
@@ -183,7 +183,7 @@ async def asyncio(
     body: PartyUpdate,
     if_match: str,
 ) -> Party | Problem | None:
-    """Rename a party, or set the household currency.
+    """Rename a party.
 
     Args:
         id (UUID):

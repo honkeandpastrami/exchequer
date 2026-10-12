@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, kind, currency_id, version FROM party WHERE id = $1 FOR UPDATE",
+  "query": "SELECT id, name, kind, version FROM party\n         WHERE $1::uuid IS NULL OR id > $1 ORDER BY id LIMIT $2",
   "describe": {
     "columns": [
       {
@@ -38,17 +38,6 @@
       },
       {
         "ordinal": 3,
-        "name": "currency_id",
-        "type_info": "Uuid",
-        "origin": {
-          "Table": {
-            "table": "party",
-            "name": "currency_id"
-          }
-        }
-      },
-      {
-        "ordinal": 4,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -61,16 +50,16 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
       false,
       false,
       false,
-      true,
       false
     ]
   },
-  "hash": "62a4a393c0c83bca254122cd3bbb6df760f8d12c4e0815de13bc2837d6916325"
+  "hash": "2c20550a697dd233894634ca8091e35e7a6b85d801a53018c4a2bef653b27aaf"
 }

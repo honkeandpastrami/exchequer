@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { usd } from '../usd';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -32,10 +33,7 @@
 	let failure: unknown = $state(null);
 	let busy = $state(false);
 
-	const household = (r: Reference) =>
-		[...r.parties.values()].find((p) => p.kind === 'household')?.currency_id ??
-		[...r.commodities.keys()][0] ??
-		'';
+	const household = (r: Reference) => usd(r)?.id ?? [...r.commodities.keys()][0] ?? '';
 
 	async function get(id: string) {
 		const r = await api.GET('/api/v1/transactions/{id}', { params: { path: { id } } });

@@ -224,7 +224,7 @@ export interface paths {
 		delete: operations['parties_delete'];
 		options?: never;
 		head?: never;
-		/** Rename a party, or set the household currency. */
+		/** Rename a party. */
 		patch: operations['parties_update'];
 		trace?: never;
 	};
@@ -764,8 +764,8 @@ export interface components {
 			unpriced: components['schemas']['Unpriced'][];
 		};
 		/**
-		 * @description The household's month (design §4.3), in the household currency. Amounts
-		 *     in other commodities aren't included until prices exist.
+		 * @description The household's month (design §4.3), in USD. Amounts in other
+		 *     commodities aren't included until prices exist.
 		 */
 		HouseholdPool: {
 			/** @description How much each business's net funding grew this month. */
@@ -846,7 +846,7 @@ export interface components {
 			amount: string;
 			/**
 			 * Format: uuid
-			 * @description Default: the household currency.
+			 * @description Default: USD.
 			 */
 			commodity_id?: string | null;
 			/**
@@ -1016,12 +1016,6 @@ export interface components {
 		/** @description One page of results. */
 		Page_Party: {
 			items: {
-				/**
-				 * Format: uuid
-				 * @description The household currency: what settlement statements are in. Only on
-				 *     the household.
-				 */
-				currency_id?: string | null;
 				/** Format: uuid */
 				id: string;
 				kind: components['schemas']['PartyKind'];
@@ -1057,12 +1051,6 @@ export interface components {
 			next_cursor?: string | null;
 		};
 		Party: {
-			/**
-			 * Format: uuid
-			 * @description The household currency: what settlement statements are in. Only on
-			 *     the household.
-			 */
-			currency_id?: string | null;
 			/** Format: uuid */
 			id: string;
 			kind: components['schemas']['PartyKind'];
@@ -1076,11 +1064,6 @@ export interface components {
 		/** @enum {string} */
 		PartyKind: 'household' | 'person' | 'business';
 		PartyUpdate: {
-			/**
-			 * Format: uuid
-			 * @description Household only; `null` clears it.
-			 */
-			currency_id?: string | null;
 			name?: string | null;
 		};
 		/** @description An error response (`application/problem+json`). */
@@ -1206,13 +1189,13 @@ export interface components {
 			/** @example 2026-06 */
 			month: string;
 			params_from?: string | null;
-			/** @description Splits left out because they have no value in the household currency. */
+			/** @description Splits left out because they have no value in USD. */
 			unpriced: components['schemas']['Unpriced'][];
 		};
 		/** @description What the Household owes a person for the month. */
 		Stipend: {
 			/**
-			 * @description In the household currency; zero or more.
+			 * @description In USD; zero or more.
 			 * @example 650.00
 			 */
 			amount: string;
@@ -1246,8 +1229,8 @@ export interface components {
 			tags: string[];
 		};
 		/**
-		 * @description A split the settlement couldn't value: neither leg is in the household
-		 *     currency (prices come later).
+		 * @description A split the settlement couldn't value: neither leg is in USD (prices come
+		 *     later).
 		 */
 		Unpriced: components['schemas']['SplitPointer'] & {
 			/** Format: date */
@@ -1531,7 +1514,7 @@ export interface operations {
 					'application/json': components['schemas']['BalanceCheck'];
 				};
 			};
-			/** @description No commodity given and no household currency */
+			/** @description No commodity given and no USD commodity */
 			409: {
 				headers: {
 					[name: string]: unknown;
@@ -2551,7 +2534,7 @@ export interface operations {
 					'application/json': components['schemas']['HouseholdPool'];
 				};
 			};
-			/** @description No household currency yet */
+			/** @description No USD commodity yet */
 			409: {
 				headers: {
 					[name: string]: unknown;
@@ -2594,7 +2577,7 @@ export interface operations {
 					'application/json': components['schemas']['History'];
 				};
 			};
-			/** @description No household currency yet */
+			/** @description No USD commodity yet */
 			409: {
 				headers: {
 					[name: string]: unknown;
@@ -2676,7 +2659,7 @@ export interface operations {
 					'application/json': components['schemas']['Settlement'];
 				};
 			};
-			/** @description The month is closed, or no household currency yet */
+			/** @description The month is closed, or no USD commodity yet */
 			409: {
 				headers: {
 					[name: string]: unknown;
@@ -2843,7 +2826,7 @@ export interface operations {
 					'application/json': components['schemas']['Statement'];
 				};
 			};
-			/** @description No household currency yet */
+			/** @description No USD commodity yet */
 			409: {
 				headers: {
 					[name: string]: unknown;

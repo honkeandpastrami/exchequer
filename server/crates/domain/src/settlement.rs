@@ -44,8 +44,8 @@ pub enum Effect {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SettlementError {
-    /// Neither leg is in the household currency, and prices don't exist yet.
-    #[error("no value in the household currency")]
+    /// Neither leg is in the settlement currency (USD), and prices don't exist yet.
+    #[error("no value in the settlement currency (USD)")]
     Unpriced,
     #[error(transparent)]
     Tree(#[from] TreeError),
@@ -133,7 +133,7 @@ pub struct Item {
     pub source: SplitRef,
     pub date: Date,
     pub effect: Effect,
-    /// Positive, in the household currency.
+    /// Positive, in the settlement currency (USD).
     pub amount: Amount,
     /// The month a payment settles, when set by hand. Claims always count in
     /// their own month; payments by default settle the month before the one

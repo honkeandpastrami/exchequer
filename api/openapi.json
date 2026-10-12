@@ -441,7 +441,7 @@
             }
           },
           "409": {
-            "description": "No commodity given and no household currency",
+            "description": "No commodity given and no USD commodity",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1795,7 +1795,7 @@
         "tags": [
           "parties"
         ],
-        "summary": "Rename a party, or set the household currency.",
+        "summary": "Rename a party.",
         "operationId": "parties_update",
         "parameters": [
           {
@@ -2017,7 +2017,7 @@
             }
           },
           "409": {
-            "description": "No household currency yet",
+            "description": "No USD commodity yet",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2083,7 +2083,7 @@
             }
           },
           "409": {
-            "description": "No household currency yet",
+            "description": "No USD commodity yet",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2218,7 +2218,7 @@
             }
           },
           "409": {
-            "description": "The month is closed, or no household currency yet",
+            "description": "The month is closed, or no USD commodity yet",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2461,7 +2461,7 @@
             }
           },
           "409": {
-            "description": "No household currency yet",
+            "description": "No USD commodity yet",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4081,7 +4081,7 @@
       },
       "HouseholdPool": {
         "type": "object",
-        "description": "The household's month (design §4.3), in the household currency. Amounts\nin other commodities aren't included until prices exist.",
+        "description": "The household's month (design §4.3), in USD. Amounts in other\ncommodities aren't included until prices exist.",
         "required": [
           "month",
           "currency_id",
@@ -4334,7 +4334,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Default: the household currency."
+            "description": "Default: USD."
           },
           "date": {
             "type": [
@@ -4831,14 +4831,6 @@
                 "kind"
               ],
               "properties": {
-                "currency_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "uuid",
-                  "description": "The household currency: what settlement statements are in. Only on\nthe household."
-                },
                 "id": {
                   "type": "string",
                   "format": "uuid"
@@ -4971,14 +4963,6 @@
           "kind"
         ],
         "properties": {
-          "currency_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid",
-            "description": "The household currency: what settlement statements are in. Only on\nthe household."
-          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -5018,14 +5002,6 @@
       "PartyUpdate": {
         "type": "object",
         "properties": {
-          "currency_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid",
-            "description": "Household only; `null` clears it."
-          },
           "name": {
             "type": [
               "string",
@@ -5432,7 +5408,7 @@
             "items": {
               "$ref": "#/components/schemas/Unpriced"
             },
-            "description": "Splits left out because they have no value in the household currency."
+            "description": "Splits left out because they have no value in USD."
           }
         }
       },
@@ -5446,7 +5422,7 @@
         "properties": {
           "amount": {
             "type": "string",
-            "description": "In the household currency; zero or more.",
+            "description": "In USD; zero or more.",
             "example": "650.00"
           },
           "party_id": {
@@ -5567,7 +5543,7 @@
             }
           }
         ],
-        "description": "A split the settlement couldn't value: neither leg is in the household\ncurrency (prices come later)."
+        "description": "A split the settlement couldn't value: neither leg is in USD (prices come\nlater)."
       },
       "Version": {
         "type": "object",

@@ -11,7 +11,7 @@ const party = (id: string, kind: Schemas['PartyKind'], more = {}): Schemas['Part
 });
 const ref: Reference = {
 	parties: new Map([
-		['home', party('home', 'household', { currency_id: 'usd' })],
+		['home', party('home', 'household')],
 		['sam', party('sam', 'person')],
 		['alex', party('alex', 'person')],
 		['studio', party('studio', 'business')]
@@ -61,9 +61,9 @@ describe('settlement parameters', () => {
 		});
 	});
 
-	it('needs the household currency', () => {
-		const noCurrency = { ...ref, parties: new Map([['home', party('home', 'household')]]) };
-		expect(paramProblems({ stipends: {}, funders: {} }, noCurrency)).toHaveLength(1);
+	it('needs the USD commodity', () => {
+		const noUsd = { ...ref, commodities: new Map() };
+		expect(paramProblems({ stipends: {}, funders: {} }, noUsd)).toHaveLength(1);
 	});
 
 	it('treats carried-forward parameters as not saved for the month', () => {

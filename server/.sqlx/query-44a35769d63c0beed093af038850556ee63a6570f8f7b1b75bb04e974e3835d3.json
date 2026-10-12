@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, kind, currency_id, version FROM party WHERE id = $1",
+  "query": "SELECT id, code, kind, precision, version FROM commodity WHERE code = $1",
   "describe": {
     "columns": [
       {
@@ -9,19 +9,19 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "party",
+            "table": "commodity",
             "name": "id"
           }
         }
       },
       {
         "ordinal": 1,
-        "name": "name",
+        "name": "code",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "party",
-            "name": "name"
+            "table": "commodity",
+            "name": "code"
           }
         }
       },
@@ -31,19 +31,19 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "party",
+            "table": "commodity",
             "name": "kind"
           }
         }
       },
       {
         "ordinal": 3,
-        "name": "currency_id",
-        "type_info": "Uuid",
+        "name": "precision",
+        "type_info": "Int2",
         "origin": {
           "Table": {
-            "table": "party",
-            "name": "currency_id"
+            "table": "commodity",
+            "name": "precision"
           }
         }
       },
@@ -53,7 +53,7 @@
         "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "party",
+            "table": "commodity",
             "name": "version"
           }
         }
@@ -61,16 +61,16 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
       false,
-      true,
+      false,
       false
     ]
   },
-  "hash": "5e9c79febbcf190518869fef4926fc7d41b4c6aa918b9e5d05d3c2b5a9e09e9e"
+  "hash": "44a35769d63c0beed093af038850556ee63a6570f8f7b1b75bb04e974e3835d3"
 }

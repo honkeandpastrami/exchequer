@@ -1,4 +1,4 @@
-//! `/api/v1/settlements`: the household currency, a month's parameters,
+//! `/api/v1/settlements`: USD, a month's parameters,
 //! statements, implied stipends, closing and reopening, and the closed-month
 //! guard on transactions. Needs `just db-up`.
 
@@ -11,16 +11,17 @@ use serde_json::json;
 use sqlx::PgPool;
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
-async fn household_currency(pool: PgPool) {
+async fn settlement_is_in_usd(pool: PgPool) {
     let h = H::new(&pool).await;
-    // No currency yet: no statement.
     let r = h
         .send(&pool, "GET", "/api/v1/settlements/2026-06/statement", None)
         .await;
-    assert_eq!(r.status, StatusCode::CONFLICT, "{}", r.body);
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(r.body["currency_id"], json!(h.usd));
+    assert_eq!(r.body["edges"].as_array().unwrap().len(), 2);
 
-    // Only the household has a currency.
-    let path = format!("/api/v1/parties/{}", h.alex);
+    // Parties have no currency.
+    let path = format!("/api/v1/parties/{}", h.household);
     let etag = h.send(&pool, "GET", &path, None).await.etag();
     let r = call(&pool, "PATCH", &path)
         .token(&h.t)
@@ -30,19 +31,25 @@ async fn household_currency(pool: PgPool) {
         .await;
     assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
 
-    h.set_currency(&pool).await;
+    // Without a USD commodity there's no statement.
+    let path = format!("/api/v1/commodities/{}", h.usd);
+    let etag = h.send(&pool, "GET", &path, None).await.etag();
+    let r = call(&pool, "PATCH", &path)
+        .token(&h.t)
+        .if_match(&etag)
+        .json(json!({ "code": "USX" }))
+        .send()
+        .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     let r = h
         .send(&pool, "GET", "/api/v1/settlements/2026-06/statement", None)
         .await;
-    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
-    assert_eq!(r.body["currency_id"], json!(h.usd));
-    assert_eq!(r.body["edges"].as_array().unwrap().len(), 2);
+    assert_eq!(r.status, StatusCode::CONFLICT, "{}", r.body);
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn statement_and_implied_stipend(pool: PgPool) {
     let h = H::new(&pool).await;
-    h.set_currency(&pool).await;
     let household = json!({ "purpose_id": h.household });
     let store = ("counterparty_id", h.store.as_str());
 
@@ -142,7 +149,6 @@ async fn statement_and_implied_stipend(pool: PgPool) {
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn settles_and_liquidations(pool: PgPool) {
     let h = H::new(&pool).await;
-    h.set_currency(&pool).await;
 
     // A payment linked by hand to the month it's made in.
     let r = h
@@ -208,7 +214,6 @@ async fn july_alex(h: &H, pool: &PgPool) -> serde_json::Value {
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn corrections_carry_forward(pool: PgPool) {
     let h = H::new(&pool).await;
-    h.set_currency(&pool).await;
     let household = json!({ "purpose_id": h.household });
     let store = ("counterparty_id", h.store.as_str());
     let card = h.acct(&h.alex_credit);
@@ -266,7 +271,6 @@ async fn corrections_carry_forward(pool: PgPool) {
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn close_and_reopen(pool: PgPool) {
     let h = H::new(&pool).await;
-    h.set_currency(&pool).await;
     let store = ("counterparty_id", h.store.as_str());
     let r = h
         .tx(

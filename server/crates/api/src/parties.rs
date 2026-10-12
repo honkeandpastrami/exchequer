@@ -1,6 +1,5 @@
 //! `/api/v1/parties` (design §4.1). A party's kind is fixed at creation;
-//! its name can change, and the household's currency (the one settlement
-//! values are in) can be set.
+//! its name can change.
 
 use axum::Extension;
 use axum::extract::State;
@@ -16,7 +15,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth::Principal;
-use crate::common::{audit, delete_error, id_cursor, nullable, valid_name, write_error};
+use crate::common::{audit, delete_error, id_cursor, valid_name, write_error};
 use crate::conventions::{IfMatch, Page, PageParams, etag};
 use crate::problem::{Json, Path, Problem, Query};
 
@@ -58,10 +57,6 @@ pub struct Party {
     id: Uuid,
     name: String,
     kind: PartyKind,
-    /// The household currency: what settlement statements are in. Only on
-    /// the household.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    currency_id: Option<Uuid>,
     #[serde(skip)]
     version: i64,
 }
@@ -73,7 +68,6 @@ impl TryFrom<PartyRow> for Party {
             id: r.id,
             name: r.name,
             kind: PartyKind::parse(&r.kind)?,
-            currency_id: r.currency_id,
             version: r.version,
         })
     }
@@ -95,10 +89,6 @@ pub struct NewParty {
 #[serde(deny_unknown_fields)]
 pub struct PartyUpdate {
     name: Option<String>,
-    /// Household only; `null` clears it.
-    #[serde(default, deserialize_with = "nullable")]
-    #[schema(value_type = Option<Uuid>)]
-    currency_id: Option<Option<Uuid>>,
 }
 
 /// List parties.
@@ -175,7 +165,7 @@ async fn create(
     Ok(res)
 }
 
-/// Rename a party, or set the household currency.
+/// Rename a party.
 #[utoipa::path(patch, path = "/parties/{id}", tag = "parties", security(("bearer" = [])),
     params(("id" = Uuid, Path), ("If-Match" = String, Header, description = "ETag from your last read")),
     request_body = PartyUpdate,
@@ -203,16 +193,7 @@ async fn update(
         Some(n) => valid_name(n)?,
         None => &before.name,
     };
-    let currency_id = req.currency_id.unwrap_or(before.currency_id);
-    if let Some(c) = currency_id {
-        if before.kind != PartyKind::Household {
-            return Err(Problem::invalid("only the household has a currency"));
-        }
-        if store::commodities::get(&mut *tx, c, false).await?.is_none() {
-            return Err(Problem::invalid(format!("unknown commodity {c}")));
-        }
-    }
-    let row = store::parties::update(&mut *tx, id, name, currency_id)
+    let row = store::parties::update(&mut *tx, id, name)
         .await
         .map_err(|e| write_error(e, || format!("a party named {name:?} already exists")))?;
     let after = Party::try_from(row)?;

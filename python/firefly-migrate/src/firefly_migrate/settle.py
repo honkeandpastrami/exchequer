@@ -1,7 +1,7 @@
 """The settlement pass (design §4.5, §11): an additive pass over a migrated
 ledger, through the API only.
 
-It sets the household currency, links the settlement payments that settle a
+It links the settlement payments that settle a
 month other than the default, sets each month's stipends and funders,
 closes the months already closed in the old system, and reports the implied
 stipend per person per month: the acceptance test for the settlement.
@@ -19,10 +19,7 @@ from typing import Any
 from uuid import UUID
 
 from exchequer_sdk import AuthenticatedClient
-from exchequer_sdk.api.commodities import commodities_list as list_commodities
-from exchequer_sdk.api.parties import parties_get as get_party
 from exchequer_sdk.api.parties import parties_list as list_parties
-from exchequer_sdk.api.parties import parties_update as update_party
 from exchequer_sdk.api.settlements import settlements_close as close_month
 from exchequer_sdk.api.settlements import settlements_get as get_settlement
 from exchequer_sdk.api.settlements import settlements_history as get_history
@@ -37,7 +34,6 @@ from exchequer_sdk.models import (
     NewSplit,
     NewTransaction,
     PartyKind,
-    PartyUpdate,
     Problem,
     SettlementParams,
     Split,
@@ -113,7 +109,6 @@ def _new_split(s: Split, settles: str | None) -> NewSplit:
 
 @dataclass
 class Outcome:
-    currency_set: bool = False
     linked: list[str] = field(default_factory=list)
     params_set: list[str] = field(default_factory=list)
     closed: list[str] = field(default_factory=list)
@@ -135,25 +130,6 @@ class Settler:
         self.reopened: set[str] = set()
 
     # -- each step ----------------------------------------------------------
-
-    def set_currency(self) -> bool:
-        c = self.client
-        commodities = _ok(list_commodities.sync_detailed(client=c, limit=500), "commodities")
-        currency = next((x for x in commodities.items if x.code == self.s.currency), None)
-        if currency is None:
-            raise SettleError(f"commodity {self.s.currency} is not on the server")
-        r = get_party.sync_detailed(UUID(str(self.household.id)), client=c)
-        party = _ok(r, "household")
-        if str(party.currency_id) == str(currency.id):
-            return False
-        r2 = update_party.sync_detailed(
-            UUID(str(self.household.id)),
-            client=c,
-            body=PartyUpdate(currency_id=UUID(str(currency.id))),
-            if_match=_etag(r),
-        )
-        _ok(r2, "set the household currency")
-        return True
 
     def _settlement(self, month: str) -> tuple[Any, str]:
         r = get_settlement.sync_detailed(month, client=self.client)
@@ -256,7 +232,6 @@ class Settler:
     def run(self, progress: Callable[[str], None] | None = None) -> Outcome:
         say = progress or (lambda _: None)
         out = Outcome()
-        out.currency_set = self.set_currency()
         for firefly_id, month in sorted(self.s.settles.items()):
             if self.link(firefly_id, month):
                 out.linked.append(firefly_id)

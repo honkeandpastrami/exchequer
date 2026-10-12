@@ -52,7 +52,7 @@ const MAX_MONTHS: usize = 120;
 #[serde(deny_unknown_fields)]
 pub struct Stipend {
     party_id: Uuid,
-    /// In the household currency; zero or more.
+    /// In USD; zero or more.
     #[schema(value_type = String, example = "650.00")]
     amount: Amount,
 }
@@ -199,8 +199,8 @@ pub struct Edge {
     lines: Option<Vec<Line>>,
 }
 
-/// A split the settlement couldn't value: neither leg is in the household
-/// currency (prices come later).
+/// A split the settlement couldn't value: neither leg is in USD (prices come
+/// later).
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Unpriced {
     #[serde(flatten)]
@@ -219,7 +219,7 @@ pub struct Statement {
     #[schema(value_type = Option<String>)]
     params_from: Option<Month>,
     edges: Vec<Edge>,
-    /// Splits left out because they have no value in the household currency.
+    /// Splits left out because they have no value in USD.
     unpriced: Vec<Unpriced>,
 }
 
@@ -313,19 +313,27 @@ async fn settlement_for(db: &mut PgConnection, month: Month) -> Result<Settlemen
     })
 }
 
-fn household_needed() -> Problem {
-    Problem::conflict(
-        "set the household currency first (PATCH the household party with currency_id)",
-    )
+/// Settlement is always in USD (design §4.3).
+pub(crate) const CURRENCY: &str = "USD";
+
+/// The settlement currency's commodity, if it exists yet.
+pub(crate) async fn currency(db: &mut PgConnection) -> Result<Option<CommodityId>, Problem> {
+    Ok(store::commodities::by_code(&mut *db, CURRENCY)
+        .await?
+        .map(|c| CommodityId::from_uuid(c.id)))
 }
 
-/// The household and its currency.
+/// The household and the settlement currency.
 pub(crate) async fn household(db: &mut PgConnection) -> Result<(PartyId, CommodityId), Problem> {
     let h = store::parties::household(&mut *db)
         .await?
-        .ok_or_else(household_needed)?;
-    let currency = h.currency_id.ok_or_else(household_needed)?;
-    Ok((PartyId::from_uuid(h.id), CommodityId::from_uuid(currency)))
+        .ok_or_else(|| Problem::conflict("create the household party first"))?;
+    let currency = currency(db).await?.ok_or_else(|| {
+        Problem::conflict(format!(
+            "settlement is in {CURRENCY}: create the {CURRENCY} commodity first"
+        ))
+    })?;
+    Ok((PartyId::from_uuid(h.id), currency))
 }
 
 pub(crate) struct Computed {
@@ -591,7 +599,7 @@ async fn locked(
 #[utoipa::path(get, path = "/settlements", tag = "settlements", security(("bearer" = [])),
     params(HistoryParams),
     responses((status = OK, body = History),
-              (status = CONFLICT, description = "No household currency yet", body = Problem, content_type = "application/problem+json"),
+              (status = CONFLICT, description = "No USD commodity yet", body = Problem, content_type = "application/problem+json"),
               (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json")))]
 async fn history(
     State(state): State<AppState>,
@@ -646,7 +654,7 @@ async fn get(State(state): State<AppState>, Path(month): Path<Month>) -> Result<
            ("If-Match" = String, Header, description = "ETag from your last read")),
     request_body = SettlementParams,
     responses((status = OK, body = Settlement, headers(("ETag" = String))),
-              (status = CONFLICT, description = "The month is closed, or no household currency yet", body = Problem, content_type = "application/problem+json"),
+              (status = CONFLICT, description = "The month is closed, or no USD commodity yet", body = Problem, content_type = "application/problem+json"),
               (status = PRECONDITION_FAILED, body = Problem, content_type = "application/problem+json"),
               (status = PRECONDITION_REQUIRED, body = Problem, content_type = "application/problem+json"),
               (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json")))]
@@ -693,7 +701,7 @@ async fn put(
 #[utoipa::path(get, path = "/settlements/{month}/statement", tag = "settlements", security(("bearer" = [])),
     params(("month" = String, Path, description = "`YYYY-MM`")),
     responses((status = OK, body = Statement),
-              (status = CONFLICT, description = "No household currency yet", body = Problem, content_type = "application/problem+json"),
+              (status = CONFLICT, description = "No USD commodity yet", body = Problem, content_type = "application/problem+json"),
               (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json")))]
 async fn statement(
     State(state): State<AppState>,

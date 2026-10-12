@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { usd } from '#lib/usd.ts';
 	import { resolve } from '$app/paths';
 	import type { Schemas } from '#lib/api/client.ts';
 	import { accounts } from '#lib/api/resources.ts';
@@ -49,8 +50,7 @@
 			.filter((g) => g.accounts.length);
 	}
 
-	const household = (r: Reference) =>
-		[...r.parties.values()].find((p) => p.kind === 'household')?.currency_id ?? '';
+	const household = (r: Reference) => usd(r)?.id ?? '';
 
 	async function run(action: () => Promise<unknown>) {
 		busy = true;

@@ -265,7 +265,6 @@ async fn balances(pool: PgPool) {
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn household_pool(pool: PgPool) {
     let h = H::new(&pool).await;
-    h.set_currency(&pool).await;
     let groceries = june_and_july(&h, &pool).await;
     // A liquidation into Joint Savings, and funding for Studio.
     h.tx(

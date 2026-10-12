@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { usd } from '#lib/usd.ts';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -61,8 +62,7 @@
 
 	let data = $derived(load(w.start, w.end, bucket, by, owner, account));
 
-	const household = (r: Reference) =>
-		[...r.parties.values()].find((p) => p.kind === 'household')?.currency_id;
+	const household = (r: Reference) => usd(r)?.id;
 	const names = (r: Reference) =>
 		new Map<string, string>([
 			...[...r.accounts.values()].map((a) => [a.id, accountLabel(a, r)] as const),

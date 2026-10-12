@@ -53,6 +53,19 @@ pub async fn get(
     }
 }
 
+pub async fn by_code(
+    db: impl PgExecutor<'_>,
+    code: &str,
+) -> Result<Option<CommodityRow>, sqlx::Error> {
+    sqlx::query_as!(
+        CommodityRow,
+        "SELECT id, code, kind, precision, version FROM commodity WHERE code = $1",
+        code
+    )
+    .fetch_optional(db)
+    .await
+}
+
 /// Inserts a new row, or overwrites every field of an existing one (bumping
 /// its version).
 pub async fn upsert(

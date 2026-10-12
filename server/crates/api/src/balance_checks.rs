@@ -45,7 +45,7 @@ const VERSION: i64 = 1;
 #[serde(deny_unknown_fields)]
 pub struct NewBalanceCheck {
     account_id: Uuid,
-    /// Default: the household currency.
+    /// Default: USD.
     commodity_id: Option<Uuid>,
     /// Default: today (UTC).
     date: Option<Date>,
@@ -351,7 +351,7 @@ async fn get(State(state): State<AppState>, Path(id): Path<Uuid>) -> Result<Resp
 #[utoipa::path(post, path = "/balance-checks", tag = "balance-checks", security(("bearer" = [])),
     request_body = NewBalanceCheck,
     responses((status = CREATED, body = BalanceCheck, headers(("ETag" = String), ("Location" = String))),
-              (status = CONFLICT, description = "No commodity given and no household currency", body = Problem, content_type = "application/problem+json"),
+              (status = CONFLICT, description = "No commodity given and no USD commodity", body = Problem, content_type = "application/problem+json"),
               (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json")))]
 async fn create(
     State(state): State<AppState>,
@@ -364,11 +364,14 @@ async fn create(
         .ok_or_else(|| Problem::invalid(format!("unknown account {}", req.account_id)))?;
     let commodity = match req.commodity_id {
         Some(c) => c,
-        None => store::parties::household(&mut *tx)
+        None => crate::settlements::currency(&mut tx)
             .await?
-            .and_then(|h| h.currency_id)
+            .map(|c| *c.as_uuid())
             .ok_or_else(|| {
-                Problem::conflict("give commodity_id, or set the household currency first")
+                Problem::conflict(format!(
+                    "give commodity_id (the default, {}, doesn't exist yet)",
+                    crate::settlements::CURRENCY
+                ))
             })?,
     };
     let precision = store::commodities::get(&mut *tx, commodity, false)

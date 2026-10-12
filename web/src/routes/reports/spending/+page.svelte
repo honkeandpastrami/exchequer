@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { usd } from '#lib/usd.ts';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -49,8 +50,7 @@
 	let data = $derived(load(w.start, w.end, kind, purpose));
 	let months = $derived(monthsBetween(w.start, w.end));
 
-	const household = (r: Reference) =>
-		[...r.parties.values()].find((p) => p.kind === 'household')?.currency_id;
+	const household = (r: Reference) => usd(r)?.id;
 
 	function view(rows: Schemas['Row'][], r: Reference, wanted: string | null) {
 		const commodities = commoditiesIn(rows, household(r));

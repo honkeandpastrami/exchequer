@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { usd } from '#lib/usd.ts';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -27,8 +28,7 @@
 	reference().then(
 		(r) => {
 			ref = r;
-			form.commodity =
-				[...r.parties.values()].find((p) => p.kind === 'household')?.currency_id ?? '';
+			form.commodity = usd(r)?.id ?? '';
 		},
 		(e) => (failure = e)
 	);

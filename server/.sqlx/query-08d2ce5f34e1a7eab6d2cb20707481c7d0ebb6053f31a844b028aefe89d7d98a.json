@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, kind, currency_id, version FROM party ORDER BY id",
+  "query": "SELECT id, name, kind, version FROM party WHERE id = ANY($1)",
   "describe": {
     "columns": [
       {
@@ -38,17 +38,6 @@
       },
       {
         "ordinal": 3,
-        "name": "currency_id",
-        "type_info": "Uuid",
-        "origin": {
-          "Table": {
-            "table": "party",
-            "name": "currency_id"
-          }
-        }
-      },
-      {
-        "ordinal": 4,
         "name": "version",
         "type_info": "Int8",
         "origin": {
@@ -60,15 +49,16 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "UuidArray"
+      ]
     },
     "nullable": [
       false,
       false,
       false,
-      true,
       false
     ]
   },
-  "hash": "c8729acb3e3c0f9979aeca9a34900a91ccd9a7981faad94f308d7d50c13a4994"
+  "hash": "08d2ce5f34e1a7eab6d2cb20707481c7d0ebb6053f31a844b028aefe89d7d98a"
 }

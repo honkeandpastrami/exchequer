@@ -28,7 +28,7 @@ uv run firefly-migrate settlement MAPPING  # only the settlement check
   account's owner);
 - `[counterparties]`, `[categories]` and `[tags]`: dividends from Firefly's cash account,
   transfer-only categories to drop, encoding tags to retire;
-- `[settlement]` (for `settle`): the household `currency`; `stipends.<person>` and
+- `[settlement]` (for `settle`, always in USD): `stipends.<person>` and
   `funders.<business>`, each a table of months to values, carried forward until the next
   month given (amounts as strings, e.g. `"2026-01" = "500.00"`); `settles`, Firefly
   transaction IDs whose settlement payment settles a month other than the one before it
@@ -43,8 +43,7 @@ amounts it rounded, conflicting purpose labels, labels it dropped (e.g. a budget
 transfer) and anything it couldn't migrate. `check` compares balances per account and
 commodity at every month end, and category totals per month.
 
-`settle` works on an already migrated ledger and never reads Firefly. It sets the household
-currency, links the listed payments, sets every month's stipends and funders through
+`settle` works on an already migrated ledger and never reads Firefly. It links the listed payments, sets every month's stipends and funders through
 `closed_through`, and closes those months. Run it again after changing the mapping: it
 changes only what differs, reopening a closed month just long enough. The settlement check
 then shows, per person and month, the stipend set next to the *implied* stipend (claims −

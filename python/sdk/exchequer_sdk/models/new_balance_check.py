@@ -18,7 +18,7 @@ class NewBalanceCheck:
     Attributes:
         account_id (UUID):
         amount (str): As the bank shows it (owed amounts positive on cards and mortgages). Example: 1234.56.
-        commodity_id (None | Unset | UUID): Default: the household currency.
+        commodity_id (None | Unset | UUID): Default: USD.
         date (datetime.date | None | Unset): Default: today (UTC).
     """
 

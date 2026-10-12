@@ -95,8 +95,8 @@ pub struct PartyAmount {
     amount: Amount,
 }
 
-/// The household's month (design §4.3), in the household currency. Amounts
-/// in other commodities aren't included until prices exist.
+/// The household's month (design §4.3), in USD. Amounts in other
+/// commodities aren't included until prices exist.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct HouseholdPool {
     #[schema(value_type = String, example = "2026-06")]
@@ -135,7 +135,7 @@ async fn flow(
 #[utoipa::path(get, path = "/reports/household-pool/{month}", tag = "reports", security(("bearer" = [])),
     params(("month" = String, Path, description = "`YYYY-MM`")),
     responses((status = OK, body = HouseholdPool),
-              (status = CONFLICT, description = "No household currency yet", body = Problem, content_type = "application/problem+json"),
+              (status = CONFLICT, description = "No USD commodity yet", body = Problem, content_type = "application/problem+json"),
               (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json")))]
 async fn household_pool(
     State(state): State<AppState>,
