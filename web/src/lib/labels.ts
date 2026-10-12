@@ -36,3 +36,15 @@ export const lineKinds: Record<Schemas['LineKind'], string> = {
 	in_transit: 'In transit',
 	clearing: 'Clearing'
 };
+
+/** Why the discrepancy finder suggests a transaction (design §7.1). */
+export const candidateReasons: Record<Schemas['CandidateReason'], string> = {
+	duplicate_pair: 'Recorded twice',
+	equals_difference: 'Equal to the difference',
+	date_boundary: 'Dated next to the check date',
+	sign_flipped: 'Recorded with the wrong sign',
+	subset: 'Together equal to the difference',
+	transposition: 'Two digits swapped',
+	near_duplicate: 'Same amount twice in a few days',
+	multiple_of_nine: 'The difference is a multiple of 9, the mark of swapped digits'
+};

@@ -14,7 +14,8 @@
 		{ href: resolve('/'), label: 'Accounts', route: '/' },
 		{ href: resolve('/transactions'), label: 'Transactions', route: '/transactions' },
 		{ href: resolve('/settlement'), label: 'Settlement', route: '/settlement' },
-		{ href: resolve('/reports'), label: 'Reports', route: '/reports' }
+		{ href: resolve('/reports'), label: 'Reports', route: '/reports' },
+		{ href: resolve('/setup'), label: 'Setup', route: '/setup' }
 	];
 </script>
 

@@ -115,3 +115,26 @@ td.num {
 .muted {
 	color: var(--color-text-muted);
 }
+
+/* A button that reads as a link, for row actions. */
+button.link {
+	padding: 0;
+	border: none;
+	background: none;
+	color: var(--color-accent);
+	text-decoration: underline;
+	cursor: pointer;
+}
+button.link.danger {
+	color: var(--color-negative);
+}
+
+/* A small label next to a name: "archived", "built-in". */
+.badge {
+	margin-left: var(--space-2);
+	padding: 0 var(--space-2);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-alt);
+	color: var(--color-text-muted);
+	font-size: var(--text-xs);
+}

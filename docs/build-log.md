@@ -8,6 +8,7 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 | Step | What | Commit |
 |---|---|---|
+| 8.5 | Editing. Transactions: new, edit, copy as new and delete, any number of splits; each split shows only the fields it can have (category, purpose, settled month), with its kind previewed as in `domain`; counterparties typed by name are created on save, tags are free text; edits send `If-Match` and offer a reload when the transaction changed elsewhere. A Setup section edits accounts (kind, liquid, archived, credit limit), parties (the household currency), categories, counterparties, tags and commodities, each edit reading the item first for its ETag (`src/lib/api/resources.ts`). Balance checks: a page per account to enter the bank's figure, with the result, the finder's candidates linked to their transactions, and the account's past checks. 32 web tests | `546b5af`, — |
 | 8.4 | Reports, under a Reports section with three tabs, each kept in the URL: balance history (`/query` balances per month, week or day, one line per owner or account plus a total, with a table), spending or income by category (a column per month, ranked bars linking to the transactions, and a category × month table, filtered by purpose), and the household pool for a month (shared income, spending and savings change; stipends; business funding). Charts are SVG components in `web/src/lib/charts` that place exact amounts in pixels through `big.js` (`scale.ts`) and take their colors from new `--chart-*` tokens; labels always come from the strings. A shared month window (end month and span, 3 to 60 months). The top bar wraps on narrow screens. 27 web tests | `d69acca` |
 | R | Releases: one version for every piece, taken only from git tags. `deploy/version` (`just version`) turns `git describe` into `X.Y.Z` on a release tag, `X.Y.Z-dev.N+g<commit>` after one, `0.0.0-dev+g<commit>` before any (`.dirty` with uncommitted changes); image builds pass it in (`--build-arg EXCHEQUER_VERSION`) for `/version` and the web app's header. The Python packages use `hatch-vcs` (the SDK through a custom generator template, `python/sdk-templates`). Cargo, npm and the spec keep a `0.0.0` placeholder. A `vX.Y.Z` tag on `main` runs `release.yml`: builds and smoke-tests both images (`deploy/tests/image-smoke.sh`, shared with CI, also checking `/version`), pushes them to `ghcr.io/honkeandpastrami/` as `X.Y.Z`, `X.Y` and `latest`, and creates a GitHub Release with the SDK and `firefly-migrate` packages. Example quadlets run the released images (`AutoUpdate=registry`; the backup `Pull=newer`); `deploy/build-images` remains as a fallback under the same names. The `local-build` labels are gone. | `3b0dfa2`, `be3a464` |
 | 8.3 | Settlement pages: a year's monthly table per edge (carried, claims, stipend, due, paid, outstanding, to settle, and status: open, settled, closed with a difference ⚠, or paying down a past one ↺, as in the `settlement` check), and a month's statement (state and parameters, each edge's figures, its lines with the transactions they point to, in-transit proceeds, unpriced splits). Transactions behind lines are fetched by ID, six at a time. 15 web tests | `19e71c3` |
@@ -36,8 +37,8 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 ## Next
 
-- **Step 8, web app (§13)**, ahead of step 5: 8.5 editing (transactions with splits,
-  reference data), then 8.6 settlement parameters and closing and reopening months.
+- **Step 8, web app (§13)**, ahead of step 5: 8.6 settlement parameters (stipends,
+  funders) and closing and reopening months.
 
 ## To do
 
@@ -53,6 +54,7 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 | Step | Decision |
 |---|---|
+| 8.5 | The editor keeps the server as the judge of ledger rules: it previews a split's kind only to decide which fields to show, and shows the server's message when a save is refused. A month that is closed is reported on save rather than checked beforehand. |
 | 8.4 | Charts are drawn by hand in SVG rather than with a chart library: the few shapes needed (lines, columns, bars) are small, the colors stay CSS tokens (a canvas library can't read them), and amounts never pass through floats except as pixel positions. |
 | R | One version for the whole repo instead of per-component tags (design §15 updated): the pieces share one spec and move together. Like `firefly-preimporter`, the version is never written in the repo: tags are the only source. The server runs the newest release through `podman auto-update`, so a commit on `main` reaches it only once tagged. |
 | 8.2 | With hash routing SvelteKit leaves the query inside `url.hash`, so pages read it through `src/lib/query.ts`. |

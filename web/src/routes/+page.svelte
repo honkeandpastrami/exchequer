@@ -37,7 +37,7 @@
 			<h2>{g.owner.name} <span class="muted kind">{partyKinds[g.owner.kind]}</span></h2>
 			<table>
 				<thead>
-					<tr><th>Account</th><th>Kind</th><th class="num">Balance</th></tr>
+					<tr><th>Account</th><th>Kind</th><th class="num">Balance</th><th></th></tr>
 				</thead>
 				<tbody>
 					{#each g.rows as r (r.account.id)}
@@ -55,6 +55,9 @@
 									<span class="muted">—</span>
 								{/each}
 							</td>
+							<td class="check">
+								<a href={resolve(`/checks?account=${r.account.id}`)}>Check</a>
+							</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -66,6 +69,7 @@
 								<div><Amount value={l.balance} code={l.commodity.code} /></div>
 							{/each}
 						</td>
+						<td></td>
 					</tr>
 				</tfoot>
 			</table>
@@ -122,5 +126,9 @@
 	tfoot td {
 		font-weight: var(--weight-strong);
 		border-top: var(--border-width) solid var(--color-border);
+	}
+	.check {
+		width: 1%;
+		font-size: var(--text-sm);
 	}
 </style>
