@@ -25,7 +25,8 @@ const accounts: Schemas['Account'][] = [
 const balances: Schemas['AccountBalance'][] = [
 	{ account_id: 'checking', commodity_id: 'usd', balance: '100.10' },
 	{ account_id: 'card', commodity_id: 'usd', balance: '-40.05' },
-	{ account_id: 'joint', commodity_id: 'usd', balance: '5.00' }
+	{ account_id: 'joint', commodity_id: 'usd', balance: '5.00' },
+	{ account_id: 'old', commodity_id: 'usd', balance: '1.00' }
 ];
 
 describe('groupBalances', () => {
@@ -36,10 +37,12 @@ describe('groupBalances', () => {
 		expect(g[1].totals).toEqual([{ commodity: usd, balance: '60.05' }]);
 	});
 
-	it('hides empty archived accounts unless asked', () => {
-		const shown = (archived: boolean) =>
-			groupBalances(parties, [usd], accounts, balances, archived)[1].rows.map((r) => r.account.id);
-		expect(shown(false)).not.toContain('old');
-		expect(shown(true)).toContain('old');
+	it('hides archived accounts unless asked, even with a balance', () => {
+		const sam = (archived: boolean) =>
+			groupBalances(parties, [usd], accounts, balances, archived)[1];
+		expect(sam(false).rows.map((r) => r.account.id)).not.toContain('old');
+		expect(sam(false).totals).toEqual([{ commodity: usd, balance: '60.05' }]);
+		expect(sam(true).rows.map((r) => r.account.id)).toContain('old');
+		expect(sam(true).totals).toEqual([{ commodity: usd, balance: '61.05' }]);
 	});
 });

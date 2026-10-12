@@ -54,6 +54,7 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 | Step | Decision |
 |---|---|
+| 3 | Archived accounts with no transaction in the migrated year aren't migrated: their opening balance would be the only thing in them. The plan report lists them with their balance at the start; the acceptance check compares only the accounts migrated. Accounts in use are always migrated, active that year or not. |
 | 8.5 | The editor keeps the server as the judge of ledger rules: it previews a split's kind only to decide which fields to show, and shows the server's message when a save is refused. A month that is closed is reported on save rather than checked beforehand. |
 | 8.4 | Charts are drawn by hand in SVG rather than with a chart library: the few shapes needed (lines, columns, bars) are small, the colors stay CSS tokens (a canvas library can't read them), and amounts never pass through floats except as pixel positions. |
 | R | One version for the whole repo instead of per-component tags (design §15 updated): the pieces share one spec and move together. Like `firefly-preimporter`, the version is never written in the repo: tags are the only source. The server runs the newest release through `podman auto-update`, so a commit on `main` reaches it only once tagged. |

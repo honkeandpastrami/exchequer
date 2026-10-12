@@ -12,8 +12,8 @@ const byCode = (a: Line, b: Line) => a.commodity.code.localeCompare(b.commodity.
 
 /**
  * One group per owner (household, people, businesses), each account with its
- * balance per commodity. Archived accounts are left out unless asked for or
- * not empty.
+ * balance per commodity. Archived accounts are left out unless asked for; the
+ * totals are of the accounts shown.
  */
 export function groupBalances(
 	parties: Schemas['Party'][],
@@ -39,7 +39,7 @@ export function groupBalances(
 		.map((owner) => {
 			const rows = accounts
 				.filter((a) => a.owner_id === owner.id)
-				.filter((a) => showArchived || !a.archived || lines.has(a.id))
+				.filter((a) => showArchived || !a.archived)
 				.sort(
 					(a, b) =>
 						rank(accountKinds, a.kind) - rank(accountKinds, b.kind) || a.name.localeCompare(b.name)

@@ -106,7 +106,9 @@ class Writer:
             self.commodities[code] = _created(r, f"commodity {code}")
 
         for a in m.accounts:
-            limit = plan.accounts.get(a.name)
+            if a.name not in plan.accounts:
+                continue  # not used in the year
+            limit = plan.accounts[a.name]
             body = NewAccount(
                 kind=AccountKind(a.kind),
                 name=a.name,

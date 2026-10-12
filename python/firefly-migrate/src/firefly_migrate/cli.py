@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
             dates = check.check_dates(m)
             with _exchequer(m) as client:
                 balances, totals = check.exchequer_view(client, dates)
-            diffs = check.compare(check.firefly_balances(ff, m, dates), balances)
+            diffs = check.compare(check.firefly_balances(ff, m, dates, p.accounts), balances)
             cats = check.compare(check.firefly_category_totals(m, groups), totals)
             print(f"\n## Acceptance check ({len(dates)} dates)\n")
             print(f"Balance differences: {len(diffs)}")

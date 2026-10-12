@@ -110,6 +110,7 @@ def test_opening_balances_sum_everything_before_the_year(m):
         group(2, "2025-06-01", journal(1, "Expense:X", "30.555")),  # rounded quietly
         group(3, "2025-07-01", journal(2, "Expense:X", "40.00")),
         group(4, "2026-01-15", journal(1, "Expense:X", "1.00")),
+        group(5, "2026-02-01", journal(2, "Expense:X", "2.00")),
     )
     openings = [t for t in p.transactions if not t.firefly_id]
     assert all(t.date == date(2026, 1, 1) for t in openings)
@@ -170,7 +171,28 @@ def test_unmapped_owned_accounts_are_errors(m):
     assert "not in the mapping" in p.report.errors[0]
 
 
+def test_archived_accounts_unused_in_the_year_are_left_out(m):
+    p = plan(
+        m,
+        group(1, "2025-03-01", journal("Initial", 7, "55.00", type="opening balance")),
+        group(2, "2025-04-01", journal("Initial", 2, "10.00", type="opening balance")),
+        group(10, "2026-03-01", journal(1, "Expense:X", "1")),
+    )
+    assert "Old Account" not in p.accounts
+    assert p.skipped_accounts["Old Account"] == {"USD": Decimal("55.00")}
+    assert set(p.skipped_accounts) == {"Old Account"}
+    # Not archived: migrated with its opening balance, though unused this year.
+    assert "Alex Credit" in p.accounts
+    legs = {leg.account for t in p.transactions for sp in t.splits for leg in (sp.from_, sp.to)}
+    assert "Old Account" not in legs
+    assert "Alex Credit" in legs
+
+
 def test_credit_limits_come_from_the_virtual_balance(m):
-    p = plan(m)
+    p = plan(
+        m,
+        group(10, "2026-03-01", journal(1, "Expense:X", "1")),
+        group(11, "2026-03-01", journal(2, "Expense:X", "1")),
+    )
     assert p.accounts["Alex Credit"] == transform.CreditLimit("USD", Decimal("2500.00"))
     assert p.accounts["Alex Checking"] is None

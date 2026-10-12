@@ -77,7 +77,10 @@ class Report:
 class Plan:
     year: int
     through: date
-    accounts: dict[str, CreditLimit | None]  # mapped account name → credit limit
+    accounts: dict[str, CreditLimit | None]  # migrated account name → credit limit
+    # Archived accounts with no transaction in the year, left out with their
+    # opening balances: name → commodity → balance at the start.
+    skipped_accounts: dict[str, dict[str, Decimal]]
     counterparties: list[str]
     categories: list[str]
     transactions: list[Transaction]
@@ -415,10 +418,28 @@ def plan(
             transactions.append(t)
     report.counts["transactions"] = len(transactions)
 
+    # Archived accounts unused in the year aren't migrated; they're listed in
+    # the report instead, opening balance and all. Accounts still in use are
+    # always migrated, active this year or not.
+    active = {
+        leg.account
+        for t in transactions
+        for sp in t.splits
+        for leg in (sp.from_, sp.to)
+        if leg.account
+    }
+    skipped: dict[str, dict[str, Decimal]] = {
+        a.name: {} for a in m.accounts if a.archived and a.name not in active
+    }
+    for (account, commodity), balance in opening.items():
+        if account in skipped and balance != 0:
+            skipped[account][commodity] = balance
+    limits = {name: limit for name, limit in limits.items() if name not in skipped}
+
     # One opening-balance transaction per account and commodity (§11).
     openings = []
     for (account, commodity), balance in sorted(opening.items()):
-        if balance == 0:
+        if balance == 0 or account in skipped:
             continue
         system = Leg(commodity=commodity, quantity=abs(balance), system=OPENING_BALANCES)
         mine = Leg(commodity=commodity, quantity=abs(balance), account=account)
@@ -451,6 +472,7 @@ def plan(
         year=m.year,
         through=m.through,
         accounts=limits,
+        skipped_accounts=skipped,
         counterparties=sorted(used),
         categories=sorted(used_categories),
         transactions=final,

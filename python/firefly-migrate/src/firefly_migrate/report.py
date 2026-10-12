@@ -25,6 +25,14 @@ def render(p: Plan) -> str:
             + ", ".join(f"{a} {c.quantity} {c.commodity}" for a, c in limits.items())
         )
 
+    n = len(p.skipped_accounts)
+    out += ["", f"## Archived accounts not migrated: no transactions in {p.year} ({n})", ""]
+    for name, balances in sorted(p.skipped_accounts.items()):
+        held = ", ".join(f"{q} {c}" for c, q in sorted(balances.items()))
+        out.append(f"- {name}" + (f" (balance at the start: {held})" if held else ""))
+    if not p.skipped_accounts:
+        out.append("None.")
+
     out += ["", f"## Errors ({len(r.errors)})", ""]
     out += [f"- {e}" for e in r.errors] or ["None."]
     out += ["", f"## Rounded float damage ({len(r.rounded)}): confirm each", ""]

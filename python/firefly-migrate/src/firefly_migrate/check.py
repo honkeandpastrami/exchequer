@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import calendar
 from collections import defaultdict
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -108,12 +109,15 @@ def exchequer_view(
 
 
 def firefly_balances(
-    ff: FireflyReader, m: Mapping, dates: list[date]
+    ff: FireflyReader, m: Mapping, dates: list[date], migrated: Collection[str]
 ) -> dict[tuple[str, str, date], Decimal]:
-    """Firefly's own balances. Firefly includes a credit card's virtual balance
-    (its limit) in what it reports, so that is subtracted (§11)."""
+    """Firefly's own balances, for the `migrated` accounts. Firefly includes a
+    credit card's virtual balance (its limit) in what it reports, so that is
+    subtracted (§11)."""
     out: dict[tuple[str, str, date], Decimal] = defaultdict(Decimal)
     for a in m.accounts:
+        if a.name not in migrated:
+            continue
         for fid in a.firefly:
             for d in dates:
                 attrs = ff.account_on(fid, d)["attributes"]
