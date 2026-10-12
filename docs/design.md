@@ -378,8 +378,10 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    - *Exact:* native ID (FITID or bank reference), or a content hash with an occurrence
      suffix for identical rows in one file; unique per account (`import_fingerprint`,
      recorded on commit and deleted with its transaction).
-   - *Near:* same account and amount, date within ±N days, description similarity via
-     `pg_trgm`, one-to-one matching. Near-duplicates are **flagged in staging**, not
+   - *Near:* same account, commodity and signed amount, date within ±3 days, matched
+     one-to-one: the most similar descriptions first (`pg_trgm`), then the closest dates.
+     Similarity only ranks: a transaction typed by hand rarely reads like the bank's text,
+     so a low score doesn't clear a row. Near-duplicates are **flagged in staging**, not
      prompted mid-run.
    - Re-uploading a file, or overlapping date ranges, is a no-op.
 4. **Transfer matching.** A card payment appears in both the checking and the card file.

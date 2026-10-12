@@ -342,3 +342,46 @@ pub async fn known_fingerprints(
         .map(|r| (r.fingerprint, r.transaction_id))
         .collect())
 }
+
+/// A staged row and an existing transaction that may be the same: same
+/// account, commodity and signed amount, dated within `days` of each other.
+#[derive(Debug, Clone)]
+pub struct NearCandidate {
+    pub position: i32,
+    pub transaction_id: Uuid,
+    /// Trigram similarity of the descriptions, in thousandths (0-1000).
+    pub similarity: i32,
+    pub days_apart: i32,
+}
+
+pub async fn near_candidates(
+    db: impl PgExecutor<'_>,
+    import_id: Uuid,
+    statement: i16,
+    account_id: Uuid,
+    commodity_id: Uuid,
+    days: i32,
+) -> Result<Vec<NearCandidate>, sqlx::Error> {
+    sqlx::query_as!(
+        NearCandidate,
+        r#"SELECT DISTINCT r.position, t.id AS transaction_id,
+                  round(similarity(lower(r.description), lower(t.description)) * 1000)::int4
+                      AS "similarity!",
+                  abs(r.date - t.date) AS "days_apart!"
+           FROM staged_row r
+           JOIN split s ON (r.amount < 0 AND s.from_account_id = $3
+                            AND s.from_commodity_id = $4 AND s.from_quantity = -r.amount)
+                        OR (r.amount > 0 AND s.to_account_id = $3
+                            AND s.to_commodity_id = $4 AND s.to_quantity = r.amount)
+           JOIN transaction t ON t.id = s.transaction_id
+           WHERE r.import_id = $1 AND r.statement = $2
+             AND t.date BETWEEN r.date - $5::int4 AND r.date + $5::int4"#,
+        import_id,
+        statement,
+        account_id,
+        commodity_id,
+        days,
+    )
+    .fetch_all(db)
+    .await
+}

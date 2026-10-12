@@ -3,6 +3,8 @@
 //! isn't kept, only its parsed statements and rows, until the import is
 //! committed or discarded.
 
+use std::collections::{HashMap, HashSet};
+
 use axum::Extension;
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, State};
@@ -14,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgConnection;
 use store::audit::Action;
-use store::imports::{ImportRow, RowRow, StatementRow};
+use store::imports::{ImportRow, NearCandidate, RowRow, StatementRow};
 use time::{Date, OffsetDateTime};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
@@ -312,34 +314,88 @@ fn respond(status: StatusCode, i: &Import) -> Response {
     (status, etag(i.version), axum::Json(i)).into_response()
 }
 
+/// How far apart, in days, a near-duplicate's date may be.
+const NEAR_DAYS: i32 = 3;
+
+/// One-to-one near-duplicate matching: each row and each transaction is used
+/// at most once, the most similar descriptions first, then the closest
+/// dates. Rows in `done` and transactions in `taken` are already matched.
+fn near_matches(
+    mut candidates: Vec<NearCandidate>,
+    done: &HashSet<i32>,
+    taken: &HashSet<Uuid>,
+) -> HashMap<i32, Uuid> {
+    candidates.sort_by(|a, b| {
+        b.similarity
+            .cmp(&a.similarity)
+            .then(a.days_apart.cmp(&b.days_apart))
+            .then(a.position.cmp(&b.position))
+            .then(a.transaction_id.cmp(&b.transaction_id))
+    });
+    let mut taken = taken.clone();
+    let mut out = HashMap::new();
+    for c in candidates {
+        if done.contains(&c.position) || out.contains_key(&c.position) {
+            continue;
+        }
+        if taken.insert(c.transaction_id) {
+            out.insert(c.position, c.transaction_id);
+        }
+    }
+    out
+}
+
 /// Works out each row's status in one statement, from what the ledger holds
-/// now (design §6.3-§6.4).
+/// now (design §6.3-§6.4): `needs_account` without an account; `duplicate`
+/// when its fingerprint was imported into the account before;
+/// `near_duplicate` when a transaction in the account has the same commodity
+/// and signed amount within [`NEAR_DAYS`] days (matched one-to-one); else
+/// `new`.
 async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Result<(), Problem> {
-    let account = store::imports::statements(&mut *db, &[import_id])
+    let (_, s) = store::imports::statements(&mut *db, &[import_id])
         .await?
         .into_iter()
         .find(|(_, s)| s.position == statement)
-        .and_then(|(_, s)| s.account_id);
+        .ok_or_else(Problem::internal)?;
     let rows =
         store::imports::rows(&mut *db, import_id, Some(statement), None, None, i64::MAX).await?;
-    let known = match account {
-        Some(a) => {
-            let fps: Vec<String> = rows.iter().map(|r| r.fingerprint.clone()).collect();
-            store::imports::known_fingerprints(&mut *db, a, &fps).await?
+    let mut matched: HashMap<i32, (RowStatus, Uuid)> = HashMap::new();
+    if let Some(account) = s.account_id {
+        let fps: Vec<String> = rows.iter().map(|r| r.fingerprint.clone()).collect();
+        let known: HashMap<String, Uuid> =
+            store::imports::known_fingerprints(&mut *db, account, &fps)
+                .await?
+                .into_iter()
+                .collect();
+        for r in &rows {
+            if let Some(t) = known.get(&r.fingerprint) {
+                matched.insert(r.position, (RowStatus::Duplicate, *t));
+            }
         }
-        None => Vec::new(),
-    };
+        let candidates = store::imports::near_candidates(
+            &mut *db,
+            import_id,
+            statement,
+            account,
+            s.commodity_id,
+            NEAR_DAYS,
+        )
+        .await?;
+        let done: HashSet<i32> = matched.keys().copied().collect();
+        let taken: HashSet<Uuid> = matched.values().map(|m| m.1).collect();
+        for (position, t) in near_matches(candidates, &done, &taken) {
+            matched.insert(position, (RowStatus::NearDuplicate, t));
+        }
+    }
     let statuses: Vec<(i32, String, Option<Uuid>)> = rows
         .iter()
         .map(|r| {
-            let (status, matched) = if account.is_none() {
-                (RowStatus::NeedsAccount, None)
-            } else if let Some((_, t)) = known.iter().find(|(f, _)| *f == r.fingerprint) {
-                (RowStatus::Duplicate, Some(*t))
-            } else {
-                (RowStatus::New, None)
+            let (status, t) = match (s.account_id, matched.get(&r.position)) {
+                (None, _) => (RowStatus::NeedsAccount, None),
+                (Some(_), Some((status, t))) => (*status, Some(*t)),
+                (Some(_), None) => (RowStatus::New, None),
             };
-            (r.position, status.as_str().to_owned(), matched)
+            (r.position, status.as_str().to_owned(), t)
         })
         .collect();
     store::imports::set_statuses(&mut *db, import_id, statement, &statuses).await?;
@@ -697,4 +753,39 @@ async fn discard(
     .await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn c(position: i32, t: u128, similarity: i32, days_apart: i32) -> NearCandidate {
+        NearCandidate {
+            position,
+            transaction_id: Uuid::from_u128(t),
+            similarity,
+            days_apart,
+        }
+    }
+
+    #[test]
+    fn near_matches_are_one_to_one_best_first() {
+        // Two identical coffees and one recorded coffee: one match. The
+        // better description wins a transaction; closer dates break ties.
+        let got = near_matches(
+            vec![
+                c(0, 1, 200, 0),
+                c(1, 1, 900, 2),
+                c(2, 2, 500, 3),
+                c(2, 3, 500, 1),
+                c(3, 4, 1000, 0),
+            ],
+            &HashSet::from([3]),
+            &HashSet::from([Uuid::from_u128(2)]),
+        );
+        assert_eq!(
+            got,
+            HashMap::from([(1, Uuid::from_u128(1)), (2, Uuid::from_u128(3))])
+        );
+    }
 }

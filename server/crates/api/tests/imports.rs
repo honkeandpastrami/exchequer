@@ -278,3 +278,63 @@ async fn rows_already_imported_are_duplicates(pool: PgPool) {
     let dups = rows(&pool, &h, &id, "?status=duplicate").await;
     assert_eq!(dups.len(), 1);
 }
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn rows_like_recorded_transactions_are_near_duplicates(pool: PgPool) {
+    let h = H::new(&pool).await;
+    let tx = |date: &str, desc: &str, from: Value, to: Value| json!({ "date": date, "description": desc, "splits": [{ "from": from, "to": to }] });
+    let store = ("counterparty_id", h.store.as_str());
+    let mut made = Vec::new();
+    for body in [
+        // One coffee entered by hand, a day after the bank's.
+        tx(
+            "2026-03-02",
+            "Coffee",
+            h.leg(h.acct(&h.alex_checking), "4.50"),
+            h.leg(store, "4.50"),
+        ),
+        // Pay in the right direction, two days later.
+        tx(
+            "2026-03-05",
+            "Salary",
+            h.leg(store, "1500.00"),
+            h.leg(h.acct(&h.alex_checking), "1500.00"),
+        ),
+        // Not near: the wrong direction, another account, too far apart.
+        tx(
+            "2026-03-03",
+            "PAYROLL",
+            h.leg(h.acct(&h.alex_checking), "1500.00"),
+            h.leg(store, "1500.00"),
+        ),
+        tx(
+            "2026-03-01",
+            "COFFEE",
+            h.leg(h.acct(&h.joint_savings), "4.50"),
+            h.leg(store, "4.50"),
+        ),
+        tx(
+            "2026-03-07",
+            "PAYROLL",
+            h.leg(store, "1500.00"),
+            h.leg(h.acct(&h.alex_checking), "1500.00"),
+        ),
+    ] {
+        let r = h
+            .send(&pool, "POST", "/api/v1/transactions", Some(body))
+            .await;
+        assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+        made.push(r.id());
+    }
+    let r = upload(&pool, &h, &format!("?account_id={}", h.alex_checking), CSV).await;
+    let all = rows(&pool, &h, &r.id(), "").await;
+    // Two identical coffees, one recorded: only the one on the same day is
+    // flagged.
+    assert_eq!(statuses(&all), ["new", "near_duplicate", "near_duplicate"]);
+    assert_eq!(all[1]["match_transaction_id"], json!(made[0]));
+    assert_eq!(all[2]["match_transaction_id"], json!(made[1]));
+    assert_eq!(
+        r.body["statements"][0]["counts"]["near_duplicate"],
+        json!(2)
+    );
+}
