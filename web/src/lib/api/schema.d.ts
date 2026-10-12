@@ -3203,6 +3203,13 @@ export interface operations {
 				counterparty_id?: string;
 				/** @description Only transactions with a split in this category. */
 				category_id?: string;
+				/** @description Only transactions with this tag. */
+				tag_id?: string;
+				/**
+				 * @description Only transactions whose description, notes or a split's description
+				 *     contain this text (case-insensitive).
+				 */
+				q?: string;
 				/** @description With `external_ref`: the transaction with this external reference. */
 				external_source?: string;
 				/** @description With `external_source`. */

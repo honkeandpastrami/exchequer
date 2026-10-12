@@ -54,8 +54,21 @@ pub struct Filter {
     pub account: Option<Uuid>,
     pub counterparty: Option<Uuid>,
     pub category: Option<Uuid>,
+    pub tag: Option<Uuid>,
+    /// Case-insensitive substring of the description, the notes or a
+    /// split's description.
+    pub text: Option<String>,
     /// `(source, ref)`: the transaction with this external reference.
     pub external_ref: Option<(String, String)>,
+}
+
+/// `text` as an `ILIKE` pattern matching it anywhere, wildcards escaped.
+fn contains_pattern(text: &str) -> String {
+    let escaped = text
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("%{escaped}%")
 }
 
 /// Newest first: by date, then by ID. `after` is the `(date, id)` of the last
@@ -68,6 +81,7 @@ pub async fn list(
 ) -> Result<Vec<TransactionRow>, sqlx::Error> {
     let (after_date, after_id) = after.unzip();
     let (ext_source, ext_ref) = filter.external_ref.clone().unzip();
+    let pattern = filter.text.as_deref().map(contains_pattern);
     sqlx::query_as!(
         TransactionRow,
         r#"SELECT t.id, t.date, t.description, t.notes, t.version
@@ -83,6 +97,11 @@ pub async fn list(
                   AND s.category_id = $7))
              AND ($8::text IS NULL OR EXISTS (SELECT 1 FROM transaction_external_ref e
                   WHERE e.transaction_id = t.id AND e.source = $8 AND e.ref = $9))
+             AND ($11::uuid IS NULL OR EXISTS (SELECT 1 FROM transaction_tag g
+                  WHERE g.transaction_id = t.id AND g.tag_id = $11))
+             AND ($12::text IS NULL OR t.description ILIKE $12 OR t.notes ILIKE $12
+                  OR EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = t.id
+                             AND s.description ILIKE $12))
            ORDER BY t.date DESC, t.id DESC
            LIMIT $10"#,
         after_date,
@@ -95,6 +114,8 @@ pub async fn list(
         ext_source,
         ext_ref,
         limit,
+        filter.tag,
+        pattern,
     )
     .fetch_all(db)
     .await
@@ -441,4 +462,12 @@ pub async fn balances_before(
         .into_iter()
         .map(|r| (r.account_id, r.commodity_id, r.balance))
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn wildcards_are_literal() {
+        assert_eq!(super::contains_pattern("50%_off\\"), "%50\\%\\_off\\\\%");
+    }
 }

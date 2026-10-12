@@ -3027,6 +3027,25 @@
             }
           },
           {
+            "name": "tag_id",
+            "in": "query",
+            "description": "Only transactions with this tag.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Only transactions whose description, notes or a split's description\ncontain this text (case-insensitive).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "external_source",
             "in": "query",
             "description": "With `external_ref`: the transaction with this external reference.",

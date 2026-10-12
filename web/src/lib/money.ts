@@ -21,3 +21,9 @@ export function sum(values: string[]): string {
 export function sign(value: string): -1 | 0 | 1 {
 	return new Big(value).cmp(0) as -1 | 0 | 1;
 }
+
+/** `a − b`, exactly, at the larger scale of the two. */
+export function minus(a: string, b: string): string {
+	const scale = Math.max(...[a, b].map((v) => v.split('.')[1]?.length ?? 0));
+	return new Big(a).minus(b).toFixed(scale);
+}

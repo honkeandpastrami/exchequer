@@ -1,0 +1,87 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.id, t.date, t.description, t.notes, t.version\n           FROM transaction t\n           WHERE ($1::date IS NULL OR (t.date, t.id) < ($1, $2::uuid))\n             AND ($3::date IS NULL OR t.date >= $3)\n             AND ($4::date IS NULL OR t.date <= $4)\n             AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = t.id\n                  AND $5 IN (s.from_account_id, s.to_account_id)))\n             AND ($6::uuid IS NULL OR EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = t.id\n                  AND $6 IN (s.from_counterparty_id, s.to_counterparty_id)))\n             AND ($7::uuid IS NULL OR EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = t.id\n                  AND s.category_id = $7))\n             AND ($8::text IS NULL OR EXISTS (SELECT 1 FROM transaction_external_ref e\n                  WHERE e.transaction_id = t.id AND e.source = $8 AND e.ref = $9))\n             AND ($11::uuid IS NULL OR EXISTS (SELECT 1 FROM transaction_tag g\n                  WHERE g.transaction_id = t.id AND g.tag_id = $11))\n             AND ($12::text IS NULL OR t.description ILIKE $12 OR t.notes ILIKE $12\n                  OR EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = t.id\n                             AND s.description ILIKE $12))\n           ORDER BY t.date DESC, t.id DESC\n           LIMIT $10",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "date",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "date"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "notes",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "notes"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Uuid",
+        "Date",
+        "Date",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "941857c4410e3689ffc44c2434c62c0f27321e07b9e3e9488970b7c8e54b16aa"
+}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { all, api, ok } from '#lib/api/client.ts';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
@@ -42,7 +43,7 @@
 					{#each g.rows as r (r.account.id)}
 						<tr class:archived={r.account.archived}>
 							<td>
-								{r.account.name}
+								<a href={resolve(`/transactions?account_id=${r.account.id}`)}>{r.account.name}</a>
 								{#if r.account.archived}<span class="muted tag">archived</span>{/if}
 								{#if !r.account.liquid}<span class="muted tag">not liquid</span>{/if}
 							</td>

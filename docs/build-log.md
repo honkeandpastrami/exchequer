@@ -8,6 +8,7 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 | Step | What | Commit |
 |---|---|---|
+| 8.2 | Transactions page: newest first, 100 at a time, filters kept in the URL (text, dates, account, counterparty, category, tag; the Accounts page links each account to its transactions), a row expands into its splits (legs, amounts, kind, category, purpose, `settles`, notes, external refs). Filtered by one account it shows each transaction's effect on it and, when only dates narrow it, the running balance. Server: `GET /transactions` gains `q` (case-insensitive substring of the description, notes or a split's description; `%` and `_` literal) and `tag_id`. Names for IDs load once per page load (`src/lib/reference.ts`). 2 new server tests (99), 11 web tests | |
 | 8.1 | Web app scaffold `web/` (SvelteKit 3, static adapter, hash routing, relative paths; Svelte 5): token sign-in (pasted, kept in localStorage, checked before it's kept, dropped on a 401), the app shell, and an Accounts page (balances by owner at any date, totals per commodity, archived accounts on request). Types generated from the spec (`openapi-typescript`, pinned, run through `npx`) with `openapi-fetch`; amounts stay strings (`big.js` for sums; ESLint bans `parseFloat`/`Number`). All styling from design tokens in `src/lib/theme/tokens.css` (light and dark). The server serves the build at `/` when `EXCHEQUER_WEB_DIR` is set (the image sets it), with `no-cache` on the shell and `immutable` on hashed assets. Operation IDs are now unique (`<tag>_<name>`): the Python SDK modules were renamed to match. `just web-check` and a `web` CI workflow; the image build gains a web stage and its smoke test checks `/`. 2 new server tests (97), 5 web tests | `601733d` |
 | 4.5b | Statements show `carried` per edge (`outstanding` at the end of the previous month, so `outstanding = carried + due − paid`). The `settlement` check shows it and marks a closed month's difference as new (⚠) or as paying down what was carried (↺); only new ones count as months to look at. | `3d2195a` |
 | 4.5a | `firefly-migrate settle` and `settlement`: the settlement pass over a migrated ledger, through the API and without reading Firefly (household currency, payment links by Firefly ID, each month's stipends and funders from schedules carried forward, closing through `closed_through`), then the §4.5 check: stipend set vs. implied stipend per person and month, flagging closed months that differ. Re-runnable: changes only what differs. Mapping gains `[settlement]`. 13 new Python tests (38). | `1ceebbf` |
@@ -32,10 +33,9 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 ## Next
 
-- **Step 8, web app (§13)**, ahead of step 5. Read-only views first: 8.2 transactions
-  (search, filters, splits), 8.3 settlement (monthly table, statements with lines), 8.4
-  reports (balance history, spending by category, household pool), then 8.5 editing and
-  8.6 closing and reopening months.
+- **Step 8, web app (§13)**, ahead of step 5. Read-only views first: 8.3 settlement
+  (monthly table, statements with lines), 8.4 reports (balance history, spending by
+  category, household pool), then 8.5 editing and 8.6 closing and reopening months.
 
 ## To do
 
@@ -51,6 +51,7 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 | Step | Decision |
 |---|---|
+| 8.2 | With hash routing SvelteKit leaves the query inside `url.hash`, so pages read it through `src/lib/query.ts`. |
 | 8.1 | The web app comes before the import pipeline: it's needed to see what's in the database. Sign-in is a pasted API token until Entra (step 9). |
 | 8.1 | Hash routing and relative paths keep the proxy prefix out of the build. SvelteKit still writes root-relative paths into the shell `index.html`, so the build rewrites them (`web/scripts/relative-paths.js`, which fails if any remain). |
 | 8.1 | Operation IDs were duplicated across resources (`list`, `get`…), which OpenAPI forbids and which made the TS generator merge them. Each is now prefixed with its tag, with a test that they're unique. |

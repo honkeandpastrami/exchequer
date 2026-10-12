@@ -1,0 +1,281 @@
+<script lang="ts">
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
+	import { api, ok, type Schemas } from '#lib/api/client.ts';
+	import Failure from '#lib/components/Failure.svelte';
+	import Quantities from '#lib/components/Quantities.svelte';
+	import TransactionDetail from '#lib/components/TransactionDetail.svelte';
+	import { hashQuery, withParam } from '#lib/query.ts';
+	import { reference, sorted, type Reference } from '#lib/reference.ts';
+	import {
+		categoryNames,
+		effectOn,
+		route,
+		runningBalances,
+		size
+	} from '#lib/views/transactions.ts';
+
+	const KEYS = [
+		'q',
+		'from',
+		'to',
+		'account_id',
+		'counterparty_id',
+		'category_id',
+		'tag_id'
+	] as const;
+	type Filters = Partial<Record<(typeof KEYS)[number], string>>;
+	const PAGE = 100;
+
+	let query = $derived(hashQuery(page.url));
+	let filters: Filters = $derived(
+		Object.fromEntries(KEYS.map((k) => [k, query.get(k)]).filter(([, v]) => v)) as Filters
+	);
+
+	function set(key: (typeof KEYS)[number], value: string) {
+		const next = withParam(query, key, value);
+		goto(resolve(`/transactions?${next}`), { replace: true, reset: false });
+	}
+
+	// The search box waits for a pause in typing.
+	let text = $state(hashQuery(page.url).get('q') ?? '');
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	function typed() {
+		clearTimeout(timer);
+		timer = setTimeout(() => set('q', text.trim()), 300);
+	}
+
+	let items: Schemas['Transaction'][] = $state([]);
+	let next: string | null = $state(null);
+	let loading = $state(false);
+	let failure: unknown = $state(null);
+	let open: Record<string, boolean> = $state({});
+	// One account's complete history (dates aside): it gets a running balance.
+	let history = $derived(
+		!!filters.account_id &&
+			Object.keys(filters).every((k) => ['account_id', 'from', 'to'].includes(k))
+	);
+	let opening: Map<string, string> | null = $state(null);
+	let generation = 0;
+
+	async function fetchPage(f: Filters, cursor: string | null) {
+		const mine = cursor ? generation : ++generation;
+		loading = true;
+		failure = null;
+		try {
+			const r = ok(
+				await api.GET('/api/v1/transactions', {
+					params: { query: { ...f, limit: PAGE, cursor: cursor ?? undefined } }
+				})
+			);
+			if (mine !== generation) return; // the filters changed meanwhile
+			if (!cursor && history && f.account_id && r.items.length) {
+				const b = ok(
+					await api.GET('/api/v1/reports/balances', {
+						params: { query: { date: r.items[0].date } }
+					})
+				);
+				if (mine !== generation) return;
+				opening = new Map(
+					b.balances
+						.filter((x) => x.account_id === f.account_id)
+						.map((x) => [x.commodity_id, x.balance])
+				);
+			}
+			items = cursor ? [...items, ...r.items] : r.items;
+			next = r.next_cursor ?? null;
+		} catch (e) {
+			if (mine === generation) failure = e;
+		} finally {
+			if (mine === generation) loading = false;
+		}
+	}
+
+	$effect(() => {
+		const f = filters;
+		items = [];
+		next = null;
+		opening = null;
+		fetchPage(f, null);
+	});
+
+	const ref = reference();
+	const amounts = (tx: Schemas['Transaction'], r: Reference) =>
+		filters.account_id ? effectOn(tx, filters.account_id, r) : size(tx, r);
+</script>
+
+<h1>Transactions</h1>
+
+{#await ref}
+	<p class="muted">Loading…</p>
+{:then r}
+	{@const running =
+		history && opening && filters.account_id
+			? runningBalances(items, filters.account_id, opening, r)
+			: null}
+	<form class="filters" onsubmit={(e) => e.preventDefault()}>
+		<input type="search" placeholder="Search text" bind:value={text} oninput={typed} />
+		<label
+			>From <input
+				type="date"
+				value={filters.from ?? ''}
+				onchange={(e) => set('from', e.currentTarget.value)}
+			/></label
+		>
+		<label
+			>To <input
+				type="date"
+				value={filters.to ?? ''}
+				onchange={(e) => set('to', e.currentTarget.value)}
+			/></label
+		>
+		<select
+			value={filters.account_id ?? ''}
+			onchange={(e) => set('account_id', e.currentTarget.value)}
+		>
+			<option value="">Any account</option>
+			{#each sorted(r.accounts) as a (a.id)}<option value={a.id}>{a.name}</option>{/each}
+		</select>
+		<select
+			value={filters.counterparty_id ?? ''}
+			onchange={(e) => set('counterparty_id', e.currentTarget.value)}
+		>
+			<option value="">Any counterparty</option>
+			{#each sorted(r.counterparties) as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
+		</select>
+		<select
+			value={filters.category_id ?? ''}
+			onchange={(e) => set('category_id', e.currentTarget.value)}
+		>
+			<option value="">Any category</option>
+			{#each sorted(r.categories) as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
+		</select>
+		<select value={filters.tag_id ?? ''} onchange={(e) => set('tag_id', e.currentTarget.value)}>
+			<option value="">Any tag</option>
+			{#each sorted(r.tags) as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
+		</select>
+		{#if Object.keys(filters).length}
+			<a
+				class="clear"
+				href={resolve('/transactions')}
+				onclick={() => {
+					text = '';
+				}}>Clear</a
+			>
+		{/if}
+	</form>
+
+	<table class="list">
+		<thead>
+			<tr>
+				<th class="date">Date</th>
+				<th>Description</th>
+				<th>Route</th>
+				<th>Category</th>
+				<th class="num">{filters.account_id ? 'In / out' : 'Amount'}</th>
+				{#if running}<th class="num">Balance</th>{/if}
+			</tr>
+		</thead>
+		<tbody>
+			{#each items as tx, i (tx.id)}
+				<tr class="row" class:open={open[tx.id]} onclick={() => (open[tx.id] = !open[tx.id])}>
+					<td class="date">{tx.date}</td>
+					<td>
+						<button class="link" aria-expanded={!!open[tx.id]}
+							>{tx.description || '(no description)'}</button
+						>
+						{#each tx.tags as t (t)}<span class="tag">{t}</span>{/each}
+						{#if tx.notes && tx.notes !== tx.description}
+							<div class="muted notes">{tx.notes}</div>
+						{/if}
+					</td>
+					<td class="muted">{route(tx.splits, r)}</td>
+					<td class="muted">{categoryNames(tx.splits, r).join(', ')}</td>
+					<td class="num"><Quantities items={amounts(tx, r)} /></td>
+					{#if running}<td class="num"><Quantities items={running[i]} /></td>{/if}
+				</tr>
+				{#if open[tx.id]}
+					<tr class="expanded">
+						<td colspan={running ? 6 : 5}><TransactionDetail {tx} ref={r} /></td>
+					</tr>
+				{/if}
+			{/each}
+		</tbody>
+	</table>
+
+	{#if failure}
+		<Failure error={failure} />
+	{:else if loading}
+		<p class="muted">Loading…</p>
+	{:else if items.length === 0}
+		<p class="muted">No transactions match.</p>
+	{:else if next}
+		<p><button class="quiet" onclick={() => fetchPage(filters, next)}>Load more</button></p>
+	{:else}
+		<p class="muted">{items.length} shown, the end.</p>
+	{/if}
+{:catch error}
+	<Failure {error} />
+{/await}
+
+<style>
+	.filters {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2) var(--space-3);
+		margin-bottom: var(--space-4);
+	}
+	.filters label {
+		font-size: var(--text-sm);
+		color: var(--color-text-muted);
+	}
+	.filters input[type='search'] {
+		min-width: 16rem;
+	}
+	.clear {
+		font-size: var(--text-sm);
+	}
+	.list {
+		background: var(--color-surface);
+		border: var(--border-width) solid var(--color-border);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-1);
+	}
+	.date {
+		white-space: nowrap;
+		font-variant-numeric: var(--numeric);
+		width: 7rem;
+	}
+	.row {
+		cursor: pointer;
+	}
+	.row:hover td,
+	.row.open td {
+		background: var(--color-surface-alt);
+	}
+	.expanded td {
+		border-top: none;
+		padding-top: 0;
+	}
+	button.link {
+		padding: 0;
+		border: none;
+		background: none;
+		color: var(--color-text);
+		text-align: left;
+		cursor: pointer;
+	}
+	.tag {
+		margin-left: var(--space-2);
+		padding: 0 var(--space-2);
+		border-radius: var(--radius-sm);
+		background: var(--color-surface-alt);
+		color: var(--color-text-muted);
+		font-size: var(--text-xs);
+	}
+	.notes {
+		font-size: var(--text-xs);
+	}
+</style>

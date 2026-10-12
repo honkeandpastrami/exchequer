@@ -22,3 +22,10 @@ export const partyKinds: Record<Schemas['PartyKind'], string> = {
 export function rank<K extends string>(labels: Record<K, string>, key: K): number {
 	return Object.keys(labels).indexOf(key);
 }
+
+export const kinds: Record<Schemas['Kind'], string> = {
+	expense: 'Expense',
+	income: 'Income',
+	transfer: 'Transfer',
+	conversion: 'Conversion'
+};

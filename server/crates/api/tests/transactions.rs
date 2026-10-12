@@ -345,6 +345,56 @@ async fn list_filter_and_paginate(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
+async fn search_text_and_tags(pool: PgPool) {
+    let h = Household::new(&pool).await;
+    let pay = |qty: &str| json!([{ "from": account(&h.alex_checking, &h.usd, qty), "to": external(&h.grocer, &h.usd, qty) }]);
+    for body in [
+        json!({ "date": "2026-03-01", "description": "Corner Bakery", "splits": pay("4") }),
+        json!({ "date": "2026-03-02", "description": "Grocer", "notes": "for the BAKE sale",
+                "tags": ["school"], "splits": pay("6") }),
+        json!({ "date": "2026-03-03", "description": "Grocer", "splits": [
+            { "from": account(&h.alex_checking, &h.usd, "5"), "to": external(&h.grocer, &h.usd, "5"),
+              "description": "50% off flour" } ] }),
+        json!({ "date": "2026-03-04", "description": "Grocer 500", "tags": ["school"], "splits": pay("7") }),
+    ] {
+        assert_eq!(h.post(&pool, body).await.status, StatusCode::CREATED);
+    }
+    let get = |q: String| {
+        call(&pool, "GET", format!("/api/v1/transactions?{q}"))
+            .token(&h.t)
+            .send()
+    };
+    let dates = |r: &Response| -> Vec<String> {
+        r.body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["date"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    // Description, notes and split descriptions, any case.
+    assert_eq!(
+        dates(&get("q=bake".to_owned()).await),
+        ["2026-03-02", "2026-03-01"]
+    );
+    assert_eq!(dates(&get("q=FLOUR".to_owned()).await), ["2026-03-03"]);
+    // `%` and `_` are literal.
+    assert_eq!(dates(&get("q=50%25".to_owned()).await), ["2026-03-03"]);
+    assert_eq!(
+        dates(&get("q=%20".to_owned()).await).len(),
+        4,
+        "blank: no filter"
+    );
+
+    let tags = call(&pool, "GET", "/api/v1/tags").token(&h.t).send().await;
+    let school = tags.body["items"][0]["id"].as_str().unwrap().to_owned();
+    let r = get(format!("tag_id={school}")).await;
+    assert_eq!(dates(&r), ["2026-03-04", "2026-03-02"]);
+    let r = get(format!("tag_id={school}&q=bake")).await;
+    assert_eq!(dates(&r), ["2026-03-02"]);
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
 async fn replace_and_delete(pool: PgPool) {
     let h = Household::new(&pool).await;
     let r = h.post(&pool, tx("2026-03-14", "Warehouse", json!([{

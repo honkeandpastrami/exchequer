@@ -18,6 +18,8 @@ def _get_kwargs(
     account_id: UUID | Unset = UNSET,
     counterparty_id: UUID | Unset = UNSET,
     category_id: UUID | Unset = UNSET,
+    tag_id: UUID | Unset = UNSET,
+    q: str | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
     limit: int | Unset = UNSET,
@@ -50,6 +52,13 @@ def _get_kwargs(
     if not isinstance(category_id, Unset):
         json_category_id = str(category_id)
     params["category_id"] = json_category_id
+
+    json_tag_id: str | Unset = UNSET
+    if not isinstance(tag_id, Unset):
+        json_tag_id = str(tag_id)
+    params["tag_id"] = json_tag_id
+
+    params["q"] = q
 
     params["external_source"] = external_source
 
@@ -99,6 +108,8 @@ def sync_detailed(
     account_id: UUID | Unset = UNSET,
     counterparty_id: UUID | Unset = UNSET,
     category_id: UUID | Unset = UNSET,
+    tag_id: UUID | Unset = UNSET,
+    q: str | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
     limit: int | Unset = UNSET,
@@ -112,6 +123,8 @@ def sync_detailed(
         account_id (UUID | Unset):
         counterparty_id (UUID | Unset):
         category_id (UUID | Unset):
+        tag_id (UUID | Unset):
+        q (str | Unset):
         external_source (str | Unset):
         external_ref (str | Unset):
         limit (int | Unset):
@@ -131,6 +144,8 @@ def sync_detailed(
         account_id=account_id,
         counterparty_id=counterparty_id,
         category_id=category_id,
+        tag_id=tag_id,
+        q=q,
         external_source=external_source,
         external_ref=external_ref,
         limit=limit,
@@ -152,6 +167,8 @@ def sync(
     account_id: UUID | Unset = UNSET,
     counterparty_id: UUID | Unset = UNSET,
     category_id: UUID | Unset = UNSET,
+    tag_id: UUID | Unset = UNSET,
+    q: str | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
     limit: int | Unset = UNSET,
@@ -165,6 +182,8 @@ def sync(
         account_id (UUID | Unset):
         counterparty_id (UUID | Unset):
         category_id (UUID | Unset):
+        tag_id (UUID | Unset):
+        q (str | Unset):
         external_source (str | Unset):
         external_ref (str | Unset):
         limit (int | Unset):
@@ -185,6 +204,8 @@ def sync(
         account_id=account_id,
         counterparty_id=counterparty_id,
         category_id=category_id,
+        tag_id=tag_id,
+        q=q,
         external_source=external_source,
         external_ref=external_ref,
         limit=limit,
@@ -200,6 +221,8 @@ async def asyncio_detailed(
     account_id: UUID | Unset = UNSET,
     counterparty_id: UUID | Unset = UNSET,
     category_id: UUID | Unset = UNSET,
+    tag_id: UUID | Unset = UNSET,
+    q: str | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
     limit: int | Unset = UNSET,
@@ -213,6 +236,8 @@ async def asyncio_detailed(
         account_id (UUID | Unset):
         counterparty_id (UUID | Unset):
         category_id (UUID | Unset):
+        tag_id (UUID | Unset):
+        q (str | Unset):
         external_source (str | Unset):
         external_ref (str | Unset):
         limit (int | Unset):
@@ -232,6 +257,8 @@ async def asyncio_detailed(
         account_id=account_id,
         counterparty_id=counterparty_id,
         category_id=category_id,
+        tag_id=tag_id,
+        q=q,
         external_source=external_source,
         external_ref=external_ref,
         limit=limit,
@@ -251,6 +278,8 @@ async def asyncio(
     account_id: UUID | Unset = UNSET,
     counterparty_id: UUID | Unset = UNSET,
     category_id: UUID | Unset = UNSET,
+    tag_id: UUID | Unset = UNSET,
+    q: str | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
     limit: int | Unset = UNSET,
@@ -264,6 +293,8 @@ async def asyncio(
         account_id (UUID | Unset):
         counterparty_id (UUID | Unset):
         category_id (UUID | Unset):
+        tag_id (UUID | Unset):
+        q (str | Unset):
         external_source (str | Unset):
         external_ref (str | Unset):
         limit (int | Unset):
@@ -285,6 +316,8 @@ async def asyncio(
             account_id=account_id,
             counterparty_id=counterparty_id,
             category_id=category_id,
+            tag_id=tag_id,
+            q=q,
             external_source=external_source,
             external_ref=external_ref,
             limit=limit,

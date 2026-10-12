@@ -6,7 +6,10 @@
 
 	let { children }: { children: Snippet } = $props();
 
-	const sections = [{ href: resolve('/'), label: 'Accounts', route: '/' }];
+	const sections = [
+		{ href: resolve('/'), label: 'Accounts', route: '/' },
+		{ href: resolve('/transactions'), label: 'Transactions', route: '/transactions' }
+	];
 </script>
 
 <header class="bar">

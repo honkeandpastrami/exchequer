@@ -1,6 +1,8 @@
 // The API token, kept in this browser's localStorage until signing out
 // (Entra sign-in replaces it in step 9).
 
+import { forgetReference } from './reference';
+
 const KEY = 'exchequer.token';
 
 function stored(): string | null {
@@ -21,4 +23,5 @@ export function signIn(token: string) {
 export function signOut() {
 	localStorage.removeItem(KEY);
 	session.token = null;
+	forgetReference();
 }

@@ -461,6 +461,11 @@ pub struct ListParams {
     counterparty_id: Option<Uuid>,
     /// Only transactions with a split in this category.
     category_id: Option<Uuid>,
+    /// Only transactions with this tag.
+    tag_id: Option<Uuid>,
+    /// Only transactions whose description, notes or a split's description
+    /// contain this text (case-insensitive).
+    q: Option<String>,
     /// With `external_ref`: the transaction with this external reference.
     external_source: Option<String>,
     /// With `external_source`.
@@ -497,6 +502,8 @@ async fn list(
         account: p.account_id,
         counterparty: p.counterparty_id,
         category: p.category_id,
+        tag: p.tag_id,
+        text: p.q.filter(|q| !q.trim().is_empty()),
         external_ref: match (p.external_source, p.external_ref) {
             (Some(s), Some(r)) => Some((s, r)),
             (None, None) => None,
