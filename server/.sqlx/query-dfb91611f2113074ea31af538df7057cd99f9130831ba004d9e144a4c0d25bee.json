@@ -1,0 +1,141 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,\n                status, match_transaction_id\n         FROM staged_row\n         WHERE import_id = $1\n           AND ($2::int2 IS NULL OR statement = $2)\n           AND ($3::text IS NULL OR status = $3)\n           AND ($4::int2 IS NULL OR (statement, position) > ($4, $5::int4))\n         ORDER BY statement, position LIMIT $6",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "statement",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "statement"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "position",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "date",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "date"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "amount",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "amount"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "native_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "native_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "raw",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "raw"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "match_transaction_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "match_transaction_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2",
+        "Text",
+        "Int2",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "dfb91611f2113074ea31af538df7057cd99f9130831ba004d9e144a4c0d25bee"
+}

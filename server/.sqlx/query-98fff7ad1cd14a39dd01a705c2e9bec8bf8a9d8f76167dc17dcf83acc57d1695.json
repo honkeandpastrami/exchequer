@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO staged_statement (import_id, position, account_number, account_id, kind,\n                                       commodity_id, ledger_amount, ledger_date, skipped)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2",
+        "Text",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Numeric",
+        "Date",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "98fff7ad1cd14a39dd01a705c2e9bec8bf8a9d8f76167dc17dcf83acc57d1695"
+}

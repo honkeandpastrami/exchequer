@@ -25,6 +25,7 @@ pub mod conventions;
 mod counterparties;
 mod health;
 mod import_batches;
+mod imports;
 mod ledger;
 mod parties;
 pub mod problem;
@@ -98,6 +99,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .merge(tags::routes())
         .merge(transactions::routes())
         .merge(import_batches::routes())
+        .merge(imports::routes())
         .merge(settlements::routes())
         .merge(query::routes())
         .merge(reports::routes())

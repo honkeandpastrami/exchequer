@@ -1976,6 +1976,444 @@
         ]
       }
     },
+    "/api/v1/imports": {
+      "get": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "List staged imports, newest first.",
+        "operationId": "imports_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Items per page (default 100, max 500).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "`next_cursor` from the previous page. Opaque.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_Import"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Upload a bank file (OFX, QFX, QBO or CSV; the format is read from the\ncontent). Its rows are staged, each with what it would become; nothing\nenters the ledger until the import is committed.",
+        "operationId": "imports_upload",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "query",
+            "description": "The account the file is for. Required for a CSV, which names none;\nfor an OFX file with one statement, used if its number isn't one of\nan account's.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "file_name",
+            "in": "query",
+            "description": "The file's name, to recognize the import by.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The file, as is (at most 10 MiB)",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "$ref": "#/components/schemas/BankFile"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Import"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Bigger than 10 MiB"
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/imports/{id}": {
+      "get": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Get one staged import, with its statements and how many rows have each\nstatus.",
+        "operationId": "imports_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Import"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Discard a staged import: nothing of it enters the ledger.",
+        "operationId": "imports_discard",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/imports/{id}/rows": {
+      "get": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "The import's rows, in file order.",
+        "operationId": "imports_rows",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "statement",
+            "in": "query",
+            "description": "Only this statement's rows.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Only rows with this status.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/RowStatus"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Items per page (default 100, max 500).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "`next_cursor` from the previous page. Opaque.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_StagedRow"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/imports/{id}/statements/{position}": {
+      "patch": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Set the account a statement is for; its rows' statuses are worked out\nagain.",
+        "operationId": "imports_set_statement",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "position",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatementUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Import"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The number belongs to another account",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/parties": {
       "get": {
         "tags": [
@@ -4122,6 +4560,11 @@
           }
         }
       },
+      "BankFile": {
+        "type": "string",
+        "format": "binary",
+        "description": "A bank file's bytes, as is."
+      },
       "BatchKind": {
         "type": "string",
         "enum": [
@@ -4454,6 +4897,13 @@
         },
         "additionalProperties": false
       },
+      "FileFormat": {
+        "type": "string",
+        "enum": [
+          "ofx",
+          "csv"
+        ]
+      },
       "Funder": {
         "type": "object",
         "description": "Who funds a business for the month: the household or a person.",
@@ -4584,6 +5034,40 @@
           }
         }
       },
+      "Import": {
+        "type": "object",
+        "required": [
+          "id",
+          "format",
+          "created_at",
+          "statements"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "file_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "format": {
+            "$ref": "#/components/schemas/FileFormat"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "statements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StagedStatement"
+            }
+          }
+        }
+      },
       "ImportBatch": {
         "type": "object",
         "required": [
@@ -4669,6 +5153,24 @@
           "transfer",
           "conversion"
         ]
+      },
+      "LedgerBalance": {
+        "type": "object",
+        "description": "The balance the bank reported at the end of the statement.",
+        "required": [
+          "amount",
+          "date"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "example": "1234.56"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          }
+        }
       },
       "Leg": {
         "type": "object",
@@ -5359,6 +5861,59 @@
           }
         }
       },
+      "Page_Import": {
+        "type": "object",
+        "description": "One page of results.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "format",
+                "created_at",
+                "statements"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "file_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "format": {
+                  "$ref": "#/components/schemas/FileFormat"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "statements": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StagedStatement"
+                  }
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` to get the next page; absent on the last page."
+          }
+        }
+      },
       "Page_ImportBatch": {
         "type": "object",
         "description": "One page of results.",
@@ -5437,6 +5992,81 @@
                 },
                 "name": {
                   "type": "string"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` to get the next page; absent on the last page."
+          }
+        }
+      },
+      "Page_StagedRow": {
+        "type": "object",
+        "description": "One page of results.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "statement",
+                "position",
+                "date",
+                "amount",
+                "description",
+                "status",
+                "raw"
+              ],
+              "properties": {
+                "amount": {
+                  "type": "string",
+                  "description": "Signed from the account's side: negative is money leaving it.",
+                  "example": "-80.00"
+                },
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "match_transaction_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid",
+                  "description": "The existing transaction a duplicate or match is of."
+                },
+                "native_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The bank's own ID for the row, if it has one."
+                },
+                "position": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "raw": {
+                  "type": "object",
+                  "description": "The row's fields as the file had them."
+                },
+                "statement": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "status": {
+                  "$ref": "#/components/schemas/RowStatus"
                 }
               }
             }
@@ -5837,6 +6467,50 @@
           }
         }
       },
+      "RowCounts": {
+        "type": "object",
+        "description": "How many rows have each status.",
+        "required": [
+          "new",
+          "duplicate",
+          "near_duplicate",
+          "transfer_match",
+          "needs_account"
+        ],
+        "properties": {
+          "duplicate": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "near_duplicate": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "needs_account": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "new": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "transfer_match": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "RowStatus": {
+        "type": "string",
+        "description": "What a row would become.",
+        "enum": [
+          "new",
+          "duplicate",
+          "near_duplicate",
+          "transfer_match",
+          "needs_account"
+        ]
+      },
       "Settlement": {
         "type": "object",
         "description": "A month's parameters and state.",
@@ -5900,6 +6574,25 @@
           }
         },
         "additionalProperties": false
+      },
+      "SkippedLine": {
+        "type": "object",
+        "description": "A line of the file that wasn't read.",
+        "required": [
+          "line",
+          "reason"
+        ],
+        "properties": {
+          "line": {
+            "type": "integer",
+            "format": "int64",
+            "description": "1-based line (CSV) or transaction (OFX) number.",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
       },
       "Split": {
         "type": "object",
@@ -5972,6 +6665,127 @@
           }
         }
       },
+      "StagedRow": {
+        "type": "object",
+        "required": [
+          "statement",
+          "position",
+          "date",
+          "amount",
+          "description",
+          "status",
+          "raw"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "Signed from the account's side: negative is money leaving it.",
+            "example": "-80.00"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "description": {
+            "type": "string"
+          },
+          "match_transaction_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The existing transaction a duplicate or match is of."
+          },
+          "native_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The bank's own ID for the row, if it has one."
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "raw": {
+            "type": "object",
+            "description": "The row's fields as the file had them."
+          },
+          "statement": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RowStatus"
+          }
+        }
+      },
+      "StagedStatement": {
+        "type": "object",
+        "description": "One account's part of the file.",
+        "required": [
+          "position",
+          "commodity_id",
+          "skipped",
+          "counts"
+        ],
+        "properties": {
+          "account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "`null` until the account is known: from the number in the file, or\nset by the client."
+          },
+          "commodity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/RowCounts"
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StatementKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ledger": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LedgerBalance"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "number_last4": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The last four of the account number in the file (CSVs have none).",
+            "example": "6789"
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkippedLine"
+            }
+          }
+        }
+      },
       "Statement": {
         "type": "object",
         "description": "The statement for one month (design §4.3).",
@@ -6014,6 +6828,31 @@
             "description": "Splits left out because they have no value in USD."
           }
         }
+      },
+      "StatementKind": {
+        "type": "string",
+        "enum": [
+          "bank",
+          "credit_card"
+        ]
+      },
+      "StatementUpdate": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The account the statement is for; `null` to unset it."
+          },
+          "remember_number": {
+            "type": "boolean",
+            "description": "Also add the file's account number to the account, so its next\nfiles resolve by themselves."
+          }
+        },
+        "additionalProperties": false
       },
       "Stipend": {
         "type": "object",

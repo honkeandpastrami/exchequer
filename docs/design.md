@@ -376,7 +376,8 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    → ask the client, who can add the number to the account.
 3. **Deduplication,** done once, on the server, with full DB access:
    - *Exact:* native ID (FITID or bank reference), or a content hash with an occurrence
-     suffix for identical rows in one file; unique per account.
+     suffix for identical rows in one file; unique per account (`import_fingerprint`,
+     recorded on commit and deleted with its transaction).
    - *Near:* same account and amount, date within ±N days, description similarity via
      `pg_trgm`, one-to-one matching. Near-duplicates are **flagged in staging**, not
      prompted mid-run.
@@ -389,7 +390,12 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    with a confidence and a reason.
 6. **Staging and review.** The batch lives on the server, so a review started in one client
    can finish in another. Rows are `new`, `duplicate`, `near-duplicate`, `transfer-match` or
-   `needs-account`.
+   `needs-account`. `POST /imports` takes the file's bytes (at most 10 MiB; `account_id`
+   is required for a CSV) and stages one statement per account in it; `GET
+   /imports/{id}` shows each statement's account, ledger balance, skipped lines and row
+   counts by status, `GET /imports/{id}/rows` the rows; `PATCH
+   /imports/{id}/statements/{n}` sets a statement's account (optionally remembering the
+   file's number for it) and works its rows' statuses out again; `DELETE` discards it.
 7. **Commit** is all or nothing. Each transaction keeps its `import_batch_id`, so undoing a
    batch is one call. Every transaction has one and edits never change it: a migration is a
    batch, and a transaction entered by hand is a batch of its own. Uploaded files aren't

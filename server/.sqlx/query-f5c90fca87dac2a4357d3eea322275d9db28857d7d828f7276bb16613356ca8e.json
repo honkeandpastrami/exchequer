@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT fingerprint, transaction_id FROM import_fingerprint\n         WHERE account_id = $1 AND fingerprint = ANY($2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "import_fingerprint",
+            "name": "fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "transaction_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "import_fingerprint",
+            "name": "transaction_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "f5c90fca87dac2a4357d3eea322275d9db28857d7d828f7276bb16613356ca8e"
+}

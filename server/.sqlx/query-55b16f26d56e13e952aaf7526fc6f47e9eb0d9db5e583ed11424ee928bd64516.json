@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO staged_row (import_id, statement, position, date, amount, description,\n                                 native_id, fingerprint, raw, status, match_transaction_id)\n         SELECT $1, * FROM unnest($2::int2[], $3::int4[], $4::date[], $5::numeric[], $6::text[],\n                                  $7::text[], $8::text[], $9::jsonb[], $10::text[], $11::uuid[])",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2Array",
+        "Int4Array",
+        "DateArray",
+        "NumericArray",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "JsonbArray",
+        "TextArray",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "55b16f26d56e13e952aaf7526fc6f47e9eb0d9db5e583ed11424ee928bd64516"
+}

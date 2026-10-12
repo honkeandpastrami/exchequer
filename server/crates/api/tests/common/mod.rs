@@ -35,6 +35,7 @@ pub struct Call<'a> {
     path: String,
     headers: Vec<(String, String)>,
     body: Option<Value>,
+    bytes: Option<Vec<u8>>,
 }
 
 pub fn call<'a>(pool: &'a PgPool, method: &'a str, path: impl Into<String>) -> Call<'a> {
@@ -44,6 +45,7 @@ pub fn call<'a>(pool: &'a PgPool, method: &'a str, path: impl Into<String>) -> C
         path: path.into(),
         headers: vec![],
         body: None,
+        bytes: None,
     }
 }
 
@@ -68,6 +70,12 @@ impl Call<'_> {
         self
     }
 
+    /// A raw body, e.g. an uploaded file.
+    pub fn bytes(mut self, body: impl Into<Vec<u8>>) -> Self {
+        self.bytes = Some(body.into());
+        self
+    }
+
     pub async fn send(self) -> Response {
         let app = api::app(api::AppState {
             pool: self.pool.clone(),
@@ -78,11 +86,14 @@ impl Call<'_> {
         for (k, v) in &self.headers {
             req = req.header(k, v);
         }
-        let req = match self.body {
-            Some(b) => req
+        let req = match (self.body, self.bytes) {
+            (Some(b), _) => req
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(b.to_string())),
-            None => req.body(Body::empty()),
+            (None, Some(b)) => req
+                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .body(Body::from(b)),
+            (None, None) => req.body(Body::empty()),
         }
         .unwrap();
         let res = app.oneshot(req).await.unwrap();

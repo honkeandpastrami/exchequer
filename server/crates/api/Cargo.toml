@@ -13,6 +13,7 @@ workspace = true
 axum = { version = "0.8.9", features = ["macros"] }
 domain = { path = "../domain" }
 getrandom = "0.4.3"
+import = { path = "../import" }
 jiff = { version = "0.2", features = ["tzdb-bundle-always"] }
 rust_decimal = "1.43.0"
 serde = { version = "1.0.229", features = ["derive"] }

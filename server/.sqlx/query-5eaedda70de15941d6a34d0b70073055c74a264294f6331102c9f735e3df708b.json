@@ -1,0 +1,124 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT import_id, position, account_number, account_id, kind, commodity_id,\n                ledger_amount, ledger_date, skipped\n         FROM staged_statement WHERE import_id = ANY($1) ORDER BY import_id, position",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "import_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "import_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "position",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "account_number",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "account_number"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "commodity_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "commodity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "ledger_amount",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "ledger_amount"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "ledger_date",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "ledger_date"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "skipped",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "skipped"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "5eaedda70de15941d6a34d0b70073055c74a264294f6331102c9f735e3df708b"
+}

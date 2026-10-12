@@ -270,6 +270,86 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v1/imports': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** List staged imports, newest first. */
+		get: operations['imports_list'];
+		put?: never;
+		/**
+		 * Upload a bank file (OFX, QFX, QBO or CSV; the format is read from the
+		 *     content). Its rows are staged, each with what it would become; nothing
+		 *     enters the ledger until the import is committed.
+		 */
+		post: operations['imports_upload'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/imports/{id}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get one staged import, with its statements and how many rows have each
+		 *     status.
+		 */
+		get: operations['imports_get'];
+		put?: never;
+		post?: never;
+		/** Discard a staged import: nothing of it enters the ledger. */
+		delete: operations['imports_discard'];
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/imports/{id}/rows': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** The import's rows, in file order. */
+		get: operations['imports_rows'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/imports/{id}/statements/{position}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		/**
+		 * Set the account a statement is for; its rows' statuses are worked out
+		 *     again.
+		 */
+		patch: operations['imports_set_statement'];
+		trace?: never;
+	};
 	'/api/v1/parties': {
 		parameters: {
 			query?: never;
@@ -694,6 +774,11 @@ export interface components {
 			/** Format: date */
 			date: string;
 		};
+		/**
+		 * Format: binary
+		 * @description A bank file's bytes, as is.
+		 */
+		BankFile: string;
 		/** @enum {string} */
 		BatchKind: 'manual' | 'migration' | 'file';
 		/** @enum {string} */
@@ -826,6 +911,8 @@ export interface components {
 			 */
 			source: string;
 		};
+		/** @enum {string} */
+		FileFormat: 'ofx' | 'csv';
 		/** @description Who funds a business for the month: the household or a person. */
 		Funder: {
 			/** Format: uuid */
@@ -868,6 +955,15 @@ export interface components {
 			/** @description What the household owes each person for the month. */
 			stipends: components['schemas']['PartyAmount'][];
 		};
+		Import: {
+			/** Format: date-time */
+			created_at: string;
+			file_name?: string | null;
+			format: components['schemas']['FileFormat'];
+			/** Format: uuid */
+			id: string;
+			statements: components['schemas']['StagedStatement'][];
+		};
 		ImportBatch: {
 			/** Format: date-time */
 			created_at: string;
@@ -894,6 +990,13 @@ export interface components {
 		Kind: 'expense' | 'income' | 'transfer' | 'conversion';
 		/** @enum {string} */
 		KindName: 'expense' | 'income' | 'transfer' | 'conversion';
+		/** @description The balance the bank reported at the end of the statement. */
+		LedgerBalance: {
+			/** @example 1234.56 */
+			amount: string;
+			/** Format: date */
+			date: string;
+		};
 		/**
 		 * @description One side of a split: `account_id` (yours) or `counterparty_id` (outside
 		 *     the household). With neither, it's outside the household, unknown who.
@@ -1143,6 +1246,20 @@ export interface components {
 			next_cursor?: string | null;
 		};
 		/** @description One page of results. */
+		Page_Import: {
+			items: {
+				/** Format: date-time */
+				created_at: string;
+				file_name?: string | null;
+				format: components['schemas']['FileFormat'];
+				/** Format: uuid */
+				id: string;
+				statements: components['schemas']['StagedStatement'][];
+			}[];
+			/** @description Pass as `cursor` to get the next page; absent on the last page. */
+			next_cursor?: string | null;
+		};
+		/** @description One page of results. */
 		Page_ImportBatch: {
 			items: {
 				/** Format: date-time */
@@ -1167,6 +1284,35 @@ export interface components {
 				id: string;
 				kind: components['schemas']['PartyKind'];
 				name: string;
+			}[];
+			/** @description Pass as `cursor` to get the next page; absent on the last page. */
+			next_cursor?: string | null;
+		};
+		/** @description One page of results. */
+		Page_StagedRow: {
+			items: {
+				/**
+				 * @description Signed from the account's side: negative is money leaving it.
+				 * @example -80.00
+				 */
+				amount: string;
+				/** Format: date */
+				date: string;
+				description: string;
+				/**
+				 * Format: uuid
+				 * @description The existing transaction a duplicate or match is of.
+				 */
+				match_transaction_id?: string | null;
+				/** @description The bank's own ID for the row, if it has one. */
+				native_id?: string | null;
+				/** Format: int32 */
+				position: number;
+				/** @description The row's fields as the file had them. */
+				raw: Record<string, never>;
+				/** Format: int32 */
+				statement: number;
+				status: components['schemas']['RowStatus'];
 			}[];
 			/** @description Pass as `cursor` to get the next page; absent on the last page. */
 			next_cursor?: string | null;
@@ -1291,6 +1437,24 @@ export interface components {
 			purpose_id?: string | null;
 			tag?: string | null;
 		};
+		/** @description How many rows have each status. */
+		RowCounts: {
+			/** Format: int64 */
+			duplicate: number;
+			/** Format: int64 */
+			near_duplicate: number;
+			/** Format: int64 */
+			needs_account: number;
+			/** Format: int64 */
+			new: number;
+			/** Format: int64 */
+			transfer_match: number;
+		};
+		/**
+		 * @description What a row would become.
+		 * @enum {string}
+		 */
+		RowStatus: 'new' | 'duplicate' | 'near_duplicate' | 'transfer_match' | 'needs_account';
 		/** @description A month's parameters and state. */
 		Settlement: {
 			closed: boolean;
@@ -1310,6 +1474,15 @@ export interface components {
 			/** @description Businesses left out are funded by the household. */
 			funders?: components['schemas']['Funder'][];
 			stipends?: components['schemas']['Stipend'][];
+		};
+		/** @description A line of the file that wasn't read. */
+		SkippedLine: {
+			/**
+			 * Format: int64
+			 * @description 1-based line (CSV) or transaction (OFX) number.
+			 */
+			line: number;
+			reason: string;
 		};
 		Split: {
 			/** Format: uuid */
@@ -1332,6 +1505,52 @@ export interface components {
 			/** Format: uuid */
 			transaction_id: string;
 		};
+		StagedRow: {
+			/**
+			 * @description Signed from the account's side: negative is money leaving it.
+			 * @example -80.00
+			 */
+			amount: string;
+			/** Format: date */
+			date: string;
+			description: string;
+			/**
+			 * Format: uuid
+			 * @description The existing transaction a duplicate or match is of.
+			 */
+			match_transaction_id?: string | null;
+			/** @description The bank's own ID for the row, if it has one. */
+			native_id?: string | null;
+			/** Format: int32 */
+			position: number;
+			/** @description The row's fields as the file had them. */
+			raw: Record<string, never>;
+			/** Format: int32 */
+			statement: number;
+			status: components['schemas']['RowStatus'];
+		};
+		/** @description One account's part of the file. */
+		StagedStatement: {
+			/**
+			 * Format: uuid
+			 * @description `null` until the account is known: from the number in the file, or
+			 *     set by the client.
+			 */
+			account_id?: string | null;
+			/** Format: uuid */
+			commodity_id: string;
+			counts: components['schemas']['RowCounts'];
+			kind?: components['schemas']['StatementKind'] | null;
+			ledger?: components['schemas']['LedgerBalance'] | null;
+			/**
+			 * @description The last four of the account number in the file (CSVs have none).
+			 * @example 6789
+			 */
+			number_last4?: string | null;
+			/** Format: int32 */
+			position: number;
+			skipped: components['schemas']['SkippedLine'][];
+		};
 		/** @description The statement for one month (design §4.3). */
 		Statement: {
 			closed: boolean;
@@ -1343,6 +1562,20 @@ export interface components {
 			params_from?: string | null;
 			/** @description Splits left out because they have no value in USD. */
 			unpriced: components['schemas']['Unpriced'][];
+		};
+		/** @enum {string} */
+		StatementKind: 'bank' | 'credit_card';
+		StatementUpdate: {
+			/**
+			 * Format: uuid
+			 * @description The account the statement is for; `null` to unset it.
+			 */
+			account_id?: string | null;
+			/**
+			 * @description Also add the file's account number to the account, so its next
+			 *     files resolve by themselves.
+			 */
+			remember_number?: boolean;
 		};
 		/** @description What the Household owes a person for the month. */
 		Stipend: {
@@ -2634,6 +2867,263 @@ export interface operations {
 			};
 			/** @description Precondition Failed */
 			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	imports_list: {
+		parameters: {
+			query?: {
+				/** @description Items per page (default 100, max 500). */
+				limit?: number;
+				/** @description `next_cursor` from the previous page. Opaque. */
+				cursor?: string;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Page_Import'];
+				};
+			};
+		};
+	};
+	imports_upload: {
+		parameters: {
+			query?: {
+				/**
+				 * @description The account the file is for. Required for a CSV, which names none;
+				 *     for an OFX file with one statement, used if its number isn't one of
+				 *     an account's.
+				 */
+				account_id?: string;
+				/** @description The file's name, to recognize the import by. */
+				file_name?: string;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** @description The file, as is (at most 10 MiB) */
+		requestBody: {
+			content: {
+				'application/octet-stream': components['schemas']['BankFile'];
+			};
+		};
+		responses: {
+			/** @description Created */
+			201: {
+				headers: {
+					ETag?: string;
+					Location?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Import'];
+				};
+			};
+			/** @description Bigger than 10 MiB */
+			413: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	imports_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					ETag?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Import'];
+				};
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	imports_discard: {
+		parameters: {
+			query?: never;
+			header: {
+				/** @description ETag from your last read */
+				'If-Match': string;
+			};
+			path: {
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description No Content */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Precondition Failed */
+			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	imports_rows: {
+		parameters: {
+			query?: {
+				/** @description Only this statement's rows. */
+				statement?: number;
+				/** @description Only rows with this status. */
+				status?: components['schemas']['RowStatus'];
+				/** @description Items per page (default 100, max 500). */
+				limit?: number;
+				/** @description `next_cursor` from the previous page. Opaque. */
+				cursor?: string;
+			};
+			header?: never;
+			path: {
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Page_StagedRow'];
+				};
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	imports_set_statement: {
+		parameters: {
+			query?: never;
+			header: {
+				/** @description ETag from your last read */
+				'If-Match': string;
+			};
+			path: {
+				id: string;
+				position: number;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['StatementUpdate'];
+			};
+		};
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					ETag?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Import'];
+				};
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description The number belongs to another account */
+			409: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Precondition Failed */
+			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
 				headers: {
 					[name: string]: unknown;
 				};
