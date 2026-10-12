@@ -8,6 +8,7 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 | Step | What | Commit |
 |---|---|---|
+| 8.6 | Closing months in the web app. The month's statement page starts with its state and parameters: each person's stipend (in the household currency, checked against its precision) and each business's funder (the household or a person), pre-filled from what's in force. Parameters carried forward from an earlier month count as not yet set for the month: closing saves them first ("Save and close"), since the server needs them set for the month itself. A closed month shows them read-only with Reopen. Every action sends the ETag of the last read; a 412 offers a reload. The statement reloads after each change. Statement cards scroll sideways on narrow screens. 36 web tests | |
 | 8.5 | Editing. Transactions: new, edit, copy as new and delete, any number of splits; each split shows only the fields it can have (category, purpose, settled month), with its kind previewed as in `domain`; counterparties typed by name are created on save, tags are free text; edits send `If-Match` and offer a reload when the transaction changed elsewhere. A Setup section edits accounts (kind, liquid, archived, credit limit), parties (the household currency), categories, counterparties, tags and commodities, each edit reading the item first for its ETag (`src/lib/api/resources.ts`). Balance checks: a page per account to enter the bank's figure, with the result, the finder's candidates linked to their transactions, and the account's past checks. 32 web tests | `546b5af`, `856d7f2` |
 | 8.4 | Reports, under a Reports section with three tabs, each kept in the URL: balance history (`/query` balances per month, week or day, one line per owner or account plus a total, with a table), spending or income by category (a column per month, ranked bars linking to the transactions, and a category × month table, filtered by purpose), and the household pool for a month (shared income, spending and savings change; stipends; business funding). Charts are SVG components in `web/src/lib/charts` that place exact amounts in pixels through `big.js` (`scale.ts`) and take their colors from new `--chart-*` tokens; labels always come from the strings. A shared month window (end month and span, 3 to 60 months). The top bar wraps on narrow screens. 27 web tests | `d69acca` |
 | R | Releases: one version for every piece, taken only from git tags. `deploy/version` (`just version`) turns `git describe` into `X.Y.Z` on a release tag, `X.Y.Z-dev.N+g<commit>` after one, `0.0.0-dev+g<commit>` before any (`.dirty` with uncommitted changes); image builds pass it in (`--build-arg EXCHEQUER_VERSION`) for `/version` and the web app's header. The Python packages use `hatch-vcs` (the SDK through a custom generator template, `python/sdk-templates`). Cargo, npm and the spec keep a `0.0.0` placeholder. A `vX.Y.Z` tag on `main` runs `release.yml`: builds and smoke-tests both images (`deploy/tests/image-smoke.sh`, shared with CI, also checking `/version`), pushes them to `ghcr.io/honkeandpastrami/` as `X.Y.Z`, `X.Y` and `latest`, and creates a GitHub Release with the SDK and `firefly-migrate` packages. Example quadlets run the released images (`AutoUpdate=registry`; the backup `Pull=newer`); `deploy/build-images` remains as a fallback under the same names. The `local-build` labels are gone. | `3b0dfa2`, `be3a464` |
@@ -37,15 +38,15 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 ## Next
 
-- **Step 8, web app (§13)**, ahead of step 5: 8.6 settlement parameters (stipends,
-  funders) and closing and reopening months.
+- **Step 5, import pipeline (§6)** with CLI import and review (§12). The web app's import
+  review (§13) follows it.
 
 ## To do
 
 5. Import pipeline (§6) + CLI import/review (§12).
 6. Classification (§8).
 7. Price fetching + valuation (§3.4).
-8. Web app (§13): in progress, see Next.
+8. Web app (§13): done through 8.6; import review waits for step 5.
 9. Bills/recurrences (§9), Entra OIDC (§10 tier 2).
 10. *Low priority:* learned bills (§9.1).
 11. *Nice-to-have:* encrypted offsite backups (§14.2).

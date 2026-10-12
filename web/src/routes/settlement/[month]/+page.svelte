@@ -4,6 +4,7 @@
 	import { api, ok, type Schemas } from '#lib/api/client.ts';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
+	import MonthControls from '#lib/components/MonthControls.svelte';
 	import StatusMark from '#lib/components/StatusMark.svelte';
 	import { addMonths, monthName, thisMonth } from '#lib/dates.ts';
 	import { lineKinds } from '#lib/labels.ts';
@@ -15,20 +16,30 @@
 	let month = $derived(page.params.month ?? thisMonth());
 
 	async function load(month: string) {
-		const [ref, statement, params] = await Promise.all([
+		const [ref, statement] = await Promise.all([
 			reference(),
-			api.GET('/api/v1/settlements/{month}/statement', { params: { path: { month } } }).then(ok),
-			api.GET('/api/v1/settlements/{month}', { params: { path: { month } } }).then(ok)
+			api.GET('/api/v1/settlements/{month}/statement', { params: { path: { month } } }).then(ok)
 		]);
 		const ids = statement.edges.flatMap((e) => [
 			...(e.lines ?? []).map((l) => l.transaction_id),
 			...(e.in_transit ?? []).map((t) => t.transaction_id)
 		]);
 		const txs = await transactionsById(ids);
-		return { ref, statement, params, txs };
+		return { month, ref, statement, txs };
 	}
 
-	let data = $derived(load(month));
+	// Bumped after closing, reopening or new parameters: the statement changes.
+	let revision = $state(0);
+	let data = $derived((void revision, load(month)));
+	// Keeps the month's last statement on screen while it reloads.
+	let loaded = $state<Awaited<ReturnType<typeof load>> | null>(null);
+	let shown = $derived(loaded?.month === month ? loaded : null);
+	$effect(() => {
+		const d = data;
+		d.then((v) => {
+			if (d === data) loaded = v;
+		}).catch(() => {});
+	});
 
 	const summary = [
 		['carried', 'Carried'],
@@ -60,27 +71,17 @@
 </div>
 
 {#await data}
-	<p class="muted">Loading…</p>
-{:then { ref, statement, params, txs }}
+	{#if !shown}<p class="muted">Loading…</p>{/if}
+{:catch error}
+	<Failure {error} />
+{/await}
+
+{#if shown}
+	{@const { ref, statement, txs } = shown}
 	{@const name = (id: string) => ref.parties.get(id)?.name ?? '?'}
-	<p class="muted state">
-		{#if statement.closed}
-			Closed{params.closed_at ? ` ${params.closed_at.slice(0, 10)}` : ''}.
-		{:else}
-			Open.
-		{/if}
-		{#if params.params_from && params.params_from !== month}
-			Parameters carried forward from {monthName(params.params_from)}.
-		{:else if !params.params_from}
-			No parameters set.
-		{/if}
-		{#each params.stipends as s (s.party_id)}
-			<span class="param">Stipend {name(s.party_id)}: <Amount value={s.amount} /></span>
-		{/each}
-		{#each params.funders as f (f.business_id)}
-			<span class="param">{name(f.business_id)} funded by {name(f.funder_id)}</span>
-		{/each}
-	</p>
+	{#key month}
+		<MonthControls {month} {ref} onchange={() => revision++} />
+	{/key}
 
 	{#each statement.edges as e (e.child_id + e.parent_id)}
 		<section class="card">
@@ -148,9 +149,7 @@
 			{statement.unpriced.length} splits have no value in the household currency and are left out.
 		</p>
 	{/if}
-{:catch error}
-	<Failure {error} />
-{/await}
+{/if}
 
 <style>
 	.heading {
@@ -164,12 +163,6 @@
 		gap: var(--space-4);
 		font-size: var(--text-sm);
 	}
-	.state {
-		font-size: var(--text-sm);
-	}
-	.param {
-		margin-left: var(--space-3);
-	}
 	.card {
 		margin-bottom: var(--space-5);
 		padding: var(--space-4);
@@ -177,6 +170,7 @@
 		border: var(--border-width) solid var(--color-border);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-1);
+		overflow-x: auto;
 	}
 	.card h2 {
 		display: flex;
