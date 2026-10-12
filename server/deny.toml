@@ -9,7 +9,8 @@ all-features = true
 # Each ignore says why it doesn't apply; remove it once the fix is upgraded in.
 ignore = [
     # quick-xml 0.39 via ofx-rs 0.2.0 (newest). ofx-rs never calls
-    # `BytesStart::attributes()`, the affected path. Tracked in docs/build-log.md.
+    # `BytesStart::attributes()`, the affected path. Drop both once ofx-rs
+    # moves to quick-xml >= 0.41.
     { id = "RUSTSEC-2026-0194", reason = "ofx-rs doesn't iterate attributes" },
     # Same crate; only `NsReader` is affected, and ofx-rs uses the plain `Reader`.
     { id = "RUSTSEC-2026-0195", reason = "ofx-rs doesn't use NsReader" },

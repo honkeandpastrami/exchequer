@@ -32,5 +32,5 @@ __pycache__/
 # Local dev database (just db-up)
 /server/.pgdata/
 
-# Private notes from real data (never committed): build-log results, etc.
+# Private notes (never committed): build logs, plans, results from real data.
 /private/
