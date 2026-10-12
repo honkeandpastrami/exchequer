@@ -4,9 +4,10 @@ name = "exchequer-python"
 # Never built or released: the version is a placeholder.
 version = "0.0.0"
 requires-python = ">=3.13"
-dependencies = ["exchequer-sdk", "firefly-migrate"]
+dependencies = ["exchequer-cli", "exchequer-sdk", "firefly-migrate"]
 
 [tool.uv.sources]
+exchequer-cli = { workspace = true }
 exchequer-sdk = { workspace = true }
 firefly-migrate = { workspace = true }
 
@@ -14,7 +15,7 @@ firefly-migrate = { workspace = true }
 package = false
 
 [tool.uv.workspace]
-members = ["sdk", "firefly-migrate"]
+members = ["sdk", "cli", "firefly-migrate"]
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.14", "ty>=0.0.1a20"]
@@ -30,7 +31,7 @@ ignore = ["PLR0912", "PLR0913", "PLR0915", "PLR2004"]
 allowed-confusables = ["×"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["firefly_migrate", "exchequer_sdk", "tests"]
+known-first-party = ["exchequer_cli", "exchequer_sdk", "firefly_migrate", "tests"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -39,4 +40,4 @@ quote-style = "double"
 exclude = ["sdk"]
 
 [tool.pytest.ini_options]
-testpaths = ["firefly-migrate/tests"]
+testpaths = ["firefly-migrate/tests", "cli/tests"]

@@ -61,6 +61,7 @@ jobs:
         working-directory: python
         run: |
           uv build --package exchequer-sdk --out-dir dist
+          uv build --package exchequer-cli --out-dir dist
           uv build --package firefly-migrate --out-dir dist
           # Their version comes from the tag too (hatch-vcs).
           ls dist/*"-$VERSION-"*.whl

@@ -1,0 +1,27 @@
+[project]
+name = "exchequer-cli"
+dynamic = ["version"]
+description = "Exchequer's command line (design §16.2)."
+license = "BSD-2-Clause"
+requires-python = ">=3.13"
+dependencies = ["exchequer-sdk", "typer>=0.15"]
+
+[project.scripts]
+exchequer = "exchequer_cli.cli:main"
+
+[tool.uv.sources]
+exchequer-sdk = { workspace = true }
+
+# The version comes from the repository's git tags (vX.Y.Z), like every piece
+# of Exchequer.
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = "../..", git_describe_command = "git describe --dirty --tags --long --match v[0-9]*" }
+fallback-version = "0.0.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/exchequer_cli"]
+
+[build-system]
+requires = ["hatchling>=1.27", "hatch-vcs>=0.5"]
+build-backend = "hatchling.build"

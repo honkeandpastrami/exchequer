@@ -87,7 +87,7 @@ python-check:
     # No GPL dependencies (design §16.4).
     cd python && uv run --quiet --with pip-licenses pip-licenses --partial-match --fail-on GPL > /dev/null
     # No floats near money (design §3.5): the generated SDK included.
-    ! grep -rnE --include='*.py' 'float\(|: *float\b|-> *float\b' python/sdk python/firefly-migrate
+    ! grep -rnE --include='*.py' 'float\(|: *float\b|-> *float\b' python/sdk python/cli python/firefly-migrate
     just sdk
     git diff --exit-code -- python/sdk
     test -z "$(git ls-files --others --exclude-standard -- python/sdk)"
