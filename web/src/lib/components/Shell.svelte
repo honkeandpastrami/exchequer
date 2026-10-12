@@ -13,6 +13,7 @@
 	const sections = [
 		{ href: resolve('/'), label: 'Accounts', route: '/' },
 		{ href: resolve('/transactions'), label: 'Transactions', route: '/transactions' },
+		{ href: resolve('/imports'), label: 'Imports', route: '/imports' },
 		{ href: resolve('/settlement'), label: 'Settlement', route: '/settlement' },
 		{ href: resolve('/reports'), label: 'Reports', route: '/reports' },
 		{ href: resolve('/setup'), label: 'Setup', route: '/setup' }
