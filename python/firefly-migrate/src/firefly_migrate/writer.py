@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from exchequer_sdk import AuthenticatedClient
+from exchequer_sdk.api.accounts import accounts_add_number as add_number
 from exchequer_sdk.api.accounts import accounts_create as create_account
 from exchequer_sdk.api.accounts import accounts_list as list_accounts
 from exchequer_sdk.api.categories import categories_create as create_category
@@ -34,6 +35,7 @@ from exchequer_sdk.models import (
     NewCommodity,
     NewCounterparty,
     NewImportBatch,
+    NewNumber,
     NewParty,
     NewSplit,
     NewTransaction,
@@ -49,6 +51,19 @@ from firefly_migrate.transform import Transaction as PlanTransaction
 
 class WriteError(RuntimeError):
     pass
+
+
+def add_numbers(client: AuthenticatedClient, account: UUID, etag: str, numbers: Any) -> str:
+    """Adds account numbers to an account; returns its ETag after."""
+    for n in numbers:
+        r = add_number.sync_detailed(
+            account, client=client, body=NewNumber(number=n), if_match=etag
+        )
+        if r.status_code != 200:
+            detail = r.parsed.detail if isinstance(r.parsed, Problem) else r.status_code
+            raise WriteError(f"account number …{n[-4:]}: {detail}")
+        etag = r.headers["etag"]
+    return etag
 
 
 def _created(response: Response[Any], what: str) -> UUID:
@@ -131,6 +146,7 @@ class Writer:
             )
             r = create_account.sync_detailed(client=c, body=body)
             self.accounts[a.key] = _created(r, f"account {a.key}")
+            add_numbers(c, self.accounts[a.key], r.headers["etag"], plan.numbers.get(a.key, ()))
 
         page = list_counterparties.sync(client=c, limit=500)
         if page is None or isinstance(page, Problem):

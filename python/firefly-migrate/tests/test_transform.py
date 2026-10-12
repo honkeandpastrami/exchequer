@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 
 from firefly_migrate import transform
-from tests.conftest import ACCOUNTS, group, journal
+from tests.conftest import ACCOUNTS, account, group, journal
 
 
 def plan(m, *groups):
@@ -208,3 +208,43 @@ def test_credit_limits_come_from_the_virtual_balance(m):
     )
     assert p.accounts["Alex · Credit"] == transform.CreditLimit("USD", Decimal("2500.00"))
     assert p.accounts["Alex · Checking"] is None
+
+
+def test_account_numbers_come_from_firefly(m):
+    accounts = [
+        account(1, "asset", "Alex Checking", number="0001-2345 6789"),
+        account(2, "asset", "Alex Credit", number="4000111122223333"),
+        account(3, "asset", "Brokerage ACME", number="BRK-77"),
+        account(4, "asset", "Brokerage USD", number="BRK77"),
+        account(5, "asset", "Joint Savings", number="12*34"),
+        account(6, "liabilities", "Mortgage", number=""),
+        account(7, "asset", "Old Account", number="55550000"),
+    ]
+    report = transform.Report()
+    numbers = transform.account_numbers(m, accounts, report)
+    assert numbers == {
+        "Alex · Checking": ("000123456789",),
+        "Alex · Credit": ("4000111122223333",),
+        "Alex · Brokerage": ("BRK77",),  # both Firefly accounts, one number
+        "Household · Joint Savings": (),
+        "Household · Mortgage": (),
+        "Sam · Checking": ("55550000",),
+    }
+    assert report.counts["account numbers left out (not 1-34 letters and digits)"] == 1
+    assert report.errors == []
+
+    # Unused archived accounts aren't migrated, nor are their numbers.
+    p = transform.plan(m, accounts, [])
+    assert "Sam · Checking" not in p.numbers
+    assert p.numbers["Alex · Credit"] == ("4000111122223333",)
+
+
+def test_a_number_on_two_accounts_is_an_error_naming_its_last_four(m):
+    accounts = [
+        account(1, "asset", "Alex Checking", number="99998888"),
+        account(5, "asset", "Joint Savings", number="9999-8888"),
+    ]
+    report = transform.Report()
+    transform.account_numbers(m, accounts, report)
+    [e] = report.errors
+    assert "…8888" in e and "99998888" not in e

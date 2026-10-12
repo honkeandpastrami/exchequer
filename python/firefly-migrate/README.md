@@ -11,6 +11,8 @@ uv run firefly-migrate run   MAPPING   # plan, then write into an EMPTY Excheque
 uv run firefly-migrate check MAPPING   # compare Firefly with what Exchequer holds
 uv run firefly-migrate settle MAPPING      # the settlement pass, then the settlement check
 uv run firefly-migrate settlement MAPPING  # only the settlement check
+uv run firefly-migrate numbers MAPPING     # account numbers Firefly has that Exchequer lacks
+uv run firefly-migrate numbers MAPPING --apply  # ... and add them (shows last four only)
 ```
 
 `MAPPING` is a TOML file you keep privately (never in this repo). It names:

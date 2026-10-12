@@ -7,6 +7,8 @@ settle      the settlement pass over a migrated ledger: payment links,
             stipends and funders, closed months; then the
             settlement check. Doesn't read Firefly.
 settlement  only the settlement check (implied stipends, design §4.5).
+numbers     the account numbers Firefly has that the migrated accounts lack;
+            with --apply, adds them. Reads only Firefly's accounts.
 
 Firefly is only ever read (see `firefly.py`).
 """
@@ -19,7 +21,7 @@ from datetime import date
 from pathlib import Path
 
 from exchequer_sdk import AuthenticatedClient
-from firefly_migrate import check, mapping, settle, transform
+from firefly_migrate import check, mapping, numbers, settle, transform
 from firefly_migrate.firefly import FireflyReader
 from firefly_migrate.report import render
 from firefly_migrate.writer import WriteError, Writer
@@ -45,8 +47,11 @@ def _plan(m: mapping.Mapping, ff: FireflyReader) -> tuple[transform.Plan, list[d
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="firefly-migrate", description=__doc__.split("\n")[0])
-    parser.add_argument("command", choices=["plan", "run", "check", "settle", "settlement"])
+    parser.add_argument(
+        "command", choices=["plan", "run", "check", "settle", "settlement", "numbers"]
+    )
     parser.add_argument("mapping", type=Path, help="the mapping file (TOML)")
+    parser.add_argument("--apply", action="store_true", help="numbers: add them")
     args = parser.parse_args(argv)
 
     try:
@@ -55,8 +60,14 @@ def main(argv: list[str] | None = None) -> int:
         print(e, file=sys.stderr)
         return 2
 
-    if args.command in ("settle", "settlement"):
-        return _settlement(m, apply=args.command == "settle")
+    # Commands that don't plan the whole migration.
+    alone = {
+        "settle": lambda: _settlement(m, apply=True),
+        "settlement": lambda: _settlement(m, apply=False),
+        "numbers": lambda: _numbers(m, apply=args.apply),
+    }
+    if args.command in alone:
+        return alone[args.command]()
 
     with _reader(m) as ff:
         p, groups = _plan(m, ff)
@@ -94,6 +105,25 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  - {d}")
             print("Settlement comparison: `firefly-migrate settlement MAPPING`.")
             return 1 if diffs or cats else 0
+    return 0
+
+
+def _numbers(m: mapping.Mapping, *, apply: bool) -> int:
+    report = transform.Report()
+    with _reader(m) as ff:
+        wanted = transform.account_numbers(m, ff.accounts(), report)
+    for key, n in sorted(report.counts.items()):
+        print(f"{key}: {n}")
+    if report.errors:
+        print("\n".join(f"error: {e}" for e in report.errors), file=sys.stderr)
+        return 1
+    with _exchequer(m) as client:
+        try:
+            n = numbers.fill(client, wanted, apply=apply, say=print)
+        except WriteError as e:
+            print(f"adding numbers failed: {e}", file=sys.stderr)
+            return 1
+    print(f"{n} numbers {'added' if apply else 'to add (run with --apply)'}.")
     return 0
 
 

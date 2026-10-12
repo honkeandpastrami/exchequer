@@ -42,7 +42,15 @@ def m() -> mapping.Mapping:
     return mapping.parse(RAW)
 
 
-def account(fid: int, kind: str, name: str, currency: str = "USD", vb: str = "0") -> dict:
+def account(
+    fid: int,
+    kind: str,
+    name: str,
+    *,
+    currency: str = "USD",
+    vb: str = "0",
+    number: str | None = None,
+) -> dict:
     return {
         "id": str(fid),
         "attributes": {
@@ -50,6 +58,7 @@ def account(fid: int, kind: str, name: str, currency: str = "USD", vb: str = "0"
             "name": name,
             "currency_code": currency,
             "virtual_balance": vb,
+            "account_number": number,
         },
     }
 

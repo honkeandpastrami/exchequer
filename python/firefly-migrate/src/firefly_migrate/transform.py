@@ -83,6 +83,8 @@ class Plan:
     year: int
     through: date
     accounts: dict[str, CreditLimit | None]  # migrated account name → credit limit
+    # Migrated account name → the account numbers its Firefly accounts have.
+    numbers: dict[str, tuple[str, ...]]
     # Archived accounts with no transaction in the year, left out with their
     # opening balances: name → commodity → balance at the start.
     skipped_accounts: dict[str, dict[str, Decimal]]
@@ -93,6 +95,43 @@ class Plan:
 
 
 # --------------------------------------------------------------- Helpers ----
+
+NUMBER = re.compile(r"^[0-9A-Za-z]{1,34}$")
+
+
+def masked(number: str) -> str:
+    return "…" + number[-4:]
+
+
+def account_numbers(
+    m: Mapping, accounts: list[dict[str, Any]], report: Report
+) -> dict[str, tuple[str, ...]]:
+    """Each mapped account's numbers, from its Firefly accounts' `account_number`,
+    as Exchequer stores them (no spaces or dashes). A number on two mapped
+    accounts is an error; one Exchequer wouldn't take is left out and counted.
+    Reports name numbers only by their last four."""
+    by_id = {int(a["id"]): a for a in accounts}
+    out: dict[str, tuple[str, ...]] = {}
+    owner: dict[str, str] = {}
+    for a in m.accounts:
+        found: list[str] = []
+        for fid in a.firefly:
+            raw = str((by_id.get(fid) or {}).get("attributes", {}).get("account_number") or "")
+            n = re.sub(r"[\s-]", "", raw)
+            if not n:
+                continue
+            if not NUMBER.match(n):
+                report.counts["account numbers left out (not 1-34 letters and digits)"] += 1
+                continue
+            if owner.setdefault(n, a.key) != a.key:
+                report.errors.append(
+                    f"account number {masked(n)} is on both {owner[n]} and {a.key}"
+                )
+                continue
+            if n not in found:
+                found.append(n)
+        out[a.key] = tuple(found)
+    return out
 
 
 def normalize_name(name: str) -> str:
@@ -444,6 +483,9 @@ def plan(
         if account in skipped and balance != 0:
             skipped[account][commodity] = balance
     limits = {name: limit for name, limit in limits.items() if name not in skipped}
+    numbers = {
+        name: n for name, n in account_numbers(m, accounts, report).items() if name in limits
+    }
 
     # One opening-balance transaction per account and commodity (§11).
     openings = []
@@ -481,6 +523,7 @@ def plan(
         year=m.year,
         through=m.through,
         accounts=limits,
+        numbers=numbers,
         skipped_accounts=skipped,
         counterparties=sorted(used),
         categories=sorted(used_categories),

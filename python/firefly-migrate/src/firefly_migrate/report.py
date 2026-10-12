@@ -25,6 +25,9 @@ def render(p: Plan) -> str:
             + ", ".join(f"{a} {c.quantity} {c.commodity}" for a, c in limits.items())
         )
 
+    with_numbers = sum(1 for ns in p.numbers.values() if ns)
+    out.append(f"- accounts with account numbers: {with_numbers}")
+
     n = len(p.skipped_accounts)
     out += ["", f"## Archived accounts not migrated: no transactions in {p.year} ({n})", ""]
     for name, balances in sorted(p.skipped_accounts.items()):
