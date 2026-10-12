@@ -52,6 +52,14 @@ def test_retired_tags_are_dropped_and_import_tags_become_batches(m):
     assert (t.tags, t.import_batch) == (["Trip"], "batch 2026-01-01")
 
 
+def test_firefly_no_name_is_no_counterparty(m):
+    p = plan(m, group(10, "2026-03-01", journal(2, "Expense:(no name)", "4.00")))
+    split = only(p).splits[0]
+    assert (split.to.account, split.to.counterparty, split.to.system) == (None, None, None)
+    assert "(no name)" not in p.counterparties
+    assert p.report.counts["legs with no counterparty (Firefly's (no name))"] == 1
+
+
 def test_brokerage_accounts_collapse_and_a_sale_is_a_conversion(m):
     sale = journal(3, 4, "10", type="transfer", currency="ACME", foreign=("1500.00", "USD"))
     split = only(plan(m, group(10, "2026-03-01", sale))).splits[0]

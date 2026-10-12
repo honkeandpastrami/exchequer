@@ -21,12 +21,12 @@ T = TypeVar("T", bound="Split")
 class Split:
     """
     Attributes:
-        from_ (Leg): One side of a split: exactly one of `account_id` (yours) or
-            `counterparty_id` (outside the household).
+        from_ (Leg): One side of a split: `account_id` (yours) or `counterparty_id` (outside
+            the household). With neither, it's outside the household, unknown who.
         kind (Kind): Derived from who is on each side; never stored or entered.
         liquidation (bool): Read-only: a transfer from an investment account into a liquid one.
-        to (Leg): One side of a split: exactly one of `account_id` (yours) or
-            `counterparty_id` (outside the household).
+        to (Leg): One side of a split: `account_id` (yours) or `counterparty_id` (outside
+            the household). With neither, it's outside the household, unknown who.
         category_id (None | Unset | UUID):
         description (None | str | Unset):
         purpose_id (None | Unset | UUID):

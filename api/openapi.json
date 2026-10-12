@@ -4479,7 +4479,7 @@
       },
       "Leg": {
         "type": "object",
-        "description": "One side of a split: exactly one of `account_id` (yours) or\n`counterparty_id` (outside the household).",
+        "description": "One side of a split: `account_id` (yours) or `counterparty_id` (outside\nthe household). With neither, it's outside the household, unknown who.",
         "required": [
           "commodity_id",
           "quantity"

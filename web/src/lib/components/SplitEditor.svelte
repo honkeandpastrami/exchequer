@@ -47,7 +47,7 @@
 			<input
 				bind:value={l.outside}
 				list="counterparties"
-				placeholder="Counterparty"
+				placeholder="Counterparty (blank if unknown)"
 				aria-label="{label}: counterparty"
 			/>
 		{/if}

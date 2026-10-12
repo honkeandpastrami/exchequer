@@ -38,8 +38,8 @@ const MAX_SPLITS: usize = 200;
 
 // ------------------------------------------------------------- Schemas ----
 
-/// One side of a split: exactly one of `account_id` (yours) or
-/// `counterparty_id` (outside the household).
+/// One side of a split: `account_id` (yours) or `counterparty_id` (outside
+/// the household). With neither, it's outside the household, unknown who.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Leg {
@@ -168,9 +168,9 @@ fn respond(status: StatusCode, t: &Transaction) -> Response {
 fn side(leg: &Leg, which: &str, index: usize) -> Result<Side, Problem> {
     match (leg.account_id, leg.counterparty_id) {
         (Some(a), None) => Ok(Side::Account(AccountId::from_uuid(a))),
-        (None, Some(c)) => Ok(Side::Counterparty(CounterpartyId::from_uuid(c))),
-        _ => Err(Problem::invalid(format!(
-            "split {index}: `{which}` needs exactly one of account_id, counterparty_id"
+        (None, c) => Ok(Side::Counterparty(c.map(CounterpartyId::from_uuid))),
+        (Some(_), Some(_)) => Err(Problem::invalid(format!(
+            "split {index}: `{which}` has both account_id and counterparty_id"
         ))),
     }
 }

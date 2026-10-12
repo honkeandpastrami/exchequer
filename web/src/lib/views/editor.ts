@@ -114,7 +114,8 @@ export function preview(s: SplitDraft, ref: Reference): Preview {
 	};
 	const account = (l: LegDraft) =>
 		l.account === OUTSIDE ? undefined : ref.accounts.get(l.account);
-	const set = (l: LegDraft) => (l.account === OUTSIDE ? l.outside.trim() !== '' : !!account(l));
+	// Outside with no name: outside the household, unknown who.
+	const set = (l: LegDraft) => l.account === OUTSIDE || !!account(l);
 	if (!set(s.from) || !set(s.to)) return none;
 	const a = account(s.from);
 	const b = account(s.to);
@@ -200,7 +201,9 @@ export function toRequest(d: Draft, ref: Reference): Schemas['NewTransaction'] {
 	const ids = new Map([...ref.counterparties.values()].map((c) => [key(c.name), c.id]));
 	const side = (l: LegDraft) =>
 		l.account === OUTSIDE
-			? { counterparty_id: ids.get(key(l.outside)) }
+			? l.outside.trim()
+				? { counterparty_id: ids.get(key(l.outside)) }
+				: {}
 			: { account_id: l.account };
 	return {
 		date: d.date,

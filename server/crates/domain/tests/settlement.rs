@@ -31,7 +31,7 @@ fn effects_follow_the_claims_table() {
     let salary = Split {
         purpose: Some(h.household),
         ..split(
-            Side::Counterparty(h.store),
+            Side::Counterparty(Some(h.store)),
             Side::Account(h.alex_checking),
             h.usd,
             "3000",
@@ -53,7 +53,7 @@ fn effects_follow_the_claims_table() {
     );
     let unlabelled = split(
         Side::Account(h.alex_credit),
-        Side::Counterparty(h.store),
+        Side::Counterparty(Some(h.store)),
         h.usd,
         "5",
     );
@@ -114,7 +114,7 @@ fn values_are_in_the_household_currency() {
         purpose: Some(h.household),
         ..split(
             Side::Account(h.alex_eur),
-            Side::Counterparty(h.store),
+            Side::Counterparty(Some(h.store)),
             h.eur,
             "90",
         )
@@ -123,7 +123,7 @@ fn values_are_in_the_household_currency() {
     // A EUR purchase charged in USD: the card's USD leg is the value.
     let charged = Split {
         to: Leg {
-            side: Side::Counterparty(h.store),
+            side: Side::Counterparty(Some(h.store)),
             commodity: h.eur,
             quantity: amt("100"),
         },

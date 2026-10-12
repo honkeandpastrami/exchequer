@@ -196,6 +196,13 @@ async fn kinds_are_derived(pool: PgPool) {
             "conversion",
             false,
         ),
+        // Outside the household, unknown who.
+        (
+            account(&h.alex_credit, &h.usd, "12"),
+            json!({ "commodity_id": h.usd, "quantity": "12" }),
+            "expense",
+            false,
+        ),
         // Liquidation into a shared account.
         (
             account(&h.alex_brokerage, &h.usd, "10000"),
@@ -225,6 +232,10 @@ async fn ledger_rules_are_422s_naming_the_split(pool: PgPool) {
     let bad = [
         (
             json!({ "from": external(&h.store, &h.usd, "10"), "to": external(&h.grocer, &h.usd, "10") }),
+            "doesn't involve",
+        ),
+        (
+            json!({ "from": { "commodity_id": h.usd, "quantity": "10" }, "to": external(&h.grocer, &h.usd, "10") }),
             "doesn't involve",
         ),
         (

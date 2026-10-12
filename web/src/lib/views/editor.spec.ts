@@ -84,7 +84,7 @@ describe('editor checks', () => {
 		expect(problems(d, ref)).toEqual([]);
 		d.splits = [
 			split('alex', 'Grocer', { quantity: '1.234' }),
-			split('alex', '', { quantity: '0' })
+			{ ...split('alex', 'Grocer', { quantity: '0' }), to: { account: '', outside: '' } }
 		];
 		expect(problems(d, ref)).toEqual([
 			'Split 1: USD has 2 decimal places.',
@@ -113,6 +113,15 @@ describe('editor request', () => {
 			description: null
 		});
 		expect(r.splits[1]).toMatchObject({ category_id: null, settles: null });
+	});
+
+	it('leaves an unnamed outside side unknown', () => {
+		const d = { ...blankDraft('usd', '2026-03-01'), description: 'Cash' };
+		d.splits = [split('alex', '  ', { category: 'food' })];
+		expect(problems(d, ref)).toEqual([]);
+		expect(preview(d.splits[0], ref).kind).toBe('expense');
+		expect(newCounterparties(d, ref)).toEqual([]);
+		expect(toRequest(d, ref).splits[0].to).toEqual({ commodity_id: 'usd', quantity: '12.50' });
 	});
 
 	it('round-trips a transaction', () => {

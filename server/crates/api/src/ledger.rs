@@ -23,9 +23,14 @@ pub async fn book_for(db: &mut PgConnection, splits: &[Split]) -> Result<Book, P
     for s in splits {
         for leg in [&s.from, &s.to] {
             match leg.side {
-                Side::Account(id) => accounts.insert(*id.as_uuid()),
-                Side::Counterparty(id) => counterparties.insert(*id.as_uuid()),
-            };
+                Side::Account(id) => {
+                    accounts.insert(*id.as_uuid());
+                }
+                Side::Counterparty(Some(id)) => {
+                    counterparties.insert(*id.as_uuid());
+                }
+                Side::Counterparty(None) => {}
+            }
             commodities.insert(*leg.commodity.as_uuid());
         }
         if let Some(p) = s.purpose {

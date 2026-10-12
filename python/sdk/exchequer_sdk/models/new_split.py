@@ -19,10 +19,10 @@ T = TypeVar("T", bound="NewSplit")
 class NewSplit:
     """
     Attributes:
-        from_ (Leg): One side of a split: exactly one of `account_id` (yours) or
-            `counterparty_id` (outside the household).
-        to (Leg): One side of a split: exactly one of `account_id` (yours) or
-            `counterparty_id` (outside the household).
+        from_ (Leg): One side of a split: `account_id` (yours) or `counterparty_id` (outside
+            the household). With neither, it's outside the household, unknown who.
+        to (Leg): One side of a split: `account_id` (yours) or `counterparty_id` (outside
+            the household). With neither, it's outside the household, unknown who.
         category_id (None | Unset | UUID): Only on income, expenses and liquidations.
         description (None | str | Unset):
         purpose_id (None | Unset | UUID): Who the money was for. Only on income/expense of liquid accounts and

@@ -10,11 +10,12 @@ use crate::ids::{
 };
 use crate::month::Month;
 
-/// Where one side of a split is: one of your accounts, or someone outside.
+/// Where one side of a split is: one of your accounts, or someone outside
+/// (`None` when it isn't known who).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
     Account(AccountId),
-    Counterparty(CounterpartyId),
+    Counterparty(Option<CounterpartyId>),
 }
 
 /// One side of a split: how much of which commodity leaves or arrives.
@@ -223,14 +224,16 @@ impl Transaction {
     }
 }
 
-/// The account behind a side, or `None` for a (known) counterparty.
+/// The account behind a side, or `None` for someone outside (a known
+/// counterparty, or an unknown one).
 fn resolve<'a>(side: &Side, lookup: &'a impl Lookup) -> Result<Option<&'a Account>, SplitError> {
     match *side {
         Side::Account(id) => lookup
             .account(id)
             .map(Some)
             .ok_or(SplitError::UnknownAccount(id)),
-        Side::Counterparty(id) => lookup
+        Side::Counterparty(None) => Ok(None),
+        Side::Counterparty(Some(id)) => lookup
             .counterparty(id)
             .map(|_| None)
             .ok_or(SplitError::UnknownCounterparty(id)),

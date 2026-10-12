@@ -162,7 +162,7 @@ pub fn spend(h: &H, account: AccountId, qty: &str, purpose: PartyId) -> Split {
         purpose: Some(purpose),
         ..split(
             Side::Account(account),
-            Side::Counterparty(h.store),
+            Side::Counterparty(Some(h.store)),
             h.usd,
             qty,
         )

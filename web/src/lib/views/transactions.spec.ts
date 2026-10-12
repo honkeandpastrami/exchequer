@@ -74,6 +74,8 @@ describe('transactions view', () => {
 		expect(size(t, ref)).toEqual([{ commodity: usd, quantity: '112.50' }]);
 		expect(route(t.splits, ref)).toBe('2 splits');
 		expect(route([t.splits[0]], ref)).toBe('Sam · checking → Grocer');
+		const unknown = { ...t.splits[0], to: { commodity_id: 'usd', quantity: '12.50' } };
+		expect(route([unknown], ref)).toBe('Sam · checking → Unknown');
 		expect(categoryNames(t.splits, ref)).toEqual(['Food']);
 	});
 

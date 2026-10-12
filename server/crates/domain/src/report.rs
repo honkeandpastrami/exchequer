@@ -51,7 +51,7 @@ pub fn postings(
     let counterparty = [&split.from, &split.to]
         .into_iter()
         .find_map(|l| match l.side {
-            Side::Counterparty(c) => Some(c),
+            Side::Counterparty(c) => c,
             Side::Account(_) => None,
         });
     let mut out = Vec::with_capacity(2);

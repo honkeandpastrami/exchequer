@@ -856,8 +856,8 @@ export interface components {
 		/** @enum {string} */
 		KindName: 'expense' | 'income' | 'transfer' | 'conversion';
 		/**
-		 * @description One side of a split: exactly one of `account_id` (yours) or
-		 *     `counterparty_id` (outside the household).
+		 * @description One side of a split: `account_id` (yours) or `counterparty_id` (outside
+		 *     the household). With neither, it's outside the household, unknown who.
 		 */
 		Leg: {
 			/** Format: uuid */

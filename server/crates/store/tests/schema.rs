@@ -99,6 +99,8 @@ async fn split_constraints(pool: PgPool) {
     );
     let ok: &[Row] = &[
         (Some(credit), None, usd, "80", None, Some(grocer), usd, "80"),
+        // Outside, unknown who.
+        (Some(credit), None, usd, "12", None, None, usd, "12"),
         (
             Some(checking),
             None,

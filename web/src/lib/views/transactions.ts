@@ -9,6 +9,9 @@ type Leg = Schemas['Leg'];
 type Split = Schemas['Split'];
 export type Quantity = { commodity: Schemas['Commodity'] | undefined; quantity: string };
 
+/** What to call an outside side with no counterparty. */
+export const UNKNOWN_OUTSIDE = 'Unknown';
+
 /** The account or counterparty on one side of a split. */
 export function legName(leg: Leg, ref: Reference): string {
 	if (leg.account_id) {
@@ -17,7 +20,7 @@ export function legName(leg: Leg, ref: Reference): string {
 	}
 	if (leg.counterparty_id)
 		return ref.counterparties.get(leg.counterparty_id)?.name ?? 'Unknown counterparty';
-	return '—';
+	return UNKNOWN_OUTSIDE;
 }
 
 function totals(entries: { commodity_id: string; quantity: string }[], ref: Reference): Quantity[] {

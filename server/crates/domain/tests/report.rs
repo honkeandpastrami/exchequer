@@ -50,7 +50,7 @@ fn postings_carry_signs_and_default_purposes() {
                 date!(2026 - 06 - 02),
                 split(
                     Side::Account(h.alex_credit),
-                    Side::Counterparty(h.store),
+                    Side::Counterparty(Some(h.store)),
                     h.usd,
                     "5",
                 ),

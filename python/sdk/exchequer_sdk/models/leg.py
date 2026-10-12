@@ -13,8 +13,8 @@ T = TypeVar("T", bound="Leg")
 
 @_attrs_define
 class Leg:
-    """One side of a split: exactly one of `account_id` (yours) or
-    `counterparty_id` (outside the household).
+    """One side of a split: `account_id` (yours) or `counterparty_id` (outside
+    the household). With neither, it's outside the household, unknown who.
 
         Attributes:
             commodity_id (UUID):

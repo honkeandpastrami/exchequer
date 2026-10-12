@@ -20,6 +20,8 @@ FIREFLY = "firefly"
 OPENING_BALANCES = "opening_balances"
 RECONCILIATION = "reconciliation"
 CASH = "Cash"
+# What Firefly calls an expense or revenue account it wasn't given a name for.
+FIREFLY_NO_NAME = "(no name)"
 
 
 # ------------------------------------------------------------------ Plan ----
@@ -27,7 +29,8 @@ CASH = "Cash"
 
 @dataclass(frozen=True)
 class Leg:
-    """Exactly one of `account`, `counterparty` or `system` is set."""
+    """At most one of `account`, `counterparty` or `system` is set; none means
+    outside the household, unknown who."""
 
     commodity: str
     quantity: Decimal
@@ -222,6 +225,10 @@ class _Builder:
                 other = self.m.by_firefly_id.get(other_fid)
                 institution = self.m.cash_account_by_destination.get(other.key) if other else None
                 return {"counterparty": self.counterparty(institution or CASH)}
+            case "Expense account" | "Revenue account" if fname.strip() == FIREFLY_NO_NAME:
+                if not self.quiet:
+                    self.report.counts["legs with no counterparty (Firefly's (no name))"] += 1
+                return {}
             case "Expense account" | "Revenue account":
                 return {"counterparty": self.counterparty(fname)}
             case _:

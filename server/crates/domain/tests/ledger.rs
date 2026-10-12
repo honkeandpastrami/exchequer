@@ -132,7 +132,7 @@ fn acct(id: AccountId) -> Side {
 }
 
 fn cp(id: CounterpartyId) -> Side {
-    Side::Counterparty(id)
+    Side::Counterparty(Some(id))
 }
 
 /// A split moving `qty` of one commodity, with no labels.
@@ -183,6 +183,17 @@ fn examples_from_the_design() {
         ..split(cp(h.store), acct(h.alex_credit), usd, "30")
     };
     assert_eq!(kind(h.classify(&refund)), Kind::Income);
+
+    // Outside the household, unknown who: still an expense or income.
+    let unknown = Side::Counterparty(None);
+    let spent = Split {
+        purpose: Some(h.household),
+        category: Some(h.groceries),
+        ..split(acct(h.alex_credit), unknown, usd, "12")
+    };
+    assert_eq!(kind(h.classify(&spent)), Kind::Expense);
+    let received = split(unknown, acct(h.alex_checking), usd, "12");
+    assert_eq!(kind(h.classify(&received)), Kind::Income);
 
     // Card payment.
     let card = split(acct(h.alex_checking), acct(h.alex_credit), usd, "500");
@@ -278,6 +289,8 @@ fn rejected_splits() {
 
     let external = split(cp(h.employer), cp(h.store), usd, "10");
     assert_eq!(h.classify(&external), Err(SplitError::BothExternal));
+    let unknown = split(Side::Counterparty(None), cp(h.store), usd, "10");
+    assert_eq!(h.classify(&unknown), Err(SplitError::BothExternal));
 
     let same = split(acct(h.alex_checking), acct(h.alex_checking), usd, "10");
     assert_eq!(h.classify(&same), Err(SplitError::SameAccount));
