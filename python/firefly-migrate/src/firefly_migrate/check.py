@@ -16,10 +16,10 @@ from decimal import Decimal
 from typing import Any
 
 from exchequer_sdk import AuthenticatedClient
-from exchequer_sdk.api.accounts import list_ as list_accounts
-from exchequer_sdk.api.categories import list_ as list_categories
-from exchequer_sdk.api.commodities import list_ as list_commodities
-from exchequer_sdk.api.transactions import list_ as list_transactions
+from exchequer_sdk.api.accounts import accounts_list as list_accounts
+from exchequer_sdk.api.categories import categories_list as list_categories
+from exchequer_sdk.api.commodities import commodities_list as list_commodities
+from exchequer_sdk.api.transactions import transactions_list as list_transactions
 from exchequer_sdk.models import Problem
 from exchequer_sdk.types import UNSET
 from firefly_migrate.firefly import FireflyReader

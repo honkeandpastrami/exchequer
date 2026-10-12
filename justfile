@@ -99,3 +99,16 @@ prepare:
 # Run the server against the dev database (just db-up first).
 serve:
     cd server && DB_HOST="{{pgdata}}" DB_USER=exchequer DB_NAME=exchequer cargo run -p server
+
+# The web app: format, lint, types, tests, licences, the generated API types
+# matching api/openapi.json, and a production build.
+web-check:
+    cd web && npm ci --no-audit --no-fund --loglevel=error
+    cd web && npm run lint
+    cd web && npm run check
+    cd web && npm test
+    # No GPL dependencies (design §16.4).
+    cd web && npx --yes license-checker-rseidelsohn@5.0.1 --excludePrivatePackages --summary --failOn 'GPL-2.0;GPL-3.0;AGPL-3.0;LGPL-2.1;LGPL-3.0;GPL-2.0-only;GPL-3.0-only;GPL-2.0-or-later;GPL-3.0-or-later;AGPL-3.0-only;AGPL-3.0-or-later;LGPL-2.1-only;LGPL-3.0-only;LGPL-2.1-or-later;LGPL-3.0-or-later' > /dev/null
+    cd web && npm run build
+    cd web && npm run gen > /dev/null
+    git diff --exit-code -- web/src/lib/api

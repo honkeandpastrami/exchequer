@@ -8,6 +8,7 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 | Step | What | Commit |
 |---|---|---|
+| 8.1 | Web app scaffold `web/` (SvelteKit 3, static adapter, hash routing, relative paths; Svelte 5): token sign-in (pasted, kept in localStorage, checked before it's kept, dropped on a 401), the app shell, and an Accounts page (balances by owner at any date, totals per commodity, archived accounts on request). Types generated from the spec (`openapi-typescript`, pinned, run through `npx`) with `openapi-fetch`; amounts stay strings (`big.js` for sums; ESLint bans `parseFloat`/`Number`). All styling from design tokens in `src/lib/theme/tokens.css` (light and dark). The server serves the build at `/` when `EXCHEQUER_WEB_DIR` is set (the image sets it), with `no-cache` on the shell and `immutable` on hashed assets. Operation IDs are now unique (`<tag>_<name>`): the Python SDK modules were renamed to match. `just web-check` and a `web` CI workflow; the image build gains a web stage and its smoke test checks `/`. 2 new server tests (97), 5 web tests | |
 | 4.5b | Statements show `carried` per edge (`outstanding` at the end of the previous month, so `outstanding = carried + due − paid`). The `settlement` check shows it and marks a closed month's difference as new (⚠) or as paying down what was carried (↺); only new ones count as months to look at. | `3d2195a` |
 | 4.5a | `firefly-migrate settle` and `settlement`: the settlement pass over a migrated ledger, through the API and without reading Firefly (household currency, payment links by Firefly ID, each month's stipends and funders from schedules carried forward, closing through `closed_through`), then the §4.5 check: stipend set vs. implied stipend per person and month, flagging closed months that differ. Re-runnable: changes only what differs. Mapping gains `[settlement]`. 13 new Python tests (38). | `1ceebbf` |
 | 4.4 | Balance checks (migration `0005_balance_checks.sql`): `POST/GET /balance-checks`, `GET/DELETE /balance-checks/{id}`. A check stores what the bank showed (default commodity: the household currency; default date: today); whether it matches, the ledger balance, the difference and `verified_through` are computed live, so fixing the ledger fixes the check. A mismatch gets candidates from `domain::discrepancy`, searched since the last verified date: duplicate pair, a posting equal to the difference, date boundary (±3 days), sign flip, 2–3 postings summing to it, transposed digits, multiple of 9, near-duplicates. 5 new tests (94 server tests) | `4ef0b24` |
@@ -31,13 +32,17 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 ## Next
 
-- **Step 5, import pipeline (§6) + CLI import/review (§12).**
+- **Step 8, web app (§13)**, ahead of step 5. Read-only views first: 8.2 transactions
+  (search, filters, splits), 8.3 settlement (monthly table, statements with lines), 8.4
+  reports (balance history, spending by category, household pool), then 8.5 editing and
+  8.6 closing and reopening months.
 
 ## To do
 
+5. Import pipeline (§6) + CLI import/review (§12).
 6. Classification (§8).
 7. Price fetching + valuation (§3.4).
-8. Web app (§13).
+8. Web app (§13): in progress, see Next.
 9. Bills/recurrences (§9), Entra OIDC (§10 tier 2).
 10. *Low priority:* learned bills (§9.1).
 11. *Nice-to-have:* encrypted offsite backups (§14.2).
@@ -46,6 +51,10 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 | Step | Decision |
 |---|---|
+| 8.1 | The web app comes before the import pipeline: it's needed to see what's in the database. Sign-in is a pasted API token until Entra (step 9). |
+| 8.1 | Hash routing and relative paths keep the proxy prefix out of the build. SvelteKit still writes root-relative paths into the shell `index.html`, so the build rewrites them (`web/scripts/relative-paths.js`, which fails if any remain). |
+| 8.1 | Operation IDs were duplicated across resources (`list`, `get`…), which OpenAPI forbids and which made the TS generator merge them. Each is now prefixed with its tag, with a test that they're unique. |
+| 8.1 | `openapi-typescript` declares a TypeScript 5 peer while SvelteKit 3 brings TypeScript 6, so it isn't a dependency: `npm run gen` runs a pinned version through `npx`, like the Python SDK generator through `uvx`. |
 | 4.5b | Past settlements are corrected only by carrying forward (design §4.4): payments are never rewritten, a fix to a closed month changes its `due`, and the difference stays in `carried` until any later payment pays it down. |
 | 4.4 | Balance-check amounts are entered as the bank shows them: on credit cards and mortgages the amount owed is positive. They're stored in the ledger's sign. |
 | 4.4 | A check's result is never stored: it's recomputed against the ledger on every read, and `verified_through` is the latest matching check up to its date. Checks are immutable (delete and re-enter); their ETag is fixed. |

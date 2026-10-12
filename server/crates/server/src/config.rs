@@ -61,6 +61,9 @@ pub struct Config {
     pub db: DbConfig,
     /// `BOOTSTRAP_TOKEN_FILE`: accepted only for managing tokens (design §10).
     pub bootstrap_token: Option<Secret>,
+    /// `EXCHEQUER_WEB_DIR`: the web app's static build, served at `/`. The
+    /// image sets it; unset, only the API is served.
+    pub web_dir: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -152,6 +155,7 @@ impl Config {
                 }
                 t => t,
             },
+            web_dir: env("EXCHEQUER_WEB_DIR").map(PathBuf::from),
         })
     }
 }
@@ -182,6 +186,7 @@ mod tests {
         assert_eq!(c.bind.to_string(), "127.0.0.1:7438");
         assert_eq!(c.db.port, 5432);
         assert!(c.db.password.is_none());
+        assert!(c.web_dir.is_none());
     }
 
     #[test]

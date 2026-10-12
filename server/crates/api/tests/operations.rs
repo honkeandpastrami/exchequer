@@ -51,3 +51,18 @@ fn committed_spec_is_current() {
         "api/openapi.json is out of date: run `just spec`"
     );
 }
+
+/// Generated clients key operations by ID: a duplicate silently merges two.
+#[test]
+fn operation_ids_are_unique() {
+    let doc = serde_json::to_value(api::openapi()).unwrap();
+    let mut seen = std::collections::HashSet::new();
+    for item in doc["paths"].as_object().unwrap().values() {
+        for op in item.as_object().unwrap().values() {
+            let id = op["operationId"]
+                .as_str()
+                .expect("every operation has an ID");
+            assert!(seen.insert(id.to_owned()), "duplicate operationId {id}");
+        }
+    }
+}

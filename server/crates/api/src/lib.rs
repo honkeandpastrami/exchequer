@@ -1,6 +1,7 @@
 //! The HTTP API (design §5). Every route is registered together with its
 //! OpenAPI entry, so the spec can't drift from the handlers.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -32,6 +33,7 @@ mod settlements;
 mod tags;
 mod tokens;
 mod transactions;
+mod web;
 
 /// Shared by every handler.
 #[derive(Clone)]
@@ -94,7 +96,32 @@ fn routes() -> OpenApiRouter<AppState> {
 pub fn openapi() -> utoipa::openapi::OpenApi {
     let mut doc = routes().split_for_parts().1;
     describe_responses(&mut doc);
+    qualify_operation_ids(&mut doc);
     doc
+}
+
+/// Handlers share names across resources (`list`, `get`…), but operation IDs
+/// must be unique: prefix each with its tag (`parties_list`).
+fn qualify_operation_ids(doc: &mut utoipa::openapi::OpenApi) {
+    for item in doc.paths.paths.values_mut() {
+        let operations = [
+            &mut item.get,
+            &mut item.put,
+            &mut item.post,
+            &mut item.delete,
+            &mut item.patch,
+            &mut item.head,
+            &mut item.options,
+            &mut item.trace,
+        ];
+        for op in operations.into_iter().flatten() {
+            if let (Some(tag), Some(id)) =
+                (op.tags.as_ref().and_then(|t| t.first()), &op.operation_id)
+            {
+                op.operation_id = Some(format!("{}_{id}", tag.replace('-', "_")));
+            }
+        }
+    }
 }
 
 /// OpenAPI requires a description on every response; where a handler gives
@@ -134,8 +161,18 @@ async fn not_found() -> problem::Problem {
     problem::Problem::not_found()
 }
 
-/// The complete application.
+/// The complete application, without the web app.
 pub fn app(state: AppState) -> Router {
+    build(state, None)
+}
+
+/// The complete application, also serving the web app's static build from
+/// `web_dir` at `/`. Unknown paths outside `/api/v1` get its 404.
+pub fn app_with_web(state: AppState, web_dir: &Path) -> Router {
+    build(state, Some(web_dir))
+}
+
+fn build(state: AppState, web_dir: Option<&Path>) -> Router {
     let (operations, _) = health::routes().split_for_parts();
     let (v1, _) = v1().split_for_parts();
     // The fallback sits inside the auth layer: unknown /api/v1 paths need a
@@ -152,7 +189,11 @@ pub fn app(state: AppState) -> Router {
             state.clone(),
             auth::require,
         ));
-    let router = operations.nest("/api/v1", v1).fallback(not_found);
+    let router = operations.nest("/api/v1", v1);
+    let router = match web_dir {
+        Some(dir) => router.fallback_service(web::service(dir)),
+        None => router.fallback(not_found),
+    };
     // Logs method, path, status and latency. Never bodies, headers or query
     // strings: they can carry household data or tokens (design §3.6).
     let request_log = TraceLayer::new_for_http()

@@ -23,7 +23,7 @@ subtle = "2.6.1"
 thiserror = "2.0.21"
 time = { version = "0.3.55", features = ["serde", "formatting", "parsing", "serde-human-readable", "macros"] }
 tokio = { version = "1.53.2", features = ["full"] }
-tower-http = { version = "0.7.1", features = ["trace"] }
+tower-http = { version = "0.7.1", features = ["fs", "trace"] }
 tracing = "0.1.44"
 utoipa = { version = "6.0.0", features = ["time", "uuid"] }
 utoipa-axum = "0.3.0"

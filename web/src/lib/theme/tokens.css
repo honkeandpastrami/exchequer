@@ -1,0 +1,100 @@
+/*
+ * Design tokens: every font, color, size and spacing the app uses. Components
+ * read only these variables, so restyling the app means editing this file.
+ *
+ * Light is the default. Dark follows the system unless <html data-theme> says
+ * otherwise ("light" or "dark").
+ */
+
+:root {
+	/* Type. System fonts only: nothing is fetched from elsewhere. */
+	--font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+	--font-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+	--font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+	/* Amounts line up in columns. */
+	--numeric: tabular-nums;
+
+	--text-xs: 0.75rem;
+	--text-sm: 0.875rem;
+	--text-md: 1rem;
+	--text-lg: 1.25rem;
+	--text-xl: 1.75rem;
+	--leading: 1.45;
+	--weight-normal: 400;
+	--weight-strong: 600;
+
+	/* Space and shape. */
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-5: 1.5rem;
+	--space-6: 2.5rem;
+	--radius-sm: 4px;
+	--radius-md: 8px;
+	--border-width: 1px;
+	--layout-max: 76rem;
+	--gutter: var(--space-4);
+
+	/* Color. */
+	--color-bg: #f6f4ef;
+	--color-surface: #ffffff;
+	--color-surface-alt: #efece4;
+	--color-border: #dcd7cb;
+	--color-text: #1f2328;
+	--color-text-muted: #636c76;
+	--color-accent: #1f5f4a;
+	--color-accent-hover: #174a3a;
+	--color-on-accent: #ffffff;
+	--color-positive: #1a7f37;
+	--color-negative: #b42318;
+	--color-warning: #9a6700;
+	--color-warning-bg: #fff4d6;
+	--color-error-bg: #fde8e6;
+	--color-focus: #2f81f7;
+	--shadow-1: 0 1px 2px rgb(0 0 0 / 0.06);
+
+	color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) {
+		--color-bg: #14171a;
+		--color-surface: #1c2024;
+		--color-surface-alt: #23282d;
+		--color-border: #343b42;
+		--color-text: #e6e8ea;
+		--color-text-muted: #9aa4ae;
+		--color-accent: #5cb595;
+		--color-accent-hover: #74c7a8;
+		--color-on-accent: #0c1612;
+		--color-positive: #57c27a;
+		--color-negative: #f08072;
+		--color-warning: #e3b341;
+		--color-warning-bg: #3a2f12;
+		--color-error-bg: #3d1d1a;
+		--color-focus: #58a6ff;
+		--shadow-1: none;
+		color-scheme: dark;
+	}
+}
+
+:root[data-theme='dark'] {
+	--color-bg: #14171a;
+	--color-surface: #1c2024;
+	--color-surface-alt: #23282d;
+	--color-border: #343b42;
+	--color-text: #e6e8ea;
+	--color-text-muted: #9aa4ae;
+	--color-accent: #5cb595;
+	--color-accent-hover: #74c7a8;
+	--color-on-accent: #0c1612;
+	--color-positive: #57c27a;
+	--color-negative: #f08072;
+	--color-warning: #e3b341;
+	--color-warning-bg: #3a2f12;
+	--color-error-bg: #3d1d1a;
+	--color-focus: #58a6ff;
+	--shadow-1: none;
+	color-scheme: dark;
+}

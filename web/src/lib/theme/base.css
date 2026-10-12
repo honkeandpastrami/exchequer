@@ -1,0 +1,117 @@
+/*
+ * Element defaults, built only from tokens.css. Component-specific styles
+ * live in each component, and also use only tokens.
+ */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	font-family: var(--font-ui);
+	font-size: var(--text-md);
+	line-height: var(--leading);
+	color: var(--color-text);
+	background: var(--color-bg);
+}
+
+body {
+	margin: 0;
+	background: var(--color-bg);
+}
+
+h1,
+h2,
+h3 {
+	font-family: var(--font-display);
+	font-weight: var(--weight-strong);
+	line-height: 1.2;
+	margin: 0 0 var(--space-3);
+}
+h1 {
+	font-size: var(--text-xl);
+}
+h2 {
+	font-size: var(--text-lg);
+}
+h3 {
+	font-size: var(--text-md);
+}
+
+a {
+	color: var(--color-accent);
+}
+a:hover {
+	color: var(--color-accent-hover);
+}
+
+:focus-visible {
+	outline: 2px solid var(--color-focus);
+	outline-offset: 2px;
+}
+
+button,
+input,
+select {
+	font: inherit;
+	color: inherit;
+}
+
+button {
+	padding: var(--space-2) var(--space-4);
+	border: var(--border-width) solid var(--color-accent);
+	border-radius: var(--radius-sm);
+	background: var(--color-accent);
+	color: var(--color-on-accent);
+	cursor: pointer;
+}
+button:hover {
+	background: var(--color-accent-hover);
+}
+button.quiet {
+	background: transparent;
+	border-color: var(--color-border);
+	color: var(--color-text);
+}
+button:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+input,
+select {
+	padding: var(--space-2) var(--space-3);
+	border: var(--border-width) solid var(--color-border);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface);
+}
+
+table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--text-sm);
+}
+th {
+	text-align: left;
+	font-weight: var(--weight-strong);
+	color: var(--color-text-muted);
+	border-bottom: var(--border-width) solid var(--color-border);
+}
+th,
+td {
+	padding: var(--space-2) var(--space-3);
+}
+tbody tr + tr td {
+	border-top: var(--border-width) solid var(--color-border);
+}
+th.num,
+td.num {
+	text-align: right;
+	white-space: nowrap;
+}
+
+.muted {
+	color: var(--color-text-muted);
+}

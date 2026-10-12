@@ -19,18 +19,18 @@ from typing import Any
 from uuid import UUID
 
 from exchequer_sdk import AuthenticatedClient
-from exchequer_sdk.api.commodities import list_ as list_commodities
-from exchequer_sdk.api.parties import get as get_party
-from exchequer_sdk.api.parties import list_ as list_parties
-from exchequer_sdk.api.parties import update as update_party
-from exchequer_sdk.api.settlements import close as close_month
-from exchequer_sdk.api.settlements import get as get_settlement
-from exchequer_sdk.api.settlements import history as get_history
-from exchequer_sdk.api.settlements import put as put_settlement
-from exchequer_sdk.api.settlements import reopen as reopen_month
-from exchequer_sdk.api.transactions import get as get_transaction
-from exchequer_sdk.api.transactions import list_ as list_transactions
-from exchequer_sdk.api.transactions import replace as replace_transaction
+from exchequer_sdk.api.commodities import commodities_list as list_commodities
+from exchequer_sdk.api.parties import parties_get as get_party
+from exchequer_sdk.api.parties import parties_list as list_parties
+from exchequer_sdk.api.parties import parties_update as update_party
+from exchequer_sdk.api.settlements import settlements_close as close_month
+from exchequer_sdk.api.settlements import settlements_get as get_settlement
+from exchequer_sdk.api.settlements import settlements_history as get_history
+from exchequer_sdk.api.settlements import settlements_put as put_settlement
+from exchequer_sdk.api.settlements import settlements_reopen as reopen_month
+from exchequer_sdk.api.transactions import transactions_get as get_transaction
+from exchequer_sdk.api.transactions import transactions_list as list_transactions
+from exchequer_sdk.api.transactions import transactions_replace as replace_transaction
 from exchequer_sdk.models import (
     Funder,
     Kind,

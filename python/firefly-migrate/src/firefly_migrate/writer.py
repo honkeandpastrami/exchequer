@@ -11,16 +11,16 @@ from typing import Any
 from uuid import UUID
 
 from exchequer_sdk import AuthenticatedClient
-from exchequer_sdk.api.accounts import create as create_account
-from exchequer_sdk.api.accounts import list_ as list_accounts
-from exchequer_sdk.api.categories import create as create_category
-from exchequer_sdk.api.commodities import create as create_commodity
-from exchequer_sdk.api.counterparties import create as create_counterparty
-from exchequer_sdk.api.counterparties import list_ as list_counterparties
-from exchequer_sdk.api.parties import create as create_party
-from exchequer_sdk.api.parties import list_ as list_parties
-from exchequer_sdk.api.transactions import create as create_transaction
-from exchequer_sdk.api.transactions import list_ as list_transactions
+from exchequer_sdk.api.accounts import accounts_create as create_account
+from exchequer_sdk.api.accounts import accounts_list as list_accounts
+from exchequer_sdk.api.categories import categories_create as create_category
+from exchequer_sdk.api.commodities import commodities_create as create_commodity
+from exchequer_sdk.api.counterparties import counterparties_create as create_counterparty
+from exchequer_sdk.api.counterparties import counterparties_list as list_counterparties
+from exchequer_sdk.api.parties import parties_create as create_party
+from exchequer_sdk.api.parties import parties_list as list_parties
+from exchequer_sdk.api.transactions import transactions_create as create_transaction
+from exchequer_sdk.api.transactions import transactions_list as list_transactions
 from exchequer_sdk.models import (
     AccountKind,
     CommodityKind,

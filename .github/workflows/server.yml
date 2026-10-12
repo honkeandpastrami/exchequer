@@ -9,6 +9,7 @@ on:
       - server/**
       - api/**
       - deploy/**
+      - web/**
       - justfile
       - Containerfile
       - .dockerignore
@@ -95,6 +96,8 @@ jobs:
             sleep 1
           done
           curl -sf http://127.0.0.1:7438/version
+          # The web app is served at / (design §13).
+          curl -sf http://127.0.0.1:7438/ | grep -q '_app/immutable'
           docker logs api
           test "$(docker inspect -f '{{.State.Running}}' api)" = true
           docker run --rm exchequer-backup sh -c 'command -v exchequer-backup && pg_dump --version && pg_restore --version'

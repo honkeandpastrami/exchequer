@@ -80,10 +80,13 @@ Run these as the (non-root) user that will own the service, from a clone of this
 The API applies schema migrations at startup. `GET /healthz` and `GET /version` need no
 token.
 
+The web app is served at `/` by the same container: open `http://127.0.0.1:7438/` and
+sign in with a token (kept in that browser until you sign out).
+
 ## Reverse proxy
 
 TLS and access from other machines are left to a reverse proxy (design §10). The API
-also works under a path, as long as the proxy strips it; with nginx:
+and the web app also work under a path, as long as the proxy strips it; with nginx:
 
 ```nginx
 location /exchequer/ {
@@ -93,6 +96,8 @@ location /exchequer/ {
     proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
+
+Open the web app with the trailing slash (`/exchequer/`): its paths are relative to it.
 
 ## Updating
 

@@ -87,7 +87,11 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         pool,
         bootstrap_token: config.bootstrap_token.map(|s| s.expose().into()),
     };
-    axum::serve(listener, api::app(state))
+    let app = match &config.web_dir {
+        Some(dir) => api::app_with_web(state, dir),
+        None => api::app(state),
+    };
+    axum::serve(listener, app)
         .with_graceful_shutdown(shutdown())
         .await?;
     tracing::info!("stopped");

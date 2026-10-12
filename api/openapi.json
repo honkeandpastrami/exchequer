@@ -16,7 +16,7 @@
           "accounts"
         ],
         "summary": "List accounts.",
-        "operationId": "list",
+        "operationId": "accounts_list",
         "parameters": [
           {
             "name": "limit",
@@ -62,7 +62,7 @@
           "accounts"
         ],
         "summary": "Create a account.",
-        "operationId": "create",
+        "operationId": "accounts_create",
         "requestBody": {
           "content": {
             "application/json": {
@@ -130,7 +130,7 @@
           "accounts"
         ],
         "summary": "Get one account.",
-        "operationId": "get",
+        "operationId": "accounts_get",
         "parameters": [
           {
             "name": "id",
@@ -182,7 +182,7 @@
           "accounts"
         ],
         "summary": "Delete a account nothing refers to.",
-        "operationId": "delete",
+        "operationId": "accounts_delete",
         "parameters": [
           {
             "name": "id",
@@ -249,7 +249,7 @@
           "accounts"
         ],
         "summary": "Change a account.",
-        "operationId": "update",
+        "operationId": "accounts_update",
         "parameters": [
           {
             "name": "id",
@@ -342,7 +342,7 @@
           "balance-checks"
         ],
         "summary": "List balance checks, newest first, each compared with the current ledger.",
-        "operationId": "list",
+        "operationId": "balance_checks_list",
         "parameters": [
           {
             "name": "account_id",
@@ -406,7 +406,7 @@
           "balance-checks"
         ],
         "summary": "Record what the bank shows and compare it with the ledger. A mismatch\ncomes with candidate explanations.",
-        "operationId": "create",
+        "operationId": "balance_checks_create",
         "requestBody": {
           "content": {
             "application/json": {
@@ -474,7 +474,7 @@
           "balance-checks"
         ],
         "summary": "One balance check, with candidate explanations if it doesn't match.",
-        "operationId": "get",
+        "operationId": "balance_checks_get",
         "parameters": [
           {
             "name": "id",
@@ -526,7 +526,7 @@
           "balance-checks"
         ],
         "summary": "Delete a balance check.",
-        "operationId": "delete",
+        "operationId": "balance_checks_delete",
         "parameters": [
           {
             "name": "id",
@@ -585,7 +585,7 @@
           "categories"
         ],
         "summary": "List categories.",
-        "operationId": "list",
+        "operationId": "categories_list",
         "parameters": [
           {
             "name": "limit",
@@ -631,7 +631,7 @@
           "categories"
         ],
         "summary": "Create a category.",
-        "operationId": "create",
+        "operationId": "categories_create",
         "requestBody": {
           "content": {
             "application/json": {
@@ -699,7 +699,7 @@
           "categories"
         ],
         "summary": "Get one category.",
-        "operationId": "get",
+        "operationId": "categories_get",
         "parameters": [
           {
             "name": "id",
@@ -751,7 +751,7 @@
           "categories"
         ],
         "summary": "Delete a category nothing refers to.",
-        "operationId": "delete",
+        "operationId": "categories_delete",
         "parameters": [
           {
             "name": "id",
@@ -818,7 +818,7 @@
           "categories"
         ],
         "summary": "Rename a category.",
-        "operationId": "update",
+        "operationId": "categories_update",
         "parameters": [
           {
             "name": "id",
@@ -911,7 +911,7 @@
           "commodities"
         ],
         "summary": "List commodities.",
-        "operationId": "list",
+        "operationId": "commodities_list",
         "parameters": [
           {
             "name": "limit",
@@ -957,7 +957,7 @@
           "commodities"
         ],
         "summary": "Create a commodity.",
-        "operationId": "create",
+        "operationId": "commodities_create",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1025,7 +1025,7 @@
           "commodities"
         ],
         "summary": "Get one commodity.",
-        "operationId": "get",
+        "operationId": "commodities_get",
         "parameters": [
           {
             "name": "id",
@@ -1077,7 +1077,7 @@
           "commodities"
         ],
         "summary": "Delete a commodity nothing refers to.",
-        "operationId": "delete",
+        "operationId": "commodities_delete",
         "parameters": [
           {
             "name": "id",
@@ -1144,7 +1144,7 @@
           "commodities"
         ],
         "summary": "Change a commodity.",
-        "operationId": "update",
+        "operationId": "commodities_update",
         "parameters": [
           {
             "name": "id",
@@ -1237,7 +1237,7 @@
           "counterparties"
         ],
         "summary": "List counterparties.",
-        "operationId": "list",
+        "operationId": "counterparties_list",
         "parameters": [
           {
             "name": "limit",
@@ -1283,7 +1283,7 @@
           "counterparties"
         ],
         "summary": "Create a counterparty.",
-        "operationId": "create",
+        "operationId": "counterparties_create",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1351,7 +1351,7 @@
           "counterparties"
         ],
         "summary": "Get one counterparty.",
-        "operationId": "get",
+        "operationId": "counterparties_get",
         "parameters": [
           {
             "name": "id",
@@ -1403,7 +1403,7 @@
           "counterparties"
         ],
         "summary": "Delete a counterparty nothing refers to.",
-        "operationId": "delete",
+        "operationId": "counterparties_delete",
         "parameters": [
           {
             "name": "id",
@@ -1470,7 +1470,7 @@
           "counterparties"
         ],
         "summary": "Rename a counterparty.",
-        "operationId": "update",
+        "operationId": "counterparties_update",
         "parameters": [
           {
             "name": "id",
@@ -1563,7 +1563,7 @@
           "parties"
         ],
         "summary": "List parties.",
-        "operationId": "list",
+        "operationId": "parties_list",
         "parameters": [
           {
             "name": "limit",
@@ -1609,7 +1609,7 @@
           "parties"
         ],
         "summary": "Create a party. There can be only one household.",
-        "operationId": "create",
+        "operationId": "parties_create",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1677,7 +1677,7 @@
           "parties"
         ],
         "summary": "Get one party.",
-        "operationId": "get",
+        "operationId": "parties_get",
         "parameters": [
           {
             "name": "id",
@@ -1729,7 +1729,7 @@
           "parties"
         ],
         "summary": "Delete a party nothing refers to.",
-        "operationId": "delete",
+        "operationId": "parties_delete",
         "parameters": [
           {
             "name": "id",
@@ -1796,7 +1796,7 @@
           "parties"
         ],
         "summary": "Rename a party, or set the household currency.",
-        "operationId": "update",
+        "operationId": "parties_update",
         "parameters": [
           {
             "name": "id",
@@ -1899,7 +1899,7 @@
           "reports"
         ],
         "summary": "Aggregate postings: filter × group by × bucket (design §7). Read-only,\ndespite being a POST (the filters don't fit a query string).",
-        "operationId": "query",
+        "operationId": "reports_query",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1945,7 +1945,7 @@
           "reports"
         ],
         "summary": "Each account's balance in each commodity at the end of a day.",
-        "operationId": "balances",
+        "operationId": "reports_balances",
         "parameters": [
           {
             "name": "date",
@@ -1993,7 +1993,7 @@
           "reports"
         ],
         "summary": "The household pool for one month: shared income and expenses, stipends,\nbusiness funding, and the change in shared savings.",
-        "operationId": "household_pool",
+        "operationId": "reports_household_pool",
         "parameters": [
           {
             "name": "month",
@@ -2050,7 +2050,7 @@
           "settlements"
         ],
         "summary": "Statements for a range of months, without their lines: the history used\nto check migrated data (each edge's `implied_stipend`, design §4.5).",
-        "operationId": "history",
+        "operationId": "settlements_history",
         "parameters": [
           {
             "name": "from",
@@ -2116,7 +2116,7 @@
           "settlements"
         ],
         "summary": "A month's parameters (its own, or carried forward) and whether it's closed.",
-        "operationId": "get",
+        "operationId": "settlements_get",
         "parameters": [
           {
             "name": "month",
@@ -2168,7 +2168,7 @@
           "settlements"
         ],
         "summary": "Set a month's stipends and funders. `If-Match` is the ETag from GET\n(`\"0\"` for a month never set).",
-        "operationId": "put",
+        "operationId": "settlements_put",
         "parameters": [
           {
             "name": "month",
@@ -2271,7 +2271,7 @@
           "settlements"
         ],
         "summary": "Close a month: edits to transactions dated in it are refused until it's\nreopened. Needs every person's stipend and every business's funder set\nfor the month itself.",
-        "operationId": "close",
+        "operationId": "settlements_close",
         "parameters": [
           {
             "name": "month",
@@ -2354,7 +2354,7 @@
           "settlements"
         ],
         "summary": "Reopen a closed month. Always allowed (design §4.4).",
-        "operationId": "reopen",
+        "operationId": "settlements_reopen",
         "parameters": [
           {
             "name": "month",
@@ -2437,7 +2437,7 @@
           "settlements"
         ],
         "summary": "The month's statement: each edge's claims, stipend, due, paid,\noutstanding and lines (design §4.3). Always computed from current data.",
-        "operationId": "statement",
+        "operationId": "settlements_statement",
         "parameters": [
           {
             "name": "month",
@@ -2494,7 +2494,7 @@
           "tags"
         ],
         "summary": "List tags.",
-        "operationId": "list",
+        "operationId": "tags_list",
         "parameters": [
           {
             "name": "limit",
@@ -2540,7 +2540,7 @@
           "tags"
         ],
         "summary": "Create a tag.",
-        "operationId": "create",
+        "operationId": "tags_create",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2608,7 +2608,7 @@
           "tags"
         ],
         "summary": "Get one tag.",
-        "operationId": "get",
+        "operationId": "tags_get",
         "parameters": [
           {
             "name": "id",
@@ -2660,7 +2660,7 @@
           "tags"
         ],
         "summary": "Delete a tag nothing refers to.",
-        "operationId": "delete",
+        "operationId": "tags_delete",
         "parameters": [
           {
             "name": "id",
@@ -2727,7 +2727,7 @@
           "tags"
         ],
         "summary": "Rename a tag.",
-        "operationId": "update",
+        "operationId": "tags_update",
         "parameters": [
           {
             "name": "id",
@@ -2820,7 +2820,7 @@
           "tokens"
         ],
         "summary": "List every token, revoked ones included.",
-        "operationId": "list",
+        "operationId": "tokens_list",
         "responses": {
           "200": {
             "description": "OK",
@@ -2857,7 +2857,7 @@
           "tokens"
         ],
         "summary": "Create a token for one client.",
-        "operationId": "create",
+        "operationId": "tokens_create",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2923,7 +2923,7 @@
           "tokens"
         ],
         "summary": "Revoke a token. It stops working immediately; revoking twice is harmless.",
-        "operationId": "revoke",
+        "operationId": "tokens_revoke",
         "parameters": [
           {
             "name": "id",
@@ -2974,7 +2974,7 @@
           "transactions"
         ],
         "summary": "List transactions, newest first.",
-        "operationId": "list",
+        "operationId": "transactions_list",
         "parameters": [
           {
             "name": "from",
@@ -3088,7 +3088,7 @@
           "transactions"
         ],
         "summary": "Create a transaction with its splits.",
-        "operationId": "create",
+        "operationId": "transactions_create",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3156,7 +3156,7 @@
           "transactions"
         ],
         "summary": "Get one transaction.",
-        "operationId": "get",
+        "operationId": "transactions_get",
         "parameters": [
           {
             "name": "id",
@@ -3208,7 +3208,7 @@
           "transactions"
         ],
         "summary": "Replace a transaction entirely, splits and tags included.",
-        "operationId": "replace",
+        "operationId": "transactions_replace",
         "parameters": [
           {
             "name": "id",
@@ -3319,7 +3319,7 @@
           "transactions"
         ],
         "summary": "Delete a transaction.",
-        "operationId": "delete",
+        "operationId": "transactions_delete",
         "parameters": [
           {
             "name": "id",
@@ -3388,7 +3388,7 @@
           "operations"
         ],
         "summary": "Whether the server is up and can reach its database.",
-        "operationId": "healthz",
+        "operationId": "operations_healthz",
         "responses": {
           "200": {
             "description": "OK",
@@ -3419,7 +3419,7 @@
           "operations"
         ],
         "summary": "Server and schema versions.",
-        "operationId": "version",
+        "operationId": "operations_version",
         "responses": {
           "200": {
             "description": "OK",

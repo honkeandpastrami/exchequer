@@ -1,7 +1,15 @@
-# The server image: one static binary on an empty base (design §15).
+# The server image: one static binary on an empty base, serving the web app's
+# static build at / next to the API (design §13, §15).
 #   podman build -t exchequer-server .
 # Runs as an unprivileged user; configure it with the env vars in
 # deploy/examples/exchequer-api.container.
+
+FROM docker.io/library/node:26-slim AS web
+WORKDIR /src/web
+COPY web/package.json web/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund --loglevel=error
+COPY web/ ./
+RUN npm run build
 
 FROM docker.io/library/rust:1.99-slim AS build
 WORKDIR /src
@@ -18,9 +26,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM scratch
 COPY --from=build /exchequer-server /exchequer-server
+COPY --from=web /src/web/build /web
 # Built locally, so it can't be pulled again: a prune can skip it by this label.
 LABEL local-build="true"
 USER 65532:65532
-ENV EXCHEQUER_BIND=0.0.0.0:7438
+ENV EXCHEQUER_BIND=0.0.0.0:7438 EXCHEQUER_WEB_DIR=/web
 EXPOSE 7438
 ENTRYPOINT ["/exchequer-server"]
