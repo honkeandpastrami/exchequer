@@ -9,9 +9,10 @@ settle      the settlement pass over a migrated ledger: payment links,
 settlement  only the settlement check (implied stipends, design §4.5).
 numbers     the account numbers Firefly has that the migrated accounts lack;
             with --apply, adds them. Reads only Firefly's accounts.
-fingerprints  plan, then record which bank rows the migrated transactions
-            came from (Firefly's external IDs) with --apply, so files with
-            those rows find them as duplicates. Re-runnable.
+fingerprints  record which bank rows the migrated transactions came from
+            (Firefly's external IDs, read from the migration's start) with
+            --apply, so files with those rows find them as duplicates.
+            Re-runnable.
 
 Firefly is only ever read (see `firefly.py`).
 """
@@ -69,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
         "settle": lambda: _settlement(m, apply=True),
         "settlement": lambda: _settlement(m, apply=False),
         "numbers": lambda: _numbers(m, apply=args.apply),
+        "fingerprints": lambda: _fingerprints(m, apply=args.apply),
     }
     if args.command in alone:
         return alone[args.command]()
@@ -80,8 +82,6 @@ def _migrate(m: mapping.Mapping, command: str, *, apply: bool) -> int:
     with _reader(m) as ff:
         p, groups = _plan(m, ff)
         print(render(p))
-        if command == "fingerprints":
-            return _fingerprints(m, p, apply=apply)
         if p.report.errors and command == "run":
             print("\nNot writing anything: fix the errors above first.", file=sys.stderr)
             return 1
@@ -118,8 +118,12 @@ def _migrate(m: mapping.Mapping, command: str, *, apply: bool) -> int:
     return 0
 
 
-def _fingerprints(m: mapping.Mapping, p: transform.Plan, *, apply: bool) -> int:
-    print("\n## Bank row IDs\n")
+def _fingerprints(m: mapping.Mapping, *, apply: bool) -> int:
+    # Only what was migrated: Firefly from the migration's start. The plan's
+    # opening balances are wrong without the earlier years, but unused here.
+    with _reader(m) as ff:
+        groups = ff.transactions(m.start, max(date.today(), m.through))
+        p = transform.plan(m, ff.accounts(), groups)
     with _exchequer(m) as client:
         try:
             out = fingerprints.fill(client, p, apply=apply, say=print)
