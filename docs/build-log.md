@@ -31,29 +31,10 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 ## Next
 
-- **Step 4, household settlement (§4) + query/report engine (§7) + balance checks (§7.1).**
-  Substeps:
-  1. Settlement math in `domain` (pure, property-tested): claims from splits (owner ≠
-     purpose, liquidations), settlement payments, stipends, routing over the month's tree,
-     per-edge `due`/`paid`/`outstanding`, investment proceeds in transit, implied stipends.
-  2. Storage and API: the household currency, each month's stipends and funders,
-     `GET …/statement`, `POST …/close` / `…/reopen`, the closed-month guard on
-     transactions, a split's optional link to the month it settles, implied stipends.
-  3. Query engine: one aggregation endpoint (filter × group by × bucket) and the named
-     reports that need no prices (balances and balance history, income vs. expense,
-     spending by category/tag, household pool).
-  4. Balance checks and the deterministic discrepancy finder.
-  5. Migration pass: the household currency, stipends, closed months through the last
-     closed one, and the §4.5 comparison (implied stipend per person per month).
-- *Scope decided for step 3:* the ledger only (commodities, parties, accounts,
-  counterparties, categories, tags, transactions with purposes), one year at a time with a
-  cutoff date. Rules (step 6), import batches (step 5), bills (step 9) and settlement links
-  and month closing (step 4) are migrated by those steps, as new passes over the same
-  Firefly data, linked through the external references: additive, nothing rebuilt.
+- **Step 5, import pipeline (§6) + CLI import/review (§12).**
 
 ## To do
 
-5. Import pipeline (§6) + CLI import/review (§12).
 6. Classification (§8).
 7. Price fetching + valuation (§3.4).
 8. Web app (§13).
@@ -128,8 +109,8 @@ Items finished enough to move on, with known follow-ups.
   internet. Making it internal also blocks the API's published port, so it needs a second
   network for the API. Worth doing when the quadlets are tested.
 - **Step 2.4c — not yet wired:** implied prices from conversion splits are computed but not
-  stored (`Price` arrives with step 7); the closed-month guard comes with settlement
-  (step 4); splits have no `bill_id` until bills exist (step 9).
+  stored (`Price` arrives with step 7); splits have no `bill_id` until bills exist
+  (step 9).
 - **Step 2.1 — tests need a database:** locally `just db-up`; CI runs a Postgres service.
 
 - **Step 1 — entities not yet modeled** (each lands with the step that uses it): `Amount`
