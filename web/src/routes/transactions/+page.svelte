@@ -18,6 +18,7 @@
 		size
 	} from '#lib/views/transactions.ts';
 	import { batchName } from '#lib/views/batches.ts';
+	import { localDate } from '#lib/dates.ts';
 
 	const KEYS = [
 		'q',
@@ -206,7 +207,7 @@
 			{#if batch}
 				<strong>{batchName(batch)}</strong>
 				<span class="muted"
-					>created {batch.created_at.slice(0, 10)} · {batch.transaction_count}
+					>created {localDate(batch.created_at)} · {batch.transaction_count}
 					{batch.transaction_count === 1 ? 'transaction' : 'transactions'}</span
 				>
 			{/if}

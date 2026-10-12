@@ -366,7 +366,9 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    wrapped by a hot-patch (`import::ofx`) for three bugs: bank-specific
    tags inside a transaction (kept as *extensions*, e.g. a merchant category code, useful
    for classification), dropped entities like `&amp;`, and mangled non-ASCII text in
-   OFX 1.x. The patch is removed once upstream fixes them. Parsers emit normalized rows (date, amount,
+   OFX 1.x. The patch is removed once upstream fixes them. Dates are the server's local
+   dates (`TZ`): a time written with a zone is converted, one written without is taken as
+   written. Parsers emit normalized rows (date, amount,
    description, native ID) plus the raw row for provenance.
 2. **Account resolution.** OFX account number → configured aliases and pairs → LLM
    suggestion → ask the client.
@@ -626,6 +628,7 @@ Secret=exchequer_db_password
 Secret=exchequer_bootstrap_token
 Environment=DB_HOST=exchequer-db DB_USER=exchequer DB_NAME=exchequer
 Environment=DB_PASSWORD_FILE=/run/secrets/exchequer_db_password
+Environment=TZ=America/New_York
 ```
 
 Server requirements that follow:

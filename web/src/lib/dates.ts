@@ -3,6 +3,11 @@ export function today(): string {
 	return new Date().toLocaleDateString('en-CA');
 }
 
+/** The local date (browser's time zone) of a timestamp, as `YYYY-MM-DD`. */
+export function localDate(timestamp: string): string {
+	return new Date(timestamp).toLocaleDateString('en-CA');
+}
+
 /** This month, as `YYYY-MM`. */
 export function thisMonth(): string {
 	return today().slice(0, 7);

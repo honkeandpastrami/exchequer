@@ -8,6 +8,7 @@ pub mod ofx;
 mod statements;
 
 use domain::{AccountNumber, Amount};
+pub use jiff::tz::TimeZone;
 use time::Date;
 
 pub use statements::parse_ofx;
@@ -54,7 +55,8 @@ pub struct Statement {
 /// One transaction as the bank wrote it, normalized.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
-    /// The bank's date (OFX: the posted date in the file's own time zone).
+    /// The date in the server's time zone (see [`parse_ofx`]); CSV dates
+    /// are taken as written.
     pub date: Date,
     /// Signed from the account's side: negative is money leaving it.
     pub amount: Amount,
@@ -100,13 +102,14 @@ pub fn detect(bytes: &[u8]) -> Option<Format> {
     csv::looks_like(start).then_some(Format::Csv)
 }
 
-/// Parses a whole file into its statements.
-pub fn parse(bytes: Vec<u8>) -> Result<Vec<Statement>, Error> {
+/// Parses a whole file into its statements, with dates local to `zone`
+/// (the server's time zone).
+pub fn parse(bytes: Vec<u8>, zone: &TimeZone) -> Result<Vec<Statement>, Error> {
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return Err(Error::Empty);
     }
     let statements = match detect(&bytes) {
-        Some(Format::Ofx) => parse_ofx(bytes)?,
+        Some(Format::Ofx) => parse_ofx(bytes, zone)?,
         Some(Format::Csv) => vec![csv::parse(&bytes)?],
         None => return Err(Error::UnknownFormat),
     };

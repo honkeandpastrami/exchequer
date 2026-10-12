@@ -908,7 +908,7 @@ export interface components {
 			commodity_id?: string | null;
 			/**
 			 * Format: date
-			 * @description Default: today (UTC).
+			 * @description Default: today in the server's time zone.
 			 */
 			date?: string | null;
 		};

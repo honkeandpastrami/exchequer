@@ -72,6 +72,7 @@ impl Call<'_> {
         let app = api::app(api::AppState {
             pool: self.pool.clone(),
             bootstrap_token: Some(BOOTSTRAP.into()),
+            zone: jiff::tz::TimeZone::get("America/New_York").unwrap(),
         });
         let mut req = Request::builder().method(self.method).uri(&self.path);
         for (k, v) in &self.headers {

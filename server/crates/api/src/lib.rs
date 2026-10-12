@@ -42,6 +42,23 @@ pub struct AppState {
     pub pool: PgPool,
     /// Accepted only for managing tokens (design §10).
     pub bootstrap_token: Option<Arc<str>>,
+    /// The server's time zone: what "today" and a bank file's dates mean.
+    pub zone: jiff::tz::TimeZone,
+}
+
+impl AppState {
+    /// Today's date in the server's time zone.
+    #[must_use]
+    pub fn today(&self) -> time::Date {
+        let d = jiff::Zoned::now().with_time_zone(self.zone.clone()).date();
+        let month = u8::try_from(d.month())
+            .ok()
+            .and_then(|m| time::Month::try_from(m).ok())
+            .expect("jiff months are 1-12");
+        let day = u8::try_from(d.day()).expect("jiff days are 1-31");
+        time::Date::from_calendar_date(i32::from(d.year()), month, day)
+            .expect("a jiff date is a valid calendar date")
+    }
 }
 
 #[derive(OpenApi)]

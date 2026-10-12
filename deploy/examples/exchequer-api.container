@@ -16,6 +16,9 @@ PublishPort=127.0.0.1:7438:7438
 Secret=exchequer_db_password
 Secret=exchequer_bootstrap_token
 Environment=EXCHEQUER_BIND=0.0.0.0:7438
+# The household's time zone: what "today" and a bank file's dates mean. The
+# image has no time zone files; the server has the names built in.
+Environment=TZ=America/New_York
 Environment=DB_HOST=exchequer-db DB_USER=exchequer DB_NAME=exchequer
 Environment=DB_PASSWORD_FILE=/run/secrets/exchequer_db_password
 Environment=BOOTSTRAP_TOKEN_FILE=/run/secrets/exchequer_bootstrap_token

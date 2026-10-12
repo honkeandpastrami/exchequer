@@ -4627,7 +4627,7 @@
               "null"
             ],
             "format": "date",
-            "description": "Default: today (UTC)."
+            "description": "Default: today in the server's time zone."
           }
         },
         "additionalProperties": false

@@ -81,11 +81,16 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     store::MIGRATOR.run(&pool).await?;
     tracing::info!(schema = store::schema_version(), "database ready");
 
+    match config.zone.iana_name() {
+        Some(zone) if zone != "UTC" => tracing::info!(zone, "time zone"),
+        _ => tracing::warn!("no time zone (set TZ): dates are UTC"),
+    }
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(bind = %config.bind, "listening");
     let state = api::AppState {
         pool,
         bootstrap_token: config.bootstrap_token.map(|s| s.expose().into()),
+        zone: config.zone,
     };
     let app = match &config.web_dir {
         Some(dir) => api::app_with_web(state, dir),

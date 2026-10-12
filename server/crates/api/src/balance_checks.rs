@@ -47,7 +47,7 @@ pub struct NewBalanceCheck {
     account_id: Uuid,
     /// Default: USD.
     commodity_id: Option<Uuid>,
-    /// Default: today (UTC).
+    /// Default: today in the server's time zone.
     date: Option<Date>,
     /// As the bank shows it (owed amounts positive on cards and mortgages).
     #[schema(value_type = String, example = "1234.56")]
@@ -383,7 +383,7 @@ async fn create(
             "amount has more than {precision} decimals"
         )));
     }
-    let date = req.date.unwrap_or_else(|| OffsetDateTime::now_utc().date());
+    let date = req.date.unwrap_or_else(|| state.today());
     let id = Uuid::now_v7();
     let balance = shown(req.amount, owed_positive(&account.kind));
     store::balance_checks::insert(

@@ -8,6 +8,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use jiff::tz::TimeZone;
 use sqlx::postgres::PgConnectOptions;
 
 /// Settings that may only be given as files.
@@ -64,6 +65,10 @@ pub struct Config {
     /// `EXCHEQUER_WEB_DIR`: the web app's static build, served at `/`. The
     /// image sets it; unset, only the API is served.
     pub web_dir: Option<PathBuf>,
+    /// `TZ` (an IANA name such as `America/New_York`), else the system's
+    /// zone: what "today" and a bank file's dates mean. The image has no
+    /// time zone files; the names come with the binary.
+    pub zone: TimeZone,
 }
 
 #[derive(Debug)]
@@ -156,6 +161,15 @@ impl Config {
                 t => t,
             },
             web_dir: env("EXCHEQUER_WEB_DIR").map(PathBuf::from),
+            zone: match env("TZ") {
+                Some(name) => TimeZone::get(name.trim_start_matches(':')).map_err(|_| {
+                    ConfigError::Invalid {
+                        name: "TZ",
+                        value: name,
+                    }
+                })?,
+                None => TimeZone::system(),
+            },
         })
     }
 }
@@ -237,6 +251,19 @@ mod tests {
         let mut vars = DB.to_vec();
         vars.push(("DB_PASSWORD_FILE", "/nonexistent/exchequer"));
         assert!(matches!(config(&vars), Err(ConfigError::SecretFile { .. })));
+    }
+
+    #[test]
+    fn time_zone_from_tz() {
+        let mut vars = DB.to_vec();
+        vars.push(("TZ", "Asia/Tokyo"));
+        assert_eq!(config(&vars).unwrap().zone.iana_name(), Some("Asia/Tokyo"));
+        vars.pop();
+        vars.push(("TZ", "Nowhere/Atlantis"));
+        assert!(matches!(
+            config(&vars),
+            Err(ConfigError::Invalid { name: "TZ", .. })
+        ));
     }
 
     #[test]

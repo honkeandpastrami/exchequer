@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addMonths, lastDay, monthName, monthsBetween } from './dates';
+import { addMonths, lastDay, localDate, monthName, monthsBetween } from './dates';
 
 describe('dates', () => {
 	it('moves across years', () => {
@@ -24,5 +24,16 @@ describe('month ranges', () => {
 		expect(monthsBetween('2026-03', '2026-02')).toEqual([]);
 		expect(lastDay('2028-02')).toBe('2028-02-29');
 		expect(lastDay('2026-12')).toBe('2026-12-31');
+	});
+
+	it('dates a timestamp in the local time zone', () => {
+		const tz = process.env.TZ;
+		process.env.TZ = 'America/New_York';
+		try {
+			expect(localDate('2026-03-03T03:00:00Z')).toBe('2026-03-02');
+		} finally {
+			if (tz === undefined) delete process.env.TZ;
+			else process.env.TZ = tz;
+		}
 	});
 });

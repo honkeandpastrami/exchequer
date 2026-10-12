@@ -85,6 +85,11 @@ pub struct Extension {
 pub struct Parsed {
     pub document: OfxDocument,
     pub extensions: HashMap<String, Vec<Extension>>,
+    /// Each transaction's `DTPOSTED` as written, by FITID in file order:
+    /// `ofx-rs` reads a time without a zone as UTC, losing that it had none.
+    pub posted: HashMap<String, Vec<String>>,
+    /// Every `DTASOF` (balance dates) as written, in file order.
+    pub as_of: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -111,11 +116,13 @@ impl std::error::Error for Error {}
 /// regardless of the header.
 pub fn parse(bytes: Vec<u8>) -> Result<Parsed, Error> {
     let text = String::from_utf8(bytes).map_err(Error::Encoding)?;
-    let (stripped, extensions) = lift_extensions(&text);
+    let (stripped, extensions, posted, as_of) = lift_extensions(&text);
     let document = ofx_rs::parse(&escape(&stripped)).map_err(Error::Ofx)?;
     Ok(Parsed {
         document,
         extensions,
+        posted,
+        as_of,
     })
 }
 
@@ -207,9 +214,19 @@ fn decode_entities(s: &str) -> String {
 
 /// Removes unknown tags (and their values) from inside every `<STMTTRN>`,
 /// returning the cleaned text and the removed fields keyed by FITID.
-fn lift_extensions(text: &str) -> (String, HashMap<String, Vec<Extension>>) {
+type Lifted = (
+    String,
+    HashMap<String, Vec<Extension>>,
+    HashMap<String, Vec<String>>,
+    Vec<String>,
+);
+
+fn lift_extensions(text: &str) -> Lifted {
     let mut out = String::with_capacity(text.len());
     let mut extensions: HashMap<String, Vec<Extension>> = HashMap::new();
+    let mut posted: HashMap<String, Vec<String>> = HashMap::new();
+    let mut dtposted: Option<String> = None;
+    let mut as_of: Vec<String> = Vec::new();
     let mut in_trn = false;
     let mut fitid: Option<String> = None;
     let mut pending: Vec<Extension> = Vec::new();
@@ -233,6 +250,7 @@ fn lift_extensions(text: &str) -> (String, HashMap<String, Vec<Extension>>) {
         // A transaction ends at </STMTTRN>, or implicitly at the next
         // <STMTTRN> or the end of the transaction list.
         if in_trn && ((name == "STMTTRN") || (is_end && name == "BANKTRANLIST")) {
+            record_posted(&mut posted, fitid.as_ref(), dtposted.take());
             flush(&mut extensions, fitid.take(), &mut pending);
             in_trn = false;
         }
@@ -242,6 +260,12 @@ fn lift_extensions(text: &str) -> (String, HashMap<String, Vec<Extension>>) {
 
         if in_trn && !is_end && name == "FITID" {
             fitid = Some(decode_entities(after[..value_len].trim()));
+        }
+        if !is_end && name == "DTASOF" {
+            as_of.push(after[..value_len].trim().to_owned());
+        }
+        if in_trn && !is_end && name == "DTPOSTED" {
+            dtposted = Some(after[..value_len].trim().to_owned());
         }
         if in_trn && !KNOWN_IN_STMTTRN.contains(&name) && name != "STMTTRN" {
             if !is_end {
@@ -260,9 +284,20 @@ fn lift_extensions(text: &str) -> (String, HashMap<String, Vec<Extension>>) {
     }
     out.push_str(rest);
     if in_trn {
+        record_posted(&mut posted, fitid.as_ref(), dtposted);
         flush(&mut extensions, fitid, &mut pending);
     }
-    (out, extensions)
+    (out, extensions, posted, as_of)
+}
+
+fn record_posted(
+    map: &mut HashMap<String, Vec<String>>,
+    fitid: Option<&String>,
+    value: Option<String>,
+) {
+    if let (Some(id), Some(v)) = (fitid, value) {
+        map.entry(id.clone()).or_default().push(v);
+    }
 }
 
 fn flush(

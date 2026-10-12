@@ -11,6 +11,8 @@ workspace = true
 
 [dependencies]
 csv = "1.4"
+# The bundled time zone database: the server image has none.
+jiff = { version = "0.2", features = ["tzdb-bundle-always"] }
 domain = { path = "../domain" }
 ofx-rs = "0.2"
 rust_decimal = "1.43.0"
