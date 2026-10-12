@@ -8,6 +8,7 @@
 	import TransactionDetail from '#lib/components/TransactionDetail.svelte';
 	import { hashQuery, withParam } from '#lib/query.ts';
 	import { reference, sorted, type Reference } from '#lib/reference.ts';
+	import { returnTo } from '#lib/returnTo.svelte.ts';
 	import {
 		categoryNames,
 		effectOn,
@@ -93,6 +94,10 @@
 	}
 
 	$effect(() => {
+		returnTo.transactions = `/transactions${query.size ? `?${query}` : ''}`;
+	});
+
+	$effect(() => {
 		const f = filters;
 		items = [];
 		next = null;
@@ -105,7 +110,15 @@
 		filters.account_id ? effectOn(tx, filters.account_id, r) : size(tx, r);
 </script>
 
-<h1>Transactions</h1>
+<div class="heading">
+	<h1>Transactions</h1>
+	<a
+		class="new"
+		href={resolve(
+			filters.account_id ? `/transactions/new?account=${filters.account_id}` : '/transactions/new'
+		)}>New transaction</a
+	>
+</div>
 
 {#await ref}
 	<p class="muted">Loading…</p>
@@ -197,7 +210,10 @@
 				</tr>
 				{#if open[tx.id]}
 					<tr class="expanded">
-						<td colspan={running ? 6 : 5}><TransactionDetail {tx} ref={r} /></td>
+						<td colspan={running ? 6 : 5}>
+							<TransactionDetail {tx} ref={r} />
+							<a class="edit" href={resolve('/transactions/[id]', { id: tx.id })}>Edit</a>
+						</td>
 					</tr>
 				{/if}
 			{/each}
@@ -220,6 +236,20 @@
 {/await}
 
 <style>
+	.heading {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--space-4);
+	}
+	.new {
+		font-size: var(--text-sm);
+	}
+	.edit {
+		display: inline-block;
+		margin-top: var(--space-2);
+		font-size: var(--text-sm);
+	}
 	.filters {
 		display: flex;
 		flex-wrap: wrap;

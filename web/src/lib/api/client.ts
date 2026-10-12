@@ -61,3 +61,8 @@ export async function all<R extends Paged>(
 	} while (cursor);
 	return out;
 }
+
+/** For responses without a body (a delete): an `ApiError` unless it succeeded. */
+export function done(r: { error?: unknown; response: Response }): void {
+	if (!r.response.ok) throw new ApiError(r.response.status, r.error as Problem | undefined);
+}
