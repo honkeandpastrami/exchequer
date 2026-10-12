@@ -386,7 +386,12 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    - Re-uploading a file, or overlapping date ranges, is a no-op.
 4. **Transfer matching.** A card payment appears in both the checking and the card file.
    Incoming rows are matched to existing opposite-signed splits on your other accounts, so a
-   transfer isn't recorded as an expense plus an income. Transfers between a person and the
+   transfer isn't recorded as an expense plus an income. A row is a `transfer_match` when a
+   one-split transaction moved the same amount of the commodity the other way between
+   another of your accounts and the outside, dated within 5 days (matched one-to-one,
+   closest dates first, after exact and near duplicates). Staged rows aren't matched to
+   each other: statuses are worked out again on commit (§6.7), so the second of two files
+   staged together finds what the first one committed. Transfers between a person and the
    Household are also matched against open settlements (§4.3).
 5. **Classification** (§8): proposed purpose, counterparty, category, tags and bill, each
    with a confidence and a reason.

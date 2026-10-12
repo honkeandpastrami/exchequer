@@ -338,3 +338,50 @@ async fn rows_like_recorded_transactions_are_near_duplicates(pool: PgPool) {
         json!(2)
     );
 }
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn rows_matching_the_other_side_of_a_transfer(pool: PgPool) {
+    let h = H::new(&pool).await;
+    let one = |date: &str, from: Value, to: Value| json!({ "date": date, "description": "x", "splits": [{ "from": from, "to": to }] });
+    let store = ("counterparty_id", h.store.as_str());
+    let savings = h.acct(&h.joint_savings);
+    let mut made = Vec::new();
+    for body in [
+        // Recorded from the savings side as going out, three days later:
+        // the pay row entering checking is its other side.
+        one(
+            "2026-03-06",
+            h.leg(savings, "1500.00"),
+            h.leg(store, "1500.00"),
+        ),
+        // Coffee money arriving in savings from outside: the other side of
+        // a coffee row leaving checking.
+        one("2026-03-01", h.leg(store, "4.50"), h.leg(savings, "4.50")),
+        // Not transfers: the same direction, too far apart, two splits.
+        one("2026-03-02", h.leg(savings, "4.50"), h.leg(store, "4.50")),
+        one("2026-03-10", h.leg(store, "4.50"), h.leg(savings, "4.50")),
+        json!({ "date": "2026-03-02", "description": "x", "splits": [
+            { "from": h.leg(store, "4.50"), "to": h.leg(savings, "4.50") },
+            { "from": h.leg(store, "1.00"), "to": h.leg(savings, "1.00") }] }),
+    ] {
+        let r = h
+            .send(&pool, "POST", "/api/v1/transactions", Some(body))
+            .await;
+        assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+        made.push(r.id());
+    }
+    let r = upload(&pool, &h, &format!("?account_id={}", h.alex_checking), CSV).await;
+    let all = rows(&pool, &h, &r.id(), "").await;
+    assert_eq!(statuses(&all), ["transfer_match", "new", "transfer_match"]);
+    assert_eq!(all[0]["match_transaction_id"], json!(made[1]));
+    assert_eq!(all[2]["match_transaction_id"], json!(made[0]));
+    assert_eq!(
+        r.body["statements"][0]["counts"]["transfer_match"],
+        json!(2)
+    );
+
+    // Once the savings side is the account the file is for, nothing matches.
+    let r = upload(&pool, &h, &format!("?account_id={}", h.joint_savings), CSV).await;
+    let all = rows(&pool, &h, &r.id(), "").await;
+    assert!(!statuses(&all).contains(&"transfer_match"), "{all:?}");
+}

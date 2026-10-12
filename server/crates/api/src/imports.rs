@@ -316,6 +316,9 @@ fn respond(status: StatusCode, i: &Import) -> Response {
 
 /// How far apart, in days, a near-duplicate's date may be.
 const NEAR_DAYS: i32 = 3;
+/// How far apart the two sides of a transfer may be dated (money can take
+/// a few business days to arrive).
+const TRANSFER_DAYS: i32 = 5;
 
 /// One-to-one near-duplicate matching: each row and each transaction is used
 /// at most once, the most similar descriptions first, then the closest
@@ -349,8 +352,10 @@ fn near_matches(
 /// now (design §6.3-§6.4): `needs_account` without an account; `duplicate`
 /// when its fingerprint was imported into the account before;
 /// `near_duplicate` when a transaction in the account has the same commodity
-/// and signed amount within [`NEAR_DAYS`] days (matched one-to-one); else
-/// `new`.
+/// and signed amount within [`NEAR_DAYS`] days; `transfer_match` when a
+/// transaction moved the same amount the other way between another of your
+/// accounts and the outside within [`TRANSFER_DAYS`] days, so the two are one
+/// transfer; else `new`. Each match is one-to-one.
 async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Result<(), Problem> {
     let (_, s) = store::imports::statements(&mut *db, &[import_id])
         .await?
@@ -385,6 +390,20 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
         let taken: HashSet<Uuid> = matched.values().map(|m| m.1).collect();
         for (position, t) in near_matches(candidates, &done, &taken) {
             matched.insert(position, (RowStatus::NearDuplicate, t));
+        }
+        let candidates = store::imports::transfer_candidates(
+            &mut *db,
+            import_id,
+            statement,
+            account,
+            s.commodity_id,
+            TRANSFER_DAYS,
+        )
+        .await?;
+        let done: HashSet<i32> = matched.keys().copied().collect();
+        let taken: HashSet<Uuid> = matched.values().map(|m| m.1).collect();
+        for (position, t) in near_matches(candidates, &done, &taken) {
+            matched.insert(position, (RowStatus::TransferMatch, t));
         }
     }
     let statuses: Vec<(i32, String, Option<Uuid>)> = rows

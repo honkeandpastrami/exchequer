@@ -385,3 +385,40 @@ pub async fn near_candidates(
     .fetch_all(db)
     .await
 }
+
+/// Staged rows that may be the other side of a transfer recorded from
+/// another account: a one-split transaction moving the same amount of the
+/// commodity between another of your accounts and the outside, the opposite
+/// way (out of it for a row entering this account, into it for a row
+/// leaving), dated within `days`. `similarity` is always 0.
+pub async fn transfer_candidates(
+    db: impl PgExecutor<'_>,
+    import_id: Uuid,
+    statement: i16,
+    account_id: Uuid,
+    commodity_id: Uuid,
+    days: i32,
+) -> Result<Vec<NearCandidate>, sqlx::Error> {
+    sqlx::query_as!(
+        NearCandidate,
+        r#"SELECT DISTINCT r.position, t.id AS transaction_id, 0 AS "similarity!",
+                  abs(r.date - t.date) AS "days_apart!"
+           FROM staged_row r
+           JOIN split s ON s.from_commodity_id = $4 AND s.to_commodity_id = $4
+                AND ((r.amount > 0 AND s.from_account_id <> $3 AND s.to_account_id IS NULL
+                      AND s.from_quantity = r.amount)
+                  OR (r.amount < 0 AND s.to_account_id <> $3 AND s.from_account_id IS NULL
+                      AND s.to_quantity = -r.amount))
+           JOIN transaction t ON t.id = s.transaction_id
+           WHERE r.import_id = $1 AND r.statement = $2
+             AND t.date BETWEEN r.date - $5::int4 AND r.date + $5::int4
+             AND (SELECT count(*) FROM split x WHERE x.transaction_id = t.id) = 1"#,
+        import_id,
+        statement,
+        account_id,
+        commodity_id,
+        days,
+    )
+    .fetch_all(db)
+    .await
+}

@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT r.position, t.id AS transaction_id, 0 AS \"similarity!\",\n                  abs(r.date - t.date) AS \"days_apart!\"\n           FROM staged_row r\n           JOIN split s ON s.from_commodity_id = $4 AND s.to_commodity_id = $4\n                AND ((r.amount > 0 AND s.from_account_id <> $3 AND s.to_account_id IS NULL\n                      AND s.from_quantity = r.amount)\n                  OR (r.amount < 0 AND s.to_account_id <> $3 AND s.from_account_id IS NULL\n                      AND s.to_quantity = -r.amount))\n           JOIN transaction t ON t.id = s.transaction_id\n           WHERE r.import_id = $1 AND r.statement = $2\n             AND t.date BETWEEN r.date - $5::int4 AND r.date + $5::int4\n             AND (SELECT count(*) FROM split x WHERE x.transaction_id = t.id) = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "position",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "transaction_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "similarity!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "days_apart!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2",
+        "Uuid",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "1df9a8e382d038ea95b6584ff58c034d35a9de3e3777133cc303a4d1b201de95"
+}
