@@ -34,8 +34,9 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 ## Next
 
-- **Step 8, web app (§13)**, ahead of step 5. Read-only views first: 8.4 reports (balance history, spending by
-  category, household pool), then 8.5 editing and 8.6 closing and reopening months.
+- **Step 8, web app (§13)**, ahead of step 5. Read-only views first: 8.4 reports (balance
+  history, spending by category, household pool), then 8.5 editing and 8.6 closing and
+  reopening months.
 
 ## To do
 
