@@ -13,7 +13,7 @@ const acct = (id: string): Schemas['Account'] => ({
 	archived: false
 });
 const ref: Reference = {
-	parties: new Map(),
+	parties: new Map([['sam', { id: 'sam', name: 'Sam', kind: 'person' }]]),
 	commodities: new Map([['usd', usd]]),
 	accounts: new Map([
 		['checking', acct('checking')],
@@ -72,7 +72,7 @@ describe('transactions view', () => {
 	it('summarizes', () => {
 		expect(size(t, ref)).toEqual([{ commodity: usd, quantity: '112.50' }]);
 		expect(route(t.splits, ref)).toBe('2 splits');
-		expect(route([t.splits[0]], ref)).toBe('checking → Grocer');
+		expect(route([t.splits[0]], ref)).toBe('Sam · checking → Grocer');
 		expect(categoryNames(t.splits, ref)).toEqual(['Food']);
 	});
 

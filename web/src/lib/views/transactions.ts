@@ -2,6 +2,7 @@
 
 import type { Schemas } from '../api/client';
 import { minus, sum } from '../money';
+import { accountLabel } from '../names';
 import type { Reference } from '../reference';
 
 type Leg = Schemas['Leg'];
@@ -10,7 +11,10 @@ export type Quantity = { commodity: Schemas['Commodity'] | undefined; quantity: 
 
 /** The account or counterparty on one side of a split. */
 export function legName(leg: Leg, ref: Reference): string {
-	if (leg.account_id) return ref.accounts.get(leg.account_id)?.name ?? 'Unknown account';
+	if (leg.account_id) {
+		const a = ref.accounts.get(leg.account_id);
+		return a ? accountLabel(a, ref) : 'Unknown account';
+	}
 	if (leg.counterparty_id)
 		return ref.counterparties.get(leg.counterparty_id)?.name ?? 'Unknown counterparty';
 	return '—';

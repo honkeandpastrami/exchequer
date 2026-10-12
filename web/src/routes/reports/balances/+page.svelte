@@ -9,6 +9,7 @@
 	import MonthWindow from '#lib/components/MonthWindow.svelte';
 	import { lastDay, monthName, thisMonth, today } from '#lib/dates.ts';
 	import { hashQuery, withParam } from '#lib/query.ts';
+	import { accountLabel, accountsByOwner } from '#lib/names.ts';
 	import { reference, sorted, type Reference } from '#lib/reference.ts';
 	import { balanceSeries, buckets, commoditiesIn } from '#lib/views/reports.ts';
 	import { readWindow } from '#lib/views/window.ts';
@@ -63,9 +64,10 @@
 	const household = (r: Reference) =>
 		[...r.parties.values()].find((p) => p.kind === 'household')?.currency_id;
 	const names = (r: Reference) =>
-		new Map<string, string>(
-			[...r.accounts.values(), ...r.parties.values()].map((x) => [x.id, x.name])
-		);
+		new Map<string, string>([
+			...[...r.accounts.values()].map((a) => [a.id, accountLabel(a, r)] as const),
+			...[...r.parties.values()].map((p) => [p.id, p.name] as const)
+		]);
 	const label = (b: string) => (bucket === 'month' ? monthName(b.slice(0, 7)) : b);
 
 	function view(rows: Schemas['Row'][], r: Reference, wanted: string | null) {
@@ -106,7 +108,9 @@
 		</select>
 		<select value={account} onchange={(e) => set({ account: e.currentTarget.value })}>
 			<option value="">Every account</option>
-			{#each sorted(d.ref.accounts) as a (a.id)}<option value={a.id}>{a.name}</option>{/each}
+			{#each accountsByOwner(d.ref) as a (a.id)}<option value={a.id}
+					>{accountLabel(a, d.ref)}</option
+				>{/each}
 		</select>
 		<select
 			value={bucket}

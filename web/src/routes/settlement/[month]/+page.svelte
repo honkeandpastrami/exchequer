@@ -4,6 +4,7 @@
 	import { api, ok, type Schemas } from '#lib/api/client.ts';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
+	import LegName from '#lib/components/LegName.svelte';
 	import MonthControls from '#lib/components/MonthControls.svelte';
 	import StatusMark from '#lib/components/StatusMark.svelte';
 	import { addMonths, monthName, thisMonth } from '#lib/dates.ts';
@@ -11,7 +12,6 @@
 	import { reference } from '#lib/reference.ts';
 	import { transactionsById } from '#lib/transactions.ts';
 	import { status } from '#lib/views/settlement.ts';
-	import { legName } from '#lib/views/transactions.ts';
 
 	let month = $derived(page.params.month ?? thisMonth());
 
@@ -117,7 +117,10 @@
 									{#if s.split?.description}<div class="muted note">{s.split.description}</div>{/if}
 								</td>
 								<td class="muted">
-									{#if s.split}{legName(s.split.from, ref)} → {legName(s.split.to, ref)}{/if}
+									{#if s.split}<LegName leg={s.split.from} {ref} /> → <LegName
+											leg={s.split.to}
+											{ref}
+										/>{/if}
 								</td>
 								<td class="num"><Amount value={l.amount} /></td>
 							</tr>

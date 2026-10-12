@@ -21,7 +21,9 @@ uv run firefly-migrate settlement MAPPING  # only the settlement check
 - `[scope]` the `year` to migrate, the cutoff date `through`, and `closed_through`, the
   last month already settled in the old system;
 - `[parties]`, `[commodities]` and `[[accounts]]` (several Firefly accounts may collapse
-  into one, e.g. one per security into a single brokerage);
+  into one, e.g. one per security into a single brokerage). Account names are unique per
+  owner, so two people can each have a `Checking`; elsewhere in the mapping an account is
+  its name, or `Owner · Name` when several owners have one by that name;
 - `[purpose]` which Firefly budgets and tags mean which party (unlabeled splits get the
   account's owner);
 - `[counterparties]`, `[categories]` and `[tags]`: dividends from Firefly's cash account,

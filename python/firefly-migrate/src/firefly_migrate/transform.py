@@ -210,7 +210,7 @@ class _Builder:
     def side(self, fid: int, ftype: str, fname: str, other_fid: int, where: str) -> dict[str, str]:
         account = self.m.by_firefly_id.get(fid)
         if account is not None:
-            return {"account": account.name}
+            return {"account": account.key}
         match ftype:
             case "Initial balance account":
                 return {"system": OPENING_BALANCES}
@@ -218,7 +218,7 @@ class _Builder:
                 return {"system": RECONCILIATION}
             case "Cash account":
                 other = self.m.by_firefly_id.get(other_fid)
-                institution = self.m.cash_account_by_destination.get(other.name) if other else None
+                institution = self.m.cash_account_by_destination.get(other.key) if other else None
                 return {"counterparty": self.counterparty(institution or CASH)}
             case "Expense account" | "Revenue account":
                 return {"counterparty": self.counterparty(fname)}
@@ -277,12 +277,12 @@ class _Builder:
 
         # The kind, as Exchequer derives it (design §3.2), decides whether a
         # purpose and a category are allowed.
-        accounts = {a.name: a for a in self.m.accounts}
+        accounts = {a.key: a for a in self.m.accounts}
         a_from = accounts.get(from_leg.account or "")
         a_to = accounts.get(to_leg.account or "")
         if a_from and a_to:
             if a_from is a_to and from_commodity == to_commodity:
-                raise _Skip(f"{where}: moves {from_commodity} from {a_from.name} into itself")
+                raise _Skip(f"{where}: moves {from_commodity} from {a_from.key} into itself")
             transfer = from_commodity == to_commodity
             liquidation = transfer and not a_from.is_liquid and a_to.is_liquid
             income_or_expense = False
@@ -304,9 +304,7 @@ class _Builder:
             if owned.is_liquid:
                 purpose = self.purpose(j, owned.owner, where)
             elif j.budget or any(t in self.m.purpose_tags for t in j.tags):
-                self.note(
-                    "dropped", f"purpose label on investment account {owned.name}", j.group_id
-                )
+                self.note("dropped", f"purpose label on investment account {owned.key}", j.group_id)
         elif j.budget and j.budget in self.m.budgets:
             kind = "transfer" if transfer else "conversion"
             self.note("dropped", f"budget {j.budget!r} on a {kind}", j.group_id)
@@ -375,24 +373,24 @@ def plan(
 
     # Every mapped Firefly account must exist, as an owned account.
     by_id = {int(a["id"]): a for a in accounts}
-    limits: dict[str, CreditLimit | None] = {a.name: None for a in m.accounts}
+    limits: dict[str, CreditLimit | None] = {a.key: None for a in m.accounts}
     for a in m.accounts:
         for fid in a.firefly:
             ff = by_id.get(fid)
             if ff is None:
-                report.errors.append(f"account {a.name}: Firefly account {fid} doesn't exist")
+                report.errors.append(f"account {a.key}: Firefly account {fid} doesn't exist")
                 continue
             attrs = ff["attributes"]
             if attrs["type"] not in ("asset", "liabilities", "liability"):
                 report.errors.append(
-                    f"account {a.name}: Firefly account {fid} is a {attrs['type']} account"
+                    f"account {a.key}: Firefly account {fid} is a {attrs['type']} account"
                 )
             vb = attrs.get("virtual_balance")
-            if a.kind == "credit_card" and vb not in (None, "") and exact(vb, a.name) > 0:
+            if a.kind == "credit_card" and vb not in (None, "") and exact(vb, a.key) > 0:
                 code = attrs["currency_code"]
                 if code in m.commodities:
-                    limits[a.name] = CreditLimit(
-                        code, fit(exact(vb, a.name), m.commodities[code].precision, a.name, report)
+                    limits[a.key] = CreditLimit(
+                        code, fit(exact(vb, a.key), m.commodities[code].precision, a.key, report)
                     )
 
     opening: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
@@ -429,7 +427,7 @@ def plan(
         if leg.account
     }
     skipped: dict[str, dict[str, Decimal]] = {
-        a.name: {} for a in m.accounts if a.archived and a.name not in active
+        a.key: {} for a in m.accounts if a.archived and a.key not in active
     }
     for (account, commodity), balance in opening.items():
         if account in skipped and balance != 0:

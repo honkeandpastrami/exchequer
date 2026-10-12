@@ -27,7 +27,7 @@ def test_expense_purpose_from_budget_tag_or_owner(m):
     purposes = {t.firefly_id: t.splits[0].purpose for t in p.transactions}
     assert purposes == {"10": "Household", "11": "Household", "12": "Alex"}
     t = p.transactions[0]
-    assert t.splits[0].from_.account == "Alex Credit"
+    assert t.splits[0].from_.account == "Alex · Credit"
     assert t.splits[0].to.counterparty == "Grocer"
     assert t.splits[0].from_.quantity == Decimal("80.00")
     assert p.report.counts["purpose from owner"] == 1
@@ -55,12 +55,12 @@ def test_brokerage_accounts_collapse_and_a_sale_is_a_conversion(m):
     sale = journal(3, 4, "10", type="transfer", currency="ACME", foreign=("1500.00", "USD"))
     split = only(plan(m, group(10, "2026-03-01", sale))).splits[0]
     assert (split.from_.account, split.from_.commodity, split.from_.quantity) == (
-        "Alex Brokerage",
+        "Alex · Brokerage",
         "ACME",
         Decimal("10"),
     )
     assert (split.to.account, split.to.commodity, split.to.quantity) == (
-        "Alex Brokerage",
+        "Alex · Brokerage",
         "USD",
         Decimal("1500.00"),
     )
@@ -80,7 +80,10 @@ def test_payment_into_a_liability_becomes_a_transfer(m):
     j = journal(5, 6, "2000.00", budget="Shared", category="Mortgage")
     p = plan(m, group(10, "2026-03-01", j))
     split = only(p).splits[0]
-    assert (split.from_.account, split.to.account) == ("Joint Savings", "Mortgage")
+    assert (split.from_.account, split.to.account) == (
+        "Household · Joint Savings",
+        "Household · Mortgage",
+    )
     assert (split.purpose, split.category) == (None, None)
     assert set(p.report.dropped) == {
         "budget 'Shared' on a transfer",
@@ -123,8 +126,8 @@ def test_opening_balances_sum_everything_before_the_year(m):
         for t in openings
     }
     assert legs == {
-        ("opening_balances", "Alex Checking", Decimal("69.44")),
-        ("Alex Credit", "opening_balances", Decimal("40.00")),
+        ("opening_balances", "Alex · Checking", Decimal("69.44")),
+        ("Alex · Credit", "opening_balances", Decimal("40.00")),
     }
     assert p.report.rounded == []
     assert p.report.counts["rounded before 2026"] == 1
@@ -178,14 +181,14 @@ def test_archived_accounts_unused_in_the_year_are_left_out(m):
         group(2, "2025-04-01", journal("Initial", 2, "10.00", type="opening balance")),
         group(10, "2026-03-01", journal(1, "Expense:X", "1")),
     )
-    assert "Old Account" not in p.accounts
-    assert p.skipped_accounts["Old Account"] == {"USD": Decimal("55.00")}
-    assert set(p.skipped_accounts) == {"Old Account"}
+    assert "Sam · Checking" not in p.accounts
+    assert p.skipped_accounts["Sam · Checking"] == {"USD": Decimal("55.00")}
+    assert set(p.skipped_accounts) == {"Sam · Checking"}
     # Not archived: migrated with its opening balance, though unused this year.
-    assert "Alex Credit" in p.accounts
+    assert "Alex · Credit" in p.accounts
     legs = {leg.account for t in p.transactions for sp in t.splits for leg in (sp.from_, sp.to)}
-    assert "Old Account" not in legs
-    assert "Alex Credit" in legs
+    assert "Sam · Checking" not in legs
+    assert "Alex · Credit" in legs
 
 
 def test_credit_limits_come_from_the_virtual_balance(m):
@@ -194,5 +197,5 @@ def test_credit_limits_come_from_the_virtual_balance(m):
         group(10, "2026-03-01", journal(1, "Expense:X", "1")),
         group(11, "2026-03-01", journal(2, "Expense:X", "1")),
     )
-    assert p.accounts["Alex Credit"] == transform.CreditLimit("USD", Decimal("2500.00"))
-    assert p.accounts["Alex Checking"] is None
+    assert p.accounts["Alex · Credit"] == transform.CreditLimit("USD", Decimal("2500.00"))
+    assert p.accounts["Alex · Checking"] is None

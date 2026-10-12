@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import tomllib
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -44,8 +45,28 @@ class Account:
     archived: bool = False
 
     @property
+    def key(self) -> str:
+        """How the tool tells accounts apart: names are unique per owner."""
+        return account_key(self.owner, self.name)
+
+    @property
     def is_liquid(self) -> bool:
         return self.liquid if self.liquid is not None else self.kind != "brokerage"
+
+
+def account_key(owner: str, name: str) -> str:
+    return f"{owner} · {name}"
+
+
+def find_account(accounts: Sequence[Account], ref: str) -> Account | str:
+    """An account named in the mapping: `Owner · Name`, or just the name when
+    only one owner has an account by that name. A string says what's wrong."""
+    matches = [a for a in accounts if ref in (a.key, a.name)]
+    if len({a.key for a in matches}) == 1:
+        return matches[0]
+    if not matches:
+        return "is not an account"
+    return f"is ambiguous: write it as one of {sorted(a.key for a in matches)}"
 
 
 MONTH = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")
@@ -186,9 +207,9 @@ def parse(raw: dict[str, Any]) -> Mapping:
                 archived=bool(a.get("archived", False)),
             )
         )
-    names = [a.name for a in accounts]
-    if len(set(names)) != len(names):
-        problems.append("accounts: names must be unique")
+    keys = [a.key for a in accounts]
+    for k in sorted({k for k in keys if keys.count(k) > 1}):
+        problems.append(f"accounts: {k} appears twice (names are unique per owner)")
 
     budgets = dict(purpose.get("budgets", {}))
     purpose_tags = dict(purpose.get("tags", {}))
@@ -198,12 +219,14 @@ def parse(raw: dict[str, Any]) -> Mapping:
     if purpose.get("default", "owner") != "owner":
         problems.append('purpose.default: only "owner" is supported')
 
-    cash = dict(raw.get("counterparties", {}).get("cash_account_by_destination", {}))
-    for dest in cash:
-        if dest not in names:
-            problems.append(
-                f"counterparties.cash_account_by_destination: {dest!r} is not an account"
-            )
+    cash: dict[str, str] = {}
+    raw_cash = raw.get("counterparties", {}).get("cash_account_by_destination", {})
+    for dest, institution in dict(raw_cash).items():
+        found = find_account(accounts, dest)
+        if isinstance(found, str):
+            problems.append(f"counterparties.cash_account_by_destination: {dest!r} {found}")
+        else:
+            cash[found.key] = institution
 
     settlement = _settlement(raw.get("settlement"), set(people), set(businesses), household)
     if isinstance(settlement, list):

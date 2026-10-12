@@ -244,7 +244,7 @@ async fn create(
         .await
         .map_err(|e| {
             write_error(e, || {
-                format!("an account named {:?} already exists", new.name)
+                format!("the owner already has an account named {:?}", new.name)
             })
         })?;
     let item = Account::try_from(saved)?;
@@ -310,7 +310,7 @@ async fn update(
         .await
         .map_err(|e| {
             write_error(e, || {
-                format!("an account named {:?} already exists", changed.name)
+                format!("the owner already has an account named {:?}", changed.name)
             })
         })?;
     let after = Account::try_from(saved)?;

@@ -20,11 +20,12 @@ from exchequer_sdk import AuthenticatedClient
 from exchequer_sdk.api.accounts import accounts_list as list_accounts
 from exchequer_sdk.api.categories import categories_list as list_categories
 from exchequer_sdk.api.commodities import commodities_list as list_commodities
+from exchequer_sdk.api.parties import parties_list as list_parties
 from exchequer_sdk.api.transactions import transactions_list as list_transactions
 from exchequer_sdk.models import Problem
 from exchequer_sdk.types import UNSET
 from firefly_migrate.firefly import FireflyReader
-from firefly_migrate.mapping import Mapping
+from firefly_migrate.mapping import Mapping, account_key
 from firefly_migrate.transform import exact
 
 
@@ -65,8 +66,12 @@ def exchequer_view(
 ) -> tuple[dict[tuple[str, str, date], Decimal], dict[tuple[str, str], Decimal]]:
     """Balances by (account, commodity, date) and net category totals by
     (category, YYYY-MM): expenses negative, income positive."""
+    parties = {
+        str(p.id): p.name
+        for p in _all(lambda c: list_parties.sync(client=client, limit=500, cursor=c))
+    }
     accounts = {
-        str(a.id): a.name
+        str(a.id): account_key(parties[str(a.owner_id)], a.name)
         for a in _all(lambda c: list_accounts.sync(client=client, limit=500, cursor=c))
     }
     commodities = {
@@ -116,16 +121,16 @@ def firefly_balances(
     subtracted (§11)."""
     out: dict[tuple[str, str, date], Decimal] = defaultdict(Decimal)
     for a in m.accounts:
-        if a.name not in migrated:
+        if a.key not in migrated:
             continue
         for fid in a.firefly:
             for d in dates:
                 attrs = ff.account_on(fid, d)["attributes"]
-                balance = exact(attrs["current_balance"], a.name)
+                balance = exact(attrs["current_balance"], a.key)
                 virtual = attrs.get("virtual_balance")
                 if virtual not in (None, ""):
-                    balance -= exact(virtual, a.name)
-                out[(a.name, attrs["currency_code"], d)] += balance
+                    balance -= exact(virtual, a.key)
+                out[(a.key, attrs["currency_code"], d)] += balance
     return out
 
 

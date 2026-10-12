@@ -7,6 +7,7 @@
 	import Quantities from '#lib/components/Quantities.svelte';
 	import TransactionDetail from '#lib/components/TransactionDetail.svelte';
 	import { hashQuery, withParam } from '#lib/query.ts';
+	import { accountLabel, accountsByOwner } from '#lib/names.ts';
 	import { reference, sorted, type Reference } from '#lib/reference.ts';
 	import { returnTo } from '#lib/returnTo.svelte.ts';
 	import {
@@ -148,7 +149,8 @@
 			onchange={(e) => set('account_id', e.currentTarget.value)}
 		>
 			<option value="">Any account</option>
-			{#each sorted(r.accounts) as a (a.id)}<option value={a.id}>{a.name}</option>{/each}
+			{#each accountsByOwner(r) as a (a.id)}<option value={a.id}>{accountLabel(a, r)}</option
+				>{/each}
 		</select>
 		<select
 			value={filters.counterparty_id ?? ''}

@@ -103,6 +103,24 @@ async fn accounts(pool: PgPool) {
     .await;
     assert_eq!(brokerage.body["liquid"], false);
 
+    // Names are unique per owner.
+    let r = post(
+        &pool,
+        &t,
+        "/api/v1/accounts",
+        json!({ "name": "Alex Checking", "kind": "checking", "owner_id": sam }),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    let r = post(
+        &pool,
+        &t,
+        "/api/v1/accounts",
+        json!({ "name": "Alex Checking", "kind": "savings", "owner_id": alex }),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::CONFLICT, "{}", r.body);
+
     let r = post(&pool, &t, "/api/v1/accounts", json!({ "name": "Ghost", "kind": "cash", "owner_id": "00000000-0000-0000-0000-000000000000" })).await;
     assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY);
 

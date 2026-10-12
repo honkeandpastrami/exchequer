@@ -2,6 +2,7 @@
 	// One split of the transaction editor. Optional fields appear only when
 	// the split can have them (see `preview`).
 	import { kinds, partyKinds, rank } from '../labels';
+	import { accountLabel } from '../names';
 	import { sorted, type Reference } from '../reference';
 	import { OUTSIDE, preview, type LegDraft, type SplitDraft } from '../views/editor';
 
@@ -35,7 +36,8 @@
 				{@const list = accountsOf(o.id, l.account)}
 				{#if list.length}
 					<optgroup label={o.name}>
-						{#each list as a (a.id)}<option value={a.id}>{a.name}</option>{/each}
+						<!-- The full label: a closed picker shows only the option. -->
+						{#each list as a (a.id)}<option value={a.id}>{accountLabel(a, ref)}</option>{/each}
 					</optgroup>
 				{/if}
 			{/each}

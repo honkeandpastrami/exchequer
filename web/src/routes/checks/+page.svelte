@@ -9,7 +9,8 @@
 	import { candidateReasons } from '#lib/labels.ts';
 	import { negate } from '#lib/money.ts';
 	import { hashQuery } from '#lib/query.ts';
-	import { reference, sorted, type Reference } from '#lib/reference.ts';
+	import { accountLabel, accountsByOwner } from '#lib/names.ts';
+	import { reference, type Reference } from '#lib/reference.ts';
 	import { transactionsById } from '#lib/transactions.ts';
 	import { cleanQuantity } from '#lib/views/editor.ts';
 
@@ -134,8 +135,8 @@
 	>
 		<select value={account} onchange={(e) => pick(e.currentTarget.value)} aria-label="Account">
 			<option value="">Account…</option>
-			{#each sorted(r.accounts).filter((a) => !a.archived || a.id === account) as a (a.id)}
-				<option value={a.id}>{a.name}</option>
+			{#each accountsByOwner(r).filter((a) => !a.archived || a.id === account) as a (a.id)}
+				<option value={a.id}>{accountLabel(a, r)}</option>
 			{/each}
 		</select>
 		<input

@@ -2,7 +2,7 @@
 	import type { Schemas } from '../api/client';
 	import { kinds } from '../labels';
 	import type { Reference } from '../reference';
-	import { legName } from '../views/transactions';
+	import LegName from './LegName.svelte';
 	import Amount from './Amount.svelte';
 
 	let { tx, ref }: { tx: Schemas['Transaction']; ref: Reference } = $props();
@@ -26,8 +26,8 @@
 		<tbody>
 			{#each tx.splits as s, i (i)}
 				<tr>
-					<td>{legName(s.from, ref)}</td>
-					<td>{legName(s.to, ref)}</td>
+					<td><LegName leg={s.from} {ref} /></td>
+					<td><LegName leg={s.to} {ref} /></td>
 					<td class="num">
 						<Amount value={s.from.quantity} code={code(s.from)} />
 						{#if s.from.commodity_id !== s.to.commodity_id}

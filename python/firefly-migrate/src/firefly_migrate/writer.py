@@ -106,9 +106,9 @@ class Writer:
             self.commodities[code] = _created(r, f"commodity {code}")
 
         for a in m.accounts:
-            if a.name not in plan.accounts:
+            if a.key not in plan.accounts:
                 continue  # not used in the year
-            limit = plan.accounts[a.name]
+            limit = plan.accounts[a.key]
             body = NewAccount(
                 kind=AccountKind(a.kind),
                 name=a.name,
@@ -125,7 +125,7 @@ class Writer:
                 ),
             )
             r = create_account.sync_detailed(client=c, body=body)
-            self.accounts[a.name] = _created(r, f"account {a.name}")
+            self.accounts[a.key] = _created(r, f"account {a.key}")
 
         page = list_counterparties.sync(client=c, limit=500)
         if page is None or isinstance(page, Problem):
