@@ -66,6 +66,10 @@ pub enum Kind {
     Transfer,
     /// Yours → yours, different commodities (possibly within one account).
     Conversion,
+    /// Yours ↔ a system counterparty (`Opening balances`, `Reconciliation`):
+    /// a balance set or corrected, not money earned or spent. Takes no
+    /// purpose or category.
+    Adjustment,
 }
 
 /// `1 base = rate quote`, derived from a split whose legs differ in commodity.
@@ -151,8 +155,13 @@ impl Split {
             });
         }
 
+        let system = [&self.from.side, &self.to.side].into_iter().any(|s| {
+            matches!(s, Side::Counterparty(Some(c))
+                if lookup.counterparty(*c).is_some_and(|c| c.system.is_some()))
+        });
         let kind = match (from, to) {
             (None, None) => return Err(SplitError::BothExternal),
+            (Some(_), None) | (None, Some(_)) if system => Kind::Adjustment,
             (Some(_), None) => Kind::Expense,
             (None, Some(_)) => Kind::Income,
             (Some(a), Some(b)) if same_commodity && a.id == b.id => {

@@ -5624,7 +5624,8 @@
           "expense",
           "income",
           "transfer",
-          "conversion"
+          "conversion",
+          "adjustment"
         ]
       },
       "KindName": {
@@ -5633,7 +5634,8 @@
           "expense",
           "income",
           "transfer",
-          "conversion"
+          "conversion",
+          "adjustment"
         ]
       },
       "Label": {

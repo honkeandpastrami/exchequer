@@ -29,6 +29,7 @@ struct Household {
     lender: CounterpartyId,
     employer: CounterpartyId,
     fund_manager: CounterpartyId,
+    opening: CounterpartyId,
     // Categories
     groceries: CategoryId,
 }
@@ -83,11 +84,11 @@ impl Household {
         let joint_brokerage = account("Joint Brokerage", AccountKind::Brokerage, household, false);
         let mortgage = account("Mortgage", AccountKind::Mortgage, household, true);
 
-        let mut counterparty = |name: &str| {
+        let mut counterparty = |name: &str, system| {
             let c = Counterparty {
                 id: CounterpartyId::new(),
                 name: name.to_owned(),
-                system: None,
+                system,
             };
             let id = c.id;
             book.add_counterparty(c);
@@ -95,11 +96,15 @@ impl Household {
         };
 
         Self {
-            grocer: counterparty("Grocer"),
-            store: counterparty("Store"),
-            lender: counterparty("Lender"),
-            employer: counterparty("Employer"),
-            fund_manager: counterparty("Fund manager"),
+            grocer: counterparty("Grocer", None),
+            store: counterparty("Store", None),
+            lender: counterparty("Lender", None),
+            employer: counterparty("Employer", None),
+            fund_manager: counterparty("Fund manager", None),
+            opening: counterparty(
+                "Opening balances",
+                Some(SystemCounterparty::OpeningBalances),
+            ),
             book,
             household,
             alex,
@@ -318,6 +323,32 @@ fn rejected_splits() {
         h.classify(&ghost),
         Err(SplitError::UnknownAccount(_))
     ));
+}
+
+#[test]
+fn opening_balances_are_adjustments_not_income_or_spending() {
+    let h = Household::new();
+    let usd = h.usd;
+    // A debt's opening balance leaves the account; an asset's enters it.
+    let owed = split(acct(h.mortgage), cp(h.opening), usd, "250000");
+    let held = split(cp(h.opening), acct(h.joint_savings), usd, "9000");
+    assert_eq!(kind(h.classify(&owed)), Kind::Adjustment);
+    assert_eq!(kind(h.classify(&held)), Kind::Adjustment);
+    // Neither is anyone's spending or anything's category.
+    assert_eq!(
+        h.classify(&Split {
+            purpose: Some(h.household),
+            ..owed.clone()
+        }),
+        Err(SplitError::PurposeNotAllowed(Kind::Adjustment))
+    );
+    assert_eq!(
+        h.classify(&Split {
+            category: Some(h.groceries),
+            ..owed
+        }),
+        Err(SplitError::CategoryNotAllowed(Kind::Adjustment))
+    );
 }
 
 #[test]

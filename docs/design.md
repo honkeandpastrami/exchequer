@@ -97,10 +97,15 @@ is on each side of a split:
 | external | yours | income |
 | yours | yours, same commodity | transfer |
 | yours | yours, different commodity | conversion |
+| yours | a system counterparty, or the reverse | adjustment |
 | external | external | *rejected: doesn't involve you* |
 
+An **adjustment** sets or corrects a balance: an opening balance (a debt's leaves the
+account, an asset's enters it) or a reconciliation. It isn't money earned or spent, so
+it's neither income nor expense in any report, and it takes no purpose or category.
+
 The API returns `kind` as a read-only computed field for filters and reports (income vs.
-expense excludes transfers and conversions by default). Changing a split's account or
+expense excludes transfers, conversions and adjustments). Changing a split's account or
 counterparty changes its kind, and nothing else needs updating.
 
 Workarounds this removes:

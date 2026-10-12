@@ -27,7 +27,8 @@ export const kinds: Record<Schemas['Kind'], string> = {
 	expense: 'Expense',
 	income: 'Income',
 	transfer: 'Transfer',
-	conversion: 'Conversion'
+	conversion: 'Conversion',
+	adjustment: 'Adjustment'
 };
 
 export const lineKinds: Record<Schemas['LineKind'], string> = {

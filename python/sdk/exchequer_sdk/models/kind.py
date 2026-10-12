@@ -2,6 +2,7 @@ from enum import StrEnum
 
 
 class Kind(StrEnum):
+    ADJUSTMENT = "adjustment"
     CONVERSION = "conversion"
     EXPENSE = "expense"
     INCOME = "income"

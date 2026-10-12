@@ -1173,9 +1173,9 @@ export interface components {
 		 * @description Derived from who is on each side; never stored or entered.
 		 * @enum {string}
 		 */
-		Kind: 'expense' | 'income' | 'transfer' | 'conversion';
+		Kind: 'expense' | 'income' | 'transfer' | 'conversion' | 'adjustment';
 		/** @enum {string} */
-		KindName: 'expense' | 'income' | 'transfer' | 'conversion';
+		KindName: 'expense' | 'income' | 'transfer' | 'conversion' | 'adjustment';
 		/**
 		 * @description A label a row's new transaction gets.
 		 * @enum {string}

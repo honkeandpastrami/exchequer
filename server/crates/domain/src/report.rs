@@ -124,6 +124,7 @@ pub enum KindKey {
     Income,
     Transfer,
     Conversion,
+    Adjustment,
 }
 
 impl From<Kind> for KindKey {
@@ -133,6 +134,7 @@ impl From<Kind> for KindKey {
             Kind::Income => Self::Income,
             Kind::Transfer => Self::Transfer,
             Kind::Conversion => Self::Conversion,
+            Kind::Adjustment => Self::Adjustment,
         }
     }
 }

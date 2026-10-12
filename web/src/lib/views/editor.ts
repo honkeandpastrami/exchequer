@@ -124,9 +124,15 @@ export function preview(s: SplitDraft, ref: Reference): Preview {
 	if (a && b) {
 		if (same && a.id === b.id) return none;
 		kind = same ? 'transfer' : 'conversion';
-	} else if (a) kind = 'expense';
-	else if (b) kind = 'income';
-	else return none;
+	} else if (a || b) {
+		// With a system counterparty: an opening balance or a reconciliation.
+		const system = (l: LegDraft) =>
+			l.account === OUTSIDE &&
+			[...ref.counterparties.values()].some(
+				(c) => c.system && c.name.toLowerCase() === l.outside.trim().toLowerCase()
+			);
+		kind = system(s.from) || system(s.to) ? 'adjustment' : a ? 'expense' : 'income';
+	} else return none;
 	const liquidation = kind === 'transfer' && !!a && !!b && !a.liquid && b.liquid;
 	const flow = kind === 'expense' || kind === 'income';
 	const liquid = (a ?? b)?.liquid ?? false;

@@ -79,6 +79,8 @@ pub enum Kind {
     Income,
     Transfer,
     Conversion,
+    /// With a system counterparty: an opening balance or a reconciliation.
+    Adjustment,
 }
 
 impl From<domain::Kind> for Kind {
@@ -88,6 +90,7 @@ impl From<domain::Kind> for Kind {
             domain::Kind::Income => Self::Income,
             domain::Kind::Transfer => Self::Transfer,
             domain::Kind::Conversion => Self::Conversion,
+            domain::Kind::Adjustment => Self::Adjustment,
         }
     }
 }

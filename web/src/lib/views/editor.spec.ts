@@ -34,7 +34,10 @@ const ref: Reference = {
 		['alex2', acct('alex2', 'p-alex')],
 		['broker', acct('broker', 'p-alex', false)]
 	]),
-	counterparties: new Map([['grocer', { id: 'grocer', name: 'Grocer' }]]),
+	counterparties: new Map([
+		['grocer', { id: 'grocer', name: 'Grocer' }],
+		['opening', { id: 'opening', name: 'Opening balances', system: 'opening_balances' }]
+	]),
 	categories: new Map(),
 	tags: new Map()
 };
@@ -73,6 +76,12 @@ describe('editor preview', () => {
 		expect(preview(split('alex', 'alex', { converted: true, toCommodity: 'eur' }), ref).kind).toBe(
 			'conversion'
 		);
+		// Opening balances are neither spending nor income.
+		expect(preview(split('alex', 'Opening balances'), ref)).toMatchObject({
+			kind: 'adjustment',
+			category: false,
+			purpose: false
+		});
 		expect(preview(split('alex', 'alex'), ref).kind).toBeNull();
 		expect(preview(split('Grocer', 'Someone'), ref).kind).toBeNull();
 	});

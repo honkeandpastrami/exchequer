@@ -103,6 +103,8 @@ pub enum KindName {
     Income,
     Transfer,
     Conversion,
+    /// Opening balances and reconciliations: neither income nor spending.
+    Adjustment,
 }
 
 impl From<KindKey> for KindName {
@@ -112,6 +114,7 @@ impl From<KindKey> for KindName {
             KindKey::Income => Self::Income,
             KindKey::Transfer => Self::Transfer,
             KindKey::Conversion => Self::Conversion,
+            KindKey::Adjustment => Self::Adjustment,
         }
     }
 }
