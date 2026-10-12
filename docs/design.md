@@ -176,7 +176,7 @@ computation, AI prompts and clients. A float touching one of these values is a b
 |---|---|---|
 | Bank file parsing | String → decimal directly. `ofx-rs` yields `rust_decimal::Decimal`; the CSV path parses strings straight into `Decimal`. | No float conversion anywhere in parsers or fingerprinting. |
 | Postgres | `NUMERIC`. Quantities are checked against the commodity's precision. Prices and rates use `NUMERIC` with a fixed high scale (e.g. 20). | A schema test fails if any column is `real` or `double precision`. |
-| Server (Rust) | Newtypes: **`Amount`** (wraps `rust_decimal::Decimal`, 28 significant digits) for amounts and quantities; **`Rate`** (wraps `bigdecimal::BigDecimal`, arbitrary precision) for prices and conversion math. Neither has any operation accepting `f32`/`f64`, so mixing is a **compile error**. `Amount` arithmetic is checked: overflow or inexact rescaling is an error, never a silent rounding. | `clippy::float_arithmetic`, `clippy::float_cmp` and `disallowed_types = [f32, f64]` are denied in every crate except `heuristics`. |
+| Server (Rust) | Newtypes: **`Amount`** (wraps `rust_decimal::Decimal`, 28 significant digits) for amounts and quantities; **`Rate`** (wraps `bigdecimal::BigDecimal`, arbitrary precision) for prices and conversion math. Neither has any operation accepting `f32`/`f64`, so mixing is a **compile error**. `Amount` arithmetic is checked: overflow or inexact rescaling is an error, never a silent rounding. | `clippy::float_arithmetic`, `clippy::float_cmp` and `disallowed_types = [f32, f64]` are denied workspace-wide, as a guard for money. Code that needs a float for something else opts out locally (`#[expect(…, reason = …)]`); the `heuristics` crate opts out as a whole. |
 | API (JSON) | Amounts are **strings** (`"1500.00"`); the OpenAPI schema declares `type: string` with a decimal pattern. | `Amount`'s deserializer accepts only JSON strings; a JSON number is rejected with 422. |
 | CLI (Python) | `decimal.Decimal` end to end; the generated SDK maps amount strings to `Decimal`. | Ruff + a CI check ban `float(` and `: float` in client code. |
 | Web app | Amounts stay strings; the rare client-side math uses a decimal library. The server returns computed totals. | Lint rule against `Number()`/`parseFloat` on amount fields. Charts map values to pixels internally; labels always come from the strings. |
@@ -192,10 +192,12 @@ computation, AI prompts and clients. A float touching one of these values is a b
 - **Implied prices** are divisions, stored at the fixed rate scale and marked as derived.
   They are used for valuation only, never to rewrite a stored amount.
 
-**Exempt:** heuristic *scores* that never become money: text similarity in dedup, classifier
-confidence, and the internal math of the learned model. They live in the `heuristics` crate,
-the only place float lints are allowed. Amount *features* for the model are derived from
-`Decimal` in one audited function.
+**Scope:** the rule is about money: amounts, quantities, prices, rates and the transactions
+that carry them. Anything else may use floats, as long as a float never becomes stored data:
+text similarity in dedup (e.g. `pg_trgm`'s `similarity()`), classifier confidence, the
+internal math of the learned model. Integers are still preferred where they come easily,
+since they reproduce exactly. Amount *features* for the model are derived from `Decimal` in
+one audited function.
 
 **Imported data may already be damaged.** Data exported from float-based tools can carry
 values like `1234.5699999999999`. Importers and the Firefly migration detect any amount with

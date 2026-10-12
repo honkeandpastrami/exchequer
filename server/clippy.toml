@@ -1,4 +1,7 @@
-# Money is never a float (design §3.5). The `heuristics` crate opts out locally.
+# Money is never a float (design §3.5). The ban is a guard for money, not a ban on
+# floats as such: non-money code that needs one (a similarity score, a confidence)
+# opts out locally with #[expect(..., reason = ...)], and the `heuristics` crate as
+# a whole. A float must never become stored data.
 disallowed-types = [
     { path = "f32", reason = "no floating point: use domain::Amount or domain::Rate" },
     { path = "f64", reason = "no floating point: use domain::Amount or domain::Rate" },
