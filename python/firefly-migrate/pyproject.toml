@@ -1,6 +1,6 @@
 [project]
 name = "firefly-migrate"
-version = "0.1.0"
+dynamic = ["version"]
 description = "One-time migration from Firefly III into Exchequer (design §11)."
 license = "BSD-2-Clause"
 requires-python = ">=3.13"
@@ -12,6 +12,16 @@ firefly-migrate = "firefly_migrate.cli:main"
 [tool.uv.sources]
 exchequer-sdk = { workspace = true }
 
+# The version comes from the repository's git tags (vX.Y.Z), like every piece
+# of Exchequer.
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = "../..", git_describe_command = "git describe --dirty --tags --long --match v[0-9]*" }
+fallback-version = "0.0.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/firefly_migrate"]
+
 [build-system]
-requires = ["uv_build>=0.9,<0.13"]
-build-backend = "uv_build"
+requires = ["hatchling>=1.27", "hatch-vcs>=0.5"]
+build-backend = "hatchling.build"

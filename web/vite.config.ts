@@ -3,6 +3,8 @@ import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 
 export default defineConfig({
+	// This build's version, from git tags (deploy/version), passed in by the image build.
+	define: { __EXCHEQUER_VERSION__: JSON.stringify(process.env.EXCHEQUER_VERSION ?? '0.0.0-dev') },
 	plugins: [
 		sveltekit({
 			compilerOptions: {

@@ -745,8 +745,9 @@ exchequer/
 - **Generated SDKs are committed,** so API changes show up as readable diffs.
 - **One container serves the API and the web app** (`/` and `/api/v1`): one origin, one
   image, one quadlet.
-- **One version for everything** (server, web, spec, SDK, CLI), set with
-  `just set-version`: they're built from one spec and move together. A tag `vX.Y.Z` on
+- **One version for everything** (server, web, SDK, CLI), and it lives only in git tags:
+  builds take it from `git describe` (`deploy/version`; `hatch-vcs` for Python), so
+  nothing in the repo is edited to release. They're built from one spec and move together. A tag `vX.Y.Z` on
   `main` publishes both images to GHCR, public since they hold no household data, and a
   GitHub Release with the Python packages. The deployment runs the newest release and
   updates through `podman auto-update`; nothing is built on the server.

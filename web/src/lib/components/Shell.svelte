@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { signOut } from '../session.svelte';
+	import { version } from '../version';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -17,7 +18,7 @@
 </script>
 
 <header class="bar">
-	<span class="brand">Exchequer</span>
+	<span class="brand">Exchequer <span class="version">{version}</span></span>
 	<nav>
 		{#each sections as s (s.route)}
 			<a href={s.href} aria-current={current(s.route) ? 'page' : undefined}>{s.label}</a>
@@ -42,6 +43,12 @@
 		font-family: var(--font-display);
 		font-size: var(--text-lg);
 		font-weight: var(--weight-strong);
+	}
+	.version {
+		font-family: var(--font-ui);
+		font-size: var(--text-xs);
+		font-weight: var(--weight-normal);
+		color: var(--color-text-muted);
 	}
 	nav {
 		display: flex;

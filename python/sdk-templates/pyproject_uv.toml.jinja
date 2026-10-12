@@ -1,0 +1,25 @@
+[project]
+name = "{{ project_name }}"
+dynamic = ["version"]
+description = "{{ package_description | in_double_quote_literal }}"
+authors = []
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = [
+    "httpx>=0.23.1,<0.29.0",
+    "attrs>=22.2.0",
+]
+
+# The version comes from the repository's git tags (vX.Y.Z), like every piece
+# of Exchequer; see python/sdk-templates.
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = "../..", git_describe_command = "git describe --dirty --tags --long --match v[0-9]*" }
+fallback-version = "0.0.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["{{ package_name }}"]
+
+[build-system]
+requires = ["hatchling>=1.27", "hatch-vcs>=0.5"]
+build-backend = "hatchling.build"

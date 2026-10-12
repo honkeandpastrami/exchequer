@@ -7,7 +7,7 @@
       "name": "BSD-2-Clause",
       "identifier": "BSD-2-Clause"
     },
-    "version": "0.1.0"
+    "version": "0.0.0"
   },
   "paths": {
     "/api/v1/accounts": {

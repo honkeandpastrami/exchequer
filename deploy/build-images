@@ -15,6 +15,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 owner=$(git -C "$root" remote get-url origin | sed -E 's#.*[:/]([^/]+)/[^/]+$#\1#' | tr '[:upper:]' '[:lower:]')
 registry=${EXCHEQUER_REGISTRY:-ghcr.io/$owner}
 
-podman build -t "$registry/exchequer-server:latest" "$root"
+podman build --build-arg EXCHEQUER_VERSION="$("$root/deploy/version")" \
+    -t "$registry/exchequer-server:latest" "$root"
 podman build -t "$registry/exchequer-backup:latest" -f "$root/deploy/backup.Containerfile" "$root/deploy"
 echo "built exchequer-server (schema v$(podman run --rm "$registry/exchequer-server:latest" schema-version)) and exchequer-backup"

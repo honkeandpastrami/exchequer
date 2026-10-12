@@ -3,8 +3,8 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-# The one version of everything in this repo: `just set-version X.Y.Z`.
-version = "0.1.0"
+# A placeholder: builds take their version from git tags (deploy/version).
+version = "0.0.0"
 edition = "2024"
 license = "BSD-2-Clause"
 publish = false

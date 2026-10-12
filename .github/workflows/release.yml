@@ -1,8 +1,8 @@
 # Releases everything at one version (design §15): pushing a tag vX.Y.Z on
 # main builds both images, smoke-tests them, publishes them to GitHub's
 # container registry as X.Y.Z, X.Y and latest, and creates a GitHub Release
-# with the Python packages attached. Every piece must already be at X.Y.Z
-# (`just set-version X.Y.Z`).
+# with the Python packages attached. Nothing in the repo holds the version:
+# every build takes it from the tag (deploy/version, hatch-vcs).
 name: release
 
 on:
@@ -35,16 +35,14 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: just
       - uses: astral-sh/setup-uv@v6
       - name: Check the tag
         run: |
           version="${GITHUB_REF_NAME#v}"
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main ||
               { echo "$GITHUB_REF_NAME is not on main"; exit 1; }
-          just versions-match "$version"
+          test "$(deploy/version)" = "$version" ||
+              { echo "deploy/version says $(deploy/version), not $version"; exit 1; }
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "MINOR=${version%.*}" >> "$GITHUB_ENV"
           echo "REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
@@ -54,7 +52,8 @@ jobs:
                   --label "org.opencontainers.image.version=$VERSION"
                   --label "org.opencontainers.image.revision=$GITHUB_SHA"
                   --label "org.opencontainers.image.licenses=BSD-2-Clause")
-          docker build -f Containerfile "${labels[@]}" -t exchequer-server .
+          docker build -f Containerfile "${labels[@]}" --build-arg EXCHEQUER_VERSION="$VERSION" \
+              -t exchequer-server .
           docker build -f deploy/backup.Containerfile "${labels[@]}" -t exchequer-backup deploy
       - name: Smoke test
         run: deploy/tests/image-smoke.sh exchequer-server exchequer-backup "$VERSION"
@@ -63,6 +62,8 @@ jobs:
         run: |
           uv build --package exchequer-sdk --out-dir dist
           uv build --package firefly-migrate --out-dir dist
+          # Their version comes from the tag too (hatch-vcs).
+          ls dist/*"-$VERSION-"*.whl
       - name: Publish images
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin

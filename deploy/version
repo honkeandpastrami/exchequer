@@ -1,0 +1,28 @@
+#!/bin/sh
+# version: this checkout's version, from its git tags (vX.Y.Z). Nothing in the
+# repo holds a version; builds take it from here (design §15).
+#
+#   deploy/version
+#
+# On a release tag: X.Y.Z. After one: X.Y.Z-dev.N+g<commit>, N commits later.
+# With no tag: 0.0.0-dev+g<commit>. Uncommitted changes add ".dirty".
+
+set -eu
+
+cd "$(dirname "$0")/.."
+if d=$(git describe --tags --long --dirty --match 'v[0-9]*' 2> /dev/null); then
+    v=$(echo "$d" | sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')
+    n=$(echo "$d" | sed -E 's/^v[^-]+-([0-9]+)-.*/\1/')
+    commit=$(echo "$d" | sed -E 's/^v[^-]+-[0-9]+-(g[0-9a-f]+).*/\1/')
+    case $d in *-dirty) dirty=.dirty ;; *) dirty= ;; esac
+    if [ "$n" = 0 ] && [ -z "$dirty" ]; then
+        echo "$v"
+    else
+        echo "$v-dev.$n+$commit$dirty"
+    fi
+elif commit=$(git rev-parse --short HEAD 2> /dev/null); then
+    [ -z "$(git status --porcelain 2> /dev/null)" ] && dirty= || dirty=.dirty
+    echo "0.0.0-dev+g$commit$dirty"
+else
+    echo "0.0.0-dev"
+fi

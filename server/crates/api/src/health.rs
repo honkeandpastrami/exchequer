@@ -53,6 +53,13 @@ pub struct Version {
     schema: i64,
 }
 
+/// This build's version, from the repository's git tags (`deploy/version`),
+/// passed in by the image build; local builds without it say so.
+pub const VERSION: &str = match option_env!("EXCHEQUER_VERSION") {
+    Some(v) => v,
+    None => "0.0.0-dev",
+};
+
 /// Server and schema versions.
 #[utoipa::path(
     get,
@@ -62,7 +69,7 @@ pub struct Version {
 )]
 async fn version() -> Json<Version> {
     Json(Version {
-        version: env!("CARGO_PKG_VERSION"),
+        version: VERSION,
         schema: store::schema_version(),
     })
 }

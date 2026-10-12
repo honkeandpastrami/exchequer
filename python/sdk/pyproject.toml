@@ -1,6 +1,6 @@
 [project]
 name = "exchequer-sdk"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A client library for accessing Exchequer"
 authors = []
 requires-python = ">=3.11"
@@ -10,13 +10,19 @@ dependencies = [
     "attrs>=22.2.0",
 ]
 
-[tool.uv.build-backend]
-module-name = "exchequer_sdk"
-module-root = ""
+# The version comes from the repository's git tags (vX.Y.Z), like every piece
+# of Exchequer; see python/sdk-templates.
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = "../..", git_describe_command = "git describe --dirty --tags --long --match v[0-9]*" }
+fallback-version = "0.0.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["exchequer_sdk"]
 
 [build-system]
-requires = ["uv_build>=0.12.0,<0.13.0"]
-build-backend = "uv_build"
+requires = ["hatchling>=1.27", "hatch-vcs>=0.5"]
+build-backend = "hatchling.build"
 
 [tool.ruff]
 line-length = 120

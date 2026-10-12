@@ -103,14 +103,13 @@ Open the web app with the trailing slash (`/exchequer/`): its paths are relative
 ## Updating
 
 Releases are published by GitHub (design §15). Everything in the repo shares one
-version: `just set-version X.Y.Z`, commit, push, then tag that commit on `main`:
+version, and it lives only in git tags: to release, tag a commit on `main`:
 
 ```sh
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-The `release` workflow checks every piece is at that version, builds and smoke-tests
-both images, and publishes them as `ghcr.io/honkeandpastrami/exchequer-server` and
+The `release` workflow builds both images with that version, smoke-tests them, and publishes them as `ghcr.io/honkeandpastrami/exchequer-server` and
 `…/exchequer-backup`, tagged `0.2.0`, `0.2` and `latest`, with a GitHub Release carrying
 the Python packages.
 

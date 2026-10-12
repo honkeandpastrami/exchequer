@@ -51,7 +51,7 @@ wheels = [
 
 [[package]]
 name = "exchequer-python"
-version = "0.1.0"
+version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "exchequer-sdk" },
@@ -80,7 +80,6 @@ dev = [
 
 [[package]]
 name = "exchequer-sdk"
-version = "0.1.0"
 source = { editable = "sdk" }
 dependencies = [
     { name = "attrs" },
@@ -95,7 +94,6 @@ requires-dist = [
 
 [[package]]
 name = "firefly-migrate"
-version = "0.1.0"
 source = { editable = "firefly-migrate" }
 dependencies = [
     { name = "exchequer-sdk" },
