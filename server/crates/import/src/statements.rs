@@ -192,6 +192,13 @@ impl Reader<'_> {
 
 /// Parses an OFX, QFX or QBO file; dates are local to `zone`.
 pub fn parse_ofx(bytes: Vec<u8>, zone: &TimeZone) -> Result<Vec<Statement>, ofx::Error> {
+    // Banks export a period with no activity as a bare response, sometimes
+    // without parts `ofx-rs` requires: that's no statements, not an error.
+    let upper = bytes.to_ascii_uppercase();
+    let has = |tag: &[u8]| upper.windows(tag.len()).any(|w| w == tag);
+    if !has(b"<STMTRS>") && !has(b"<CCSTMTRS>") {
+        return Ok(Vec::new());
+    }
     let parsed = ofx::parse(bytes)?;
     let doc = &parsed.document;
     let mut r = Reader {
@@ -250,6 +257,19 @@ ENCODING:USASCII\r\nCHARSET:1252\r\nCOMPRESSION:NONE\r\nOLDFILEUID:NONE\r\nNEWFI
 <STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20260303<TRNAMT>30.00<FITID>F2<MEMO>Refund</STMTTRN>\
 </BANKTRANLIST><LEDGERBAL><BALAMT>-50.00<DTASOF>20260331</LEDGERBAL>\
 </CCSTMTRS></CCSTMTTRNRS></CREDITCARDMSGSRSV1></OFX>";
+
+    #[test]
+    fn a_response_without_statements_has_none() {
+        let empty = "OFXHEADER:100\r\nDATA:OFXSGML\r\nVERSION:102\r\n\r\n\
+<OFX><SIGNONMSGSRSV1><SONRS><STATUS><CODE>0<SEVERITY>INFO</STATUS><LANGUAGE>ENG\
+<FI><ORG>Bank<FID>1</FI></SONRS></SIGNONMSGSRSV1><BANKMSGSRSV1></BANKMSGSRSV1></OFX>";
+        let ss = parse_ofx(empty.as_bytes().to_vec(), &zone("America/New_York")).unwrap();
+        assert!(ss.is_empty());
+        assert!(matches!(
+            crate::parse(empty.as_bytes().to_vec(), &zone("America/New_York")),
+            Err(crate::Error::NoStatements)
+        ));
+    }
 
     #[test]
     fn a_credit_card_statement() {

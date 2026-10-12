@@ -2991,9 +2991,10 @@ export interface operations {
 		parameters: {
 			query?: {
 				/**
-				 * @description The account the file is for. Required for a CSV, which names none;
-				 *     for an OFX file with one statement, used if its number isn't one of
-				 *     an account's.
+				 * @description The account the file is for, if the client knows: used when the file
+				 *     names none (a CSV) or a number no account has. Without it, such a
+				 *     statement waits for its account in review. Refused for a file with
+				 *     several statements.
 				 */
 				account_id?: string;
 				/** @description The file's name, to recognize the import by. */

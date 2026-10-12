@@ -200,9 +200,10 @@ pub struct BankFile(#[expect(dead_code, reason = "only describes the body")] Vec
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct UploadParams {
-    /// The account the file is for. Required for a CSV, which names none;
-    /// for an OFX file with one statement, used if its number isn't one of
-    /// an account's.
+    /// The account the file is for, if the client knows: used when the file
+    /// names none (a CSV) or a number no account has. Without it, such a
+    /// statement waits for its account in review. Refused for a file with
+    /// several statements.
     account_id: Option<Uuid>,
     /// The file's name, to recognize the import by.
     file_name: Option<String>,
@@ -510,11 +511,6 @@ async fn upload(
         import::Format::Ofx => "ofx",
         import::Format::Csv => "csv",
     };
-    if format == "csv" && p.account_id.is_none() {
-        return Err(Problem::invalid(
-            "a CSV file names no account: give account_id",
-        ));
-    }
     if statements.len() > 1 && p.account_id.is_some() {
         return Err(Problem::invalid(
             "the file has several statements: set each one's account after uploading",

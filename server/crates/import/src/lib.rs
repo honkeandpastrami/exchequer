@@ -85,7 +85,7 @@ pub enum Error {
     Ofx(#[from] ofx::Error),
     #[error(transparent)]
     Csv(#[from] csv::Error),
-    #[error("the file has no statements")]
+    #[error("the file has no statements (no activity in the period?)")]
     NoStatements,
 }
 

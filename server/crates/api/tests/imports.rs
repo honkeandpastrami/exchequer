@@ -64,7 +64,6 @@ async fn files_that_cant_be_staged(pool: PgPool) {
     for (query, file) in [
         ("", ""),
         ("", "just some text\n"),
-        ("", CSV), // a CSV names no account
         ("?account_id=00000000-0000-0000-0000-000000000000", CSV),
         ("?file_name=%20", CSV),
     ] {
@@ -206,6 +205,35 @@ async fn an_unknown_number_waits_for_its_account(pool: PgPool) {
     assert_eq!(r.status, StatusCode::NOT_FOUND);
     let left = h.send(&pool, "GET", "/api/v1/imports", None).await;
     assert_eq!(left.body["items"].as_array().unwrap().len(), 1);
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn a_csv_without_an_account_waits_for_one(pool: PgPool) {
+    let h = H::new(&pool).await;
+    let r = upload(&pool, &h, "", CSV).await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    let s = &r.body["statements"][0];
+    assert_eq!(
+        (&s["account_id"], s.get("number_last4")),
+        (&Value::Null, None)
+    );
+    assert_eq!(s["counts"]["needs_account"], json!(3));
+    let path = format!("/api/v1/imports/{}/statements/0", r.id());
+    // There's no number to remember.
+    let bad = call(&pool, "PATCH", &path)
+        .token(&h.t)
+        .if_match(&r.etag())
+        .json(json!({ "account_id": h.alex_checking, "remember_number": true }))
+        .send()
+        .await;
+    assert_eq!(bad.status, StatusCode::UNPROCESSABLE_ENTITY);
+    let r = call(&pool, "PATCH", &path)
+        .token(&h.t)
+        .if_match(&r.etag())
+        .json(json!({ "account_id": h.alex_checking }))
+        .send()
+        .await;
+    assert_eq!(r.body["statements"][0]["counts"]["new"], json!(3));
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]

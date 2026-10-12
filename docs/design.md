@@ -374,8 +374,10 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    description, native ID) plus the raw row for provenance.
 2. **Account resolution.** An OFX statement's account number is looked up among the
    accounts' numbers (stored without spaces or dashes, shown only as their last four). A
-   CSV names no account, so its upload says which. Unknown numbers: LLM suggestion (later)
-   → ask the client, who can add the number to the account.
+   CSV names no account. A statement whose account isn't known (a CSV, an unknown number)
+   is staged anyway, its rows `needs-account`, and the account is picked in review (the
+   upload may name it if the client already knows); LLM suggestion later. Picking it can
+   add the file's number to the account.
 3. **Deduplication,** done once, on the server, with full DB access:
    - *Exact:* native ID (FITID or bank reference), or a content hash with an occurrence
      suffix for identical rows in one file; unique per account (`import_fingerprint`,
@@ -401,8 +403,8 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    with a confidence and a reason.
 6. **Staging and review.** The batch lives on the server, so a review started in one client
    can finish in another. Rows are `new`, `duplicate`, `near-duplicate`, `transfer-match` or
-   `needs-account`. `POST /imports` takes the file's bytes (at most 10 MiB; `account_id`
-   is required for a CSV) and stages one statement per account in it; `GET
+   `needs-account`. `POST /imports` takes the file's bytes (at most 10 MiB; optional
+   `account_id`) and stages one statement per account in it; `GET
    /imports/{id}` shows each statement's account, ledger balance, skipped lines and row
    counts by status, `GET /imports/{id}/rows` the rows; `PATCH
    /imports/{id}/statements/{n}` sets a statement's account (optionally remembering the
