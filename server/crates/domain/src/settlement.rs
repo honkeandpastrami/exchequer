@@ -212,6 +212,9 @@ pub struct Edge {
     pub due: Amount,
     /// Regular payments that settle this month.
     pub paid: Amount,
+    /// `outstanding` at the end of the previous month: past differences,
+    /// including corrections to closed months, carried into this one.
+    pub carried: Amount,
     /// Everything from the first month with parameters through this one:
     /// claims and in-transit proceeds, minus stipends and every payment.
     pub outstanding: Amount,
@@ -439,6 +442,7 @@ impl Settlement {
                 }
             }
             let t = this.get(&child).cloned().unwrap_or_default();
+            let carried = outstanding.checked_sub(t.net()?)?;
             let mut lines = t.lines.clone();
             lines.sort_by_key(|l| (l.date, l.source));
             edges.push(Edge {
@@ -448,6 +452,7 @@ impl Settlement {
                 stipend: t.stipend,
                 due: t.claims.checked_sub(t.stipend)?,
                 paid: t.paid,
+                carried,
                 outstanding,
                 to_settle: outstanding.checked_sub(open)?,
                 in_transit,

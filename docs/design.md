@@ -279,7 +279,8 @@ For month M, each tree edge (child *c* ↔ parent) gets:
 ```
 due_c(M)      = Σ claims routed across the edge in M   (> 0: c pays the parent; < 0: parent pays c)
 paid_c(M)     = Σ settlement payments across the edge linked to M
-outstanding_c = Σ over all months (due − paid)
+carried_c(M)  = outstanding_c at the end of M − 1
+outstanding_c = Σ over all months (due − paid) = carried + due − paid
 ```
 
 - **People:** `due` includes the stipend. After settling, `outstanding` returns to ~0.
@@ -322,14 +323,20 @@ does it closes the month.
 - Nothing is frozen at closing: `due(M)` is always computed live. After reopen/fix/re-close,
   the statement shows the new `due(M)` next to what was already paid; **the difference is the
   correction**, settled with one extra transfer or carried into the next statement as a line.
+- **Carrying forward is how past settlements are corrected.** A month's payments are never
+  rewritten: a fix to a closed month changes its `due`, and the difference shows up as
+  `carried` in every later statement until some payment, at any time, pays it down. A
+  business edge may carry a balance indefinitely (its net funding).
 
 ### 4.5 Validation against migrated history
 
 Migrated history (§11) brings existing purpose labels and the real settlement transfers.
 Before any stipends are entered, the statement computes the **implied stipend** per person
 per month (`claims − paid`). If stipends were fixed amounts, the implied values are constant
-or step-wise. A month that breaks the pattern points to a mislabeled transaction or a manual
-adjustment. This is the acceptance test for the settlement component.
+or step-wise. A month that breaks the pattern points to a mislabeled transaction, a manual
+adjustment, or a past mistake: one that the old system made and that is now carried forward
+(§4.4), or a later payment that pays such a mistake down. The check tells these apart by
+`carried`. This is the acceptance test for the settlement component.
 
 ## 5. Component: REST API
 

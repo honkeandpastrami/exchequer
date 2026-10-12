@@ -284,6 +284,7 @@ class Settler:
 class Row:
     month: str
     party: str
+    carried: Decimal
     claims: Decimal
     paid: Decimal
     stipend: Decimal
@@ -306,6 +307,7 @@ def history_rows(client: AuthenticatedClient, first: str, last: str) -> list[Row
                 Row(
                     month=st.month,
                     party=names[str(e.child_id)],
+                    carried=Decimal(e.carried),
                     claims=Decimal(e.claims),
                     paid=Decimal(e.paid),
                     stipend=Decimal(e.stipend),
@@ -317,17 +319,21 @@ def history_rows(client: AuthenticatedClient, first: str, last: str) -> list[Row
 
 
 def render(rows: list[Row], closed_through: str | None) -> str:
-    """The implied stipend next to the stipend set: where they differ, a
-    label or a payment needs a look (design §4.5). Months after the last
-    closed one aren't settled yet, so they're shown but not flagged."""
+    """The implied stipend next to the stipend set (design §4.5). A difference
+    in a settled month is either new (a label or payment link to look at, or a
+    past mistake now carried forward) or a catch-up that pays down what earlier
+    months carried. Months after the last closed one aren't settled yet, so
+    they're shown but not marked."""
     lines = [
         "## Settlement check (implied stipends)",
         "",
-        "Implied stipend = claims - paid. Where it differs from the stipend set, a",
-        "label or a payment link needs a look.",
+        "Implied stipend = claims - paid; outstanding = carried + implied - stipend.",
+        "A difference marked ⚠ is new: a label or a payment link to look at, or a past",
+        "mistake carried forward. One marked ↺ pays down what earlier months carried.",
         "",
-        "| Month | Person | Claims | Paid | Stipend | Implied | Difference | Outstanding |",
-        "|---|---|---:|---:|---:|---:|---:|---:|",
+        "| Month | Person | Carried | Claims | Paid | Stipend | Implied | Difference "
+        "| Outstanding |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     flagged = 0
     for r in rows:
@@ -335,11 +341,14 @@ def render(rows: list[Row], closed_through: str | None) -> str:
         settled = closed_through is not None and r.month <= closed_through
         mark = ""
         if settled and diff != 0:
-            mark = " ⚠"
-            flagged += 1
+            if abs(r.outstanding) < abs(r.carried):
+                mark = " ↺"
+            else:
+                mark = " ⚠"
+                flagged += 1
         lines.append(
-            f"| {r.month} | {r.party} | {r.claims} | {r.paid} | {r.stipend} | {r.implied} "
-            f"| {diff}{mark} | {r.outstanding} |"
+            f"| {r.month} | {r.party} | {r.carried} | {r.claims} | {r.paid} | {r.stipend} "
+            f"| {r.implied} | {diff}{mark} | {r.outstanding} |"
         )
     lines += ["", f"Months to look at: {flagged}"]
     return "\n".join(lines)

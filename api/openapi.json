@@ -3902,11 +3902,16 @@
           "stipend",
           "due",
           "paid",
+          "carried",
           "outstanding",
           "to_settle",
           "implied_stipend"
         ],
         "properties": {
+          "carried": {
+            "type": "string",
+            "description": "`outstanding` at the end of the previous month: past differences,\nincluding corrections to closed months, carried into this one."
+          },
           "child_id": {
             "type": "string",
             "format": "uuid"
@@ -3943,7 +3948,7 @@
           },
           "outstanding": {
             "type": "string",
-            "description": "Everything up to the end of this month, in-transit proceeds included."
+            "description": "`carried + due − paid` (and in-transit proceeds): everything up to\nthe end of this month."
           },
           "paid": {
             "type": "string",

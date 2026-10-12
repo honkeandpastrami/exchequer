@@ -197,6 +197,72 @@ async fn settles_and_liquidations(pool: PgPool) {
     assert_eq!(alex["outstanding"], "1070.00");
 }
 
+async fn july_alex(h: &H, pool: &PgPool) -> serde_json::Value {
+    let st = h
+        .send(pool, "GET", "/api/v1/settlements/2026-07/statement", None)
+        .await
+        .body;
+    edge(&st, &h.alex).clone()
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn corrections_carry_forward(pool: PgPool) {
+    let h = H::new(&pool).await;
+    h.set_currency(&pool).await;
+    let household = json!({ "purpose_id": h.household });
+    let store = ("counterparty_id", h.store.as_str());
+    let card = h.acct(&h.alex_credit);
+    let (joint, checking) = (h.acct(&h.joint_savings), h.acct(&h.alex_checking));
+    h.tx(
+        &pool,
+        "2026-06-05",
+        card,
+        store,
+        "100.00",
+        household.clone(),
+    )
+    .await;
+    h.tx(&pool, "2026-07-02", joint, checking, "100.00", json!({}))
+        .await;
+    h.put_params(
+        &pool,
+        "2026-06",
+        json!({ "stipends": [{ "party_id": h.alex, "amount": "0" }],
+                "funders": [{ "business_id": h.studio, "funder_id": h.household }] }),
+    )
+    .await;
+    assert_eq!(
+        h.post_month(&pool, "2026-06", "close").await.status,
+        StatusCode::OK
+    );
+    let alex = july_alex(&h, &pool).await;
+    assert_eq!(alex["carried"], "0.00");
+    assert_eq!(alex["to_settle"], "0.00");
+
+    // A charge June missed: reopen, add it, close again. June's due
+    // changes; what was paid doesn't, so the difference is carried.
+    h.post_month(&pool, "2026-06", "reopen").await;
+    h.tx(&pool, "2026-06-30", card, store, "30.00", household.clone())
+        .await;
+    h.post_month(&pool, "2026-06", "close").await;
+    let alex = july_alex(&h, &pool).await;
+    assert_eq!(alex["carried"], "-30.00");
+    assert_eq!(alex["due"], "0.00");
+    assert_eq!(alex["to_settle"], "-30.00", "the Household owes Alex 30");
+
+    // Paid whenever: here with July's settlement.
+    h.tx(&pool, "2026-08-03", joint, checking, "30.00", json!({}))
+        .await;
+    let alex = july_alex(&h, &pool).await;
+    assert_eq!(alex["carried"], "-30.00");
+    assert_eq!(alex["paid"], "-30.00");
+    assert_eq!(alex["outstanding"], "0.00");
+    assert_eq!(
+        alex["implied_stipend"], "30.00",
+        "a catch-up, not a stipend"
+    );
+}
+
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn close_and_reopen(pool: PgPool) {
     let h = H::new(&pool).await;

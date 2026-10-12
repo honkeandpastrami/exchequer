@@ -74,11 +74,23 @@ def test_closed_through_must_be_a_month():
 
 
 def test_report_flags_closed_months_only():
-    def row(month: str, implied: str) -> Row:
+    def row(month: str, carried: str, implied: str) -> Row:
         z = Decimal(0)
-        return Row(month, "Alex", z, z, Decimal("500"), Decimal(implied), z)
+        c, stipend = Decimal(carried), Decimal("500")
+        outstanding = c + Decimal(implied) - stipend
+        return Row(month, "Alex", c, z, z, stipend, Decimal(implied), outstanding)
 
-    out = render([row("2026-07", "500"), row("2026-08", "450"), row("2026-09", "10")], "2026-08")
-    assert "| 2026-08 | Alex | 0 | 0 | 500 | 450 | -50 ⚠ | 0 |" in out
-    assert "| 2026-09 | Alex | 0 | 0 | 500 | 10 | -490 | 0 |" in out
+    out = render(
+        [
+            row("2026-07", "0", "500"),
+            row("2026-08", "0", "450"),  # new: 50 short
+            row("2026-09", "-50", "550"),  # pays the 50 back
+            row("2026-10", "0", "10"),  # not settled yet
+        ],
+        "2026-09",
+    )
+    assert "| 2026-07 | Alex | 0 | 0 | 0 | 500 | 500 | 0 | 0 |" in out
+    assert "| 2026-08 | Alex | 0 | 0 | 0 | 500 | 450 | -50 ⚠ | -50 |" in out
+    assert "| 2026-09 | Alex | -50 | 0 | 0 | 500 | 550 | 50 ↺ | 0 |" in out
+    assert "| 2026-10 | Alex | 0 | 0 | 0 | 500 | 10 | -490 | -490 |" in out
     assert out.endswith("Months to look at: 1")

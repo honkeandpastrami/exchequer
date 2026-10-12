@@ -46,8 +46,9 @@ currency, links the listed payments, sets every month's stipends and funders thr
 `closed_through`, and closes those months. Run it again after changing the mapping: it
 changes only what differs, reopening a closed month just long enough. The settlement check
 then shows, per person and month, the stipend set next to the *implied* stipend (claims −
-paid, design §4.5); a closed month where they differ points to a mislabeled transaction or
-a payment linked to the wrong month.
+paid, design §4.5), and what earlier months carried in. In a closed month, a difference
+marked ⚠ is new: a mislabeled transaction, a payment linked to the wrong month, or a past
+mistake now carried forward (design §4.4). One marked ↺ pays down what was carried.
 
 Not yet migrated (each comes with the build step that adds it): import batches (step 5),
 rules (step 6), bills (step 9).

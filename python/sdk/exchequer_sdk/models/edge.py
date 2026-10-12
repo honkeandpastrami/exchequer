@@ -23,11 +23,14 @@ class Edge:
     Positive amounts go from the child to the parent.
 
         Attributes:
+            carried (str): `outstanding` at the end of the previous month: past differences,
+                including corrections to closed months, carried into this one.
             child_id (UUID):
             claims (str): Regular claims across the edge this month.
             due (str): `claims − stipend`.
             implied_stipend (str): `claims − paid`: the stipend that would explain the payments made.
-            outstanding (str): Everything up to the end of this month, in-transit proceeds included.
+            outstanding (str): `carried + due − paid` (and in-transit proceeds): everything up to
+                the end of this month.
             paid (str): Regular payments that settle this month.
             parent_id (UUID):
             stipend (str): What the parent owes the child as stipends this month.
@@ -37,6 +40,7 @@ class Edge:
             lines (list[Line] | None | Unset):
     """
 
+    carried: str
     child_id: UUID
     claims: str
     due: str
@@ -51,6 +55,8 @@ class Edge:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        carried = self.carried
+
         child_id = str(self.child_id)
 
         claims = self.claims
@@ -97,6 +103,7 @@ class Edge:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "carried": carried,
                 "child_id": child_id,
                 "claims": claims,
                 "due": due,
@@ -121,6 +128,8 @@ class Edge:
         from ..models.line import Line  # noqa: PLC0415
 
         d = dict(src_dict)
+        carried = d.pop("carried")
+
         child_id = UUID(d.pop("child_id"))
 
         claims = d.pop("claims")
@@ -184,6 +193,7 @@ class Edge:
         lines = _parse_lines(d.pop("lines", UNSET))
 
         edge = cls(
+            carried=carried,
             child_id=child_id,
             claims=claims,
             due=due,

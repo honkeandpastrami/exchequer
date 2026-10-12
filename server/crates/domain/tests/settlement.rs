@@ -187,6 +187,14 @@ fn a_settled_month() {
         (amt("-500"), Amount::ZERO, 0)
     );
     assert_eq!(alex.outstanding, amt("-500"));
+    // What June left unsettled is carried into July.
+    assert_eq!(alex.carried, Amount::ZERO);
+    let sam = july.edges.iter().find(|e| e.child == h.sam).unwrap();
+    assert_eq!(sam.carried, amt("-40"));
+    assert_eq!(
+        sam.outstanding,
+        Amount::sum([sam.carried, sam.due, -sam.paid]).unwrap()
+    );
 }
 
 #[test]

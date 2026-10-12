@@ -178,7 +178,12 @@ pub struct Edge {
     /// Regular payments that settle this month.
     #[schema(value_type = String)]
     paid: Amount,
-    /// Everything up to the end of this month, in-transit proceeds included.
+    /// `outstanding` at the end of the previous month: past differences,
+    /// including corrections to closed months, carried into this one.
+    #[schema(value_type = String)]
+    carried: Amount,
+    /// `carried + due − paid` (and in-transit proceeds): everything up to
+    /// the end of this month.
     #[schema(value_type = String)]
     outstanding: Amount,
     /// `outstanding` without the proceeds still in transit: the regular
@@ -432,6 +437,7 @@ fn statement_out(c: &Computed, month: Month, with_lines: bool) -> Result<Stateme
                 stipend: m(e.stipend),
                 due: m(e.due),
                 paid: m(e.paid),
+                carried: m(e.carried),
                 outstanding: m(e.outstanding),
                 to_settle: m(e.to_settle),
                 in_transit: Some(
