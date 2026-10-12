@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgConnection;
 use store::audit::Action;
-use store::imports::{ImportRow, NearCandidate, RowRow, StatementRow};
+use store::imports::{Fingerprint, ImportRow, NearCandidate, RowRow, StatementRow};
 use time::{Date, OffsetDateTime};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
@@ -25,9 +25,10 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth::Principal;
-use crate::common::audit;
+use crate::common::{audit, nullable, write_error};
 use crate::conventions::{IfMatch, Page, PageParams, etag};
 use crate::problem::{Json, Path, Problem, Query};
+use crate::transactions::{Leg, NewTransaction, create_in, into_transfer};
 
 /// Bank files bigger than this are refused.
 const MAX_FILE: usize = 10 * 1024 * 1024;
@@ -40,6 +41,8 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(get, discard))
         .routes(routes!(rows))
         .routes(routes!(set_statement))
+        .routes(routes!(set_row))
+        .routes(routes!(commit))
         .layer(DefaultBodyLimit::max(MAX_FILE))
 }
 
@@ -187,9 +190,121 @@ pub struct StagedRow {
     /// The existing transaction a duplicate or match is of.
     #[serde(skip_serializing_if = "Option::is_none")]
     match_transaction_id: Option<Uuid>,
+    /// What committing does with the row: the client's choice, else the
+    /// default for its status. Absent while the statement has no account.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    decision: Option<Decision>,
+    /// Whether `decision` is the client's choice rather than the default.
+    decided: bool,
+    /// The new transaction's description, if not the bank's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    set_description: Option<String>,
+    /// For a new transaction: who's on the outside side (unknown if absent).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    counterparty_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    category_id: Option<Uuid>,
+    /// Who the money was for; absent, the account's owner.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    purpose_id: Option<Uuid>,
     /// The row's fields as the file had them.
     #[schema(value_type = Object)]
     raw: serde_json::Value,
+}
+
+/// What committing does with a row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Decision {
+    /// The row is its match: record that it was imported (a duplicate or
+    /// near-duplicate), or make the matched transaction a transfer to this
+    /// account (a transfer match). The default for those statuses.
+    Match,
+    /// A new transaction. The default for `new` rows; not for duplicates.
+    New,
+    /// Leave the row out.
+    Skip,
+}
+
+impl Decision {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Match => "match",
+            Self::New => "new",
+            Self::Skip => "skip",
+        }
+    }
+
+    fn parse(s: &str) -> Result<Self, Problem> {
+        match s {
+            "match" => Ok(Self::Match),
+            "new" => Ok(Self::New),
+            "skip" => Ok(Self::Skip),
+            _ => Err(Problem::internal()),
+        }
+    }
+
+    const fn default_for(status: RowStatus) -> Option<Self> {
+        match status {
+            RowStatus::New => Some(Self::New),
+            RowStatus::Duplicate | RowStatus::NearDuplicate | RowStatus::TransferMatch => {
+                Some(Self::Match)
+            }
+            RowStatus::NeedsAccount => None,
+        }
+    }
+
+    /// Whether the decision makes sense for a row with this status.
+    const fn fits(self, status: RowStatus) -> bool {
+        match self {
+            Self::Match => matches!(
+                status,
+                RowStatus::Duplicate | RowStatus::NearDuplicate | RowStatus::TransferMatch
+            ),
+            Self::New => !matches!(status, RowStatus::Duplicate),
+            Self::Skip => true,
+        }
+    }
+}
+
+/// Fields to change; omitted ones stay as they are, `null` clears one.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RowUpdate {
+    /// `null`: back to the default for the row's status.
+    #[serde(default, deserialize_with = "nullable")]
+    #[schema(value_type = Option<Decision>)]
+    decision: Option<Option<Decision>>,
+    #[serde(default, deserialize_with = "nullable")]
+    #[schema(value_type = Option<String>)]
+    set_description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "nullable")]
+    #[schema(value_type = Option<Uuid>)]
+    counterparty_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "nullable")]
+    #[schema(value_type = Option<Uuid>)]
+    category_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "nullable")]
+    #[schema(value_type = Option<Uuid>)]
+    purpose_id: Option<Option<Uuid>>,
+}
+
+/// What a commit did.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct Committed {
+    /// The batch the new transactions are in; absent if there were none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    import_batch_id: Option<Uuid>,
+    /// New transactions.
+    created: u64,
+    /// Existing transactions made transfers.
+    transfers: u64,
+    /// Rows recorded as already in the ledger (duplicates, near-duplicates).
+    matched: u64,
+    skipped: u64,
+    /// One per statement with a ledger balance: the bank's balance against
+    /// the ledger's.
+    balance_checks: Vec<crate::balance_checks::BalanceCheck>,
 }
 
 /// A bank file's bytes, as is.
@@ -422,6 +537,45 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
     Ok(())
 }
 
+fn staged_row(r: RowRow) -> Result<StagedRow, Problem> {
+    let status = RowStatus::parse(&r.status)?;
+    let chosen = r.decision.as_deref().map(Decision::parse).transpose()?;
+    Ok(StagedRow {
+        statement: r.statement,
+        position: r.position,
+        date: r.date,
+        amount: Amount::from_decimal(r.amount),
+        description: r.description,
+        native_id: r.native_id,
+        status,
+        match_transaction_id: r.match_transaction_id,
+        decision: if status == RowStatus::NeedsAccount {
+            None
+        } else {
+            chosen.or(Decision::default_for(status))
+        },
+        decided: chosen.is_some(),
+        set_description: r.set_description,
+        counterparty_id: r.counterparty_id,
+        category_id: r.category_id,
+        purpose_id: r.purpose_id,
+        raw: r.raw,
+    })
+}
+
+/// Puts which row an error is about in front of its detail.
+fn at_row(r: &RowRow) -> impl Fn(Problem) -> Problem + '_ {
+    move |mut p| {
+        p.detail = Some(format!(
+            "statement {} row {}: {}",
+            r.statement,
+            r.position,
+            p.detail.as_deref().unwrap_or(&p.title)
+        ));
+        p
+    }
+}
+
 /// The account a statement is for: the one its number belongs to, else the
 /// one the client gave.
 async fn resolve(
@@ -566,6 +720,11 @@ async fn upload(
                 raw: serde_json::Value::Object(r.raw),
                 status: RowStatus::New.as_str().to_owned(),
                 match_transaction_id: None,
+                decision: None,
+                set_description: None,
+                counterparty_id: None,
+                category_id: None,
+                purpose_id: None,
             });
         }
         let account_id = resolve(&mut tx, s.account.as_ref(), p.account_id).await?;
@@ -642,19 +801,7 @@ async fn rows(
     .await?;
     let items = rows
         .into_iter()
-        .map(|r| {
-            Ok(StagedRow {
-                statement: r.statement,
-                position: r.position,
-                date: r.date,
-                amount: Amount::from_decimal(r.amount),
-                description: r.description,
-                native_id: r.native_id,
-                status: RowStatus::parse(&r.status)?,
-                match_transaction_id: r.match_transaction_id,
-                raw: r.raw,
-            })
-        })
+        .map(staged_row)
         .collect::<Result<Vec<_>, Problem>>()?;
     Ok(axum::Json(Page::from_rows(items, limit, |r| {
         format!("{}:{}", r.statement, r.position)
@@ -803,4 +950,277 @@ mod tests {
             HashMap::from([(1, Uuid::from_u128(1)), (2, Uuid::from_u128(3))])
         );
     }
+}
+
+/// Decide what committing does with a row, and label the transaction it
+/// will become.
+#[utoipa::path(patch, path = "/imports/{id}/rows/{statement}/{position}", tag = "imports", security(("bearer" = [])),
+    params(("id" = Uuid, Path), ("statement" = i16, Path), ("position" = i32, Path),
+           ("If-Match" = String, Header, description = "The import's ETag from your last read")),
+    request_body = RowUpdate,
+    responses((status = OK, body = StagedRow, headers(("ETag" = String, description = "The import's"))),
+              (status = NOT_FOUND, body = Problem, content_type = "application/problem+json"),
+              (status = PRECONDITION_FAILED, body = Problem, content_type = "application/problem+json"),
+              (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json")))]
+async fn set_row(
+    State(state): State<AppState>,
+    Path((id, statement, position)): Path<(Uuid, i16, i32)>,
+    IfMatch(version): IfMatch,
+    Json(req): Json<RowUpdate>,
+) -> Result<Response, Problem> {
+    let mut tx = state.pool.begin().await?;
+    let current = store::imports::lock(&mut *tx, id)
+        .await?
+        .ok_or_else(Problem::not_found)?;
+    if current != version {
+        return Err(Problem::stale());
+    }
+    let after = position.checked_sub(1).ok_or_else(Problem::not_found)?;
+    let mut row = store::imports::rows(
+        &mut *tx,
+        id,
+        Some(statement),
+        None,
+        Some((statement, after)),
+        1,
+    )
+    .await?
+    .into_iter()
+    .find(|r| r.position == position)
+    .ok_or_else(Problem::not_found)?;
+    if let Some(d) = req.decision {
+        let status = RowStatus::parse(&row.status)?;
+        if let Some(d) = d
+            && status != RowStatus::NeedsAccount
+            && !d.fits(status)
+        {
+            return Err(Problem::invalid(format!(
+                "a {} row can't be {}",
+                status.as_str(),
+                d.as_str()
+            )));
+        }
+        row.decision = d.map(|d| d.as_str().to_owned());
+    }
+    if let Some(d) = req.set_description {
+        let d = d.map(|d| d.trim().to_owned());
+        if d.as_ref()
+            .is_some_and(|d| d.is_empty() || d.chars().count() > 500)
+        {
+            return Err(Problem::invalid("set_description must be 1-500 characters"));
+        }
+        row.set_description = d;
+    }
+    if let Some(c) = req.counterparty_id {
+        row.counterparty_id = c;
+    }
+    if let Some(c) = req.category_id {
+        row.category_id = c;
+    }
+    if let Some(p) = req.purpose_id {
+        row.purpose_id = p;
+    }
+    store::imports::set_decision(&mut *tx, id, &row)
+        .await
+        .map_err(|e| write_error(e, String::new))?;
+    store::imports::touch(&mut *tx, id).await?;
+    let version = store::imports::lock(&mut *tx, id)
+        .await?
+        .ok_or_else(Problem::internal)?;
+    tx.commit().await?;
+    Ok((StatusCode::OK, etag(version), axum::Json(staged_row(row)?)).into_response())
+}
+
+/// Commit the import: all or nothing. Every row's status is worked out
+/// again first; if any changed (the ledger moved on since), nothing is
+/// committed and the import comes back with a 409 to review again. Then each
+/// row's decision is carried out: new transactions go into one `file`
+/// import batch; transfer matches turn the matched transaction into a
+/// transfer; every row that's now in the ledger is recorded as imported, so
+/// the same row is a duplicate next time. Each statement's ledger balance
+/// becomes a balance check. The staged import is then gone.
+#[utoipa::path(post, path = "/imports/{id}/commit", tag = "imports", security(("bearer" = [])),
+    params(("id" = Uuid, Path), ("If-Match" = String, Header, description = "ETag from your last read")),
+    responses((status = OK, body = Committed),
+              (status = NOT_FOUND, body = Problem, content_type = "application/problem+json"),
+              (status = CONFLICT, description = "A statement has no account, a row's status changed, or a month is closed", body = Problem, content_type = "application/problem+json"),
+              (status = PRECONDITION_FAILED, body = Problem, content_type = "application/problem+json"),
+              (status = UNPROCESSABLE_ENTITY, description = "A row breaks a ledger rule", body = Problem, content_type = "application/problem+json")))]
+async fn commit(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    IfMatch(version): IfMatch,
+) -> Result<axum::Json<Committed>, Problem> {
+    let mut tx = state.pool.begin().await?;
+    let current = store::imports::lock(&mut *tx, id)
+        .await?
+        .ok_or_else(Problem::not_found)?;
+    if current != version {
+        return Err(Problem::stale());
+    }
+    let import = store::imports::get(&mut *tx, id)
+        .await?
+        .ok_or_else(Problem::internal)?;
+    let statements: Vec<StatementRow> = store::imports::statements(&mut *tx, &[id])
+        .await?
+        .into_iter()
+        .map(|(_, s)| s)
+        .collect();
+    if let Some(s) = statements.iter().find(|s| s.account_id.is_none()) {
+        return Err(Problem::conflict(format!(
+            "statement {} has no account yet",
+            s.position
+        )));
+    }
+
+    // The ledger may have moved on since the rows were checked.
+    let seen = store::imports::rows(&mut *tx, id, None, None, None, i64::MAX).await?;
+    for s in &statements {
+        restatus(&mut tx, id, s.position).await?;
+    }
+    let rows = store::imports::rows(&mut *tx, id, None, None, None, i64::MAX).await?;
+    let changed = rows.iter().zip(&seen).any(|(now, before)| {
+        now.status != before.status || now.match_transaction_id != before.match_transaction_id
+    });
+    if changed {
+        store::imports::touch(&mut *tx, id).await?;
+        tx.commit().await?;
+        return Err(Problem::conflict(
+            "the ledger changed since the rows were checked: review them again",
+        ));
+    }
+
+    let mut out = Committed {
+        import_batch_id: None,
+        created: 0,
+        transfers: 0,
+        matched: 0,
+        skipped: 0,
+        balance_checks: Vec::new(),
+    };
+    let mut imported = Vec::new();
+    for r in &rows {
+        let s = statements
+            .iter()
+            .find(|s| s.position == r.statement)
+            .ok_or_else(Problem::internal)?;
+        let account = s.account_id.ok_or_else(Problem::internal)?;
+        let status = RowStatus::parse(&r.status)?;
+        let decision = match r.decision.as_deref() {
+            Some(d) => Decision::parse(d)?,
+            None => Decision::default_for(status).ok_or_else(Problem::internal)?,
+        };
+        if !decision.fits(status) {
+            return Err(at_row(r)(Problem::conflict(format!(
+                "a {} row can't be {}",
+                status.as_str(),
+                decision.as_str()
+            ))));
+        }
+        let became = match decision {
+            Decision::Skip => {
+                out.skipped += 1;
+                continue;
+            }
+            Decision::New => {
+                let batch = match out.import_batch_id {
+                    Some(b) => b,
+                    None => {
+                        let b = Uuid::now_v7();
+                        let token = principal.actor().map(|t| *t.as_uuid());
+                        let label = import.file_name.as_deref().unwrap_or("Imported file");
+                        store::import_batches::insert(&mut *tx, b, "file", Some(label), token)
+                            .await?;
+                        out.import_batch_id = Some(b);
+                        b
+                    }
+                };
+                let quantity = Amount::from_decimal(r.amount.abs());
+                let mine = Leg::new(Some(account), None, s.commodity_id, quantity);
+                let outside = Leg::new(None, r.counterparty_id, s.commodity_id, quantity);
+                let (from, to) = if r.amount.is_sign_negative() {
+                    (mine, outside)
+                } else {
+                    (outside, mine)
+                };
+                let description = r
+                    .set_description
+                    .clone()
+                    .unwrap_or_else(|| r.description.chars().take(500).collect());
+                let req = NewTransaction::single(
+                    r.date,
+                    description,
+                    from,
+                    to,
+                    r.purpose_id,
+                    r.category_id,
+                );
+                let t = create_in(&mut tx, principal, req, batch)
+                    .await
+                    .map_err(at_row(r))?;
+                out.created += 1;
+                t.id()
+            }
+            Decision::Match => {
+                let t = r.match_transaction_id.ok_or_else(Problem::internal)?;
+                if status == RowStatus::TransferMatch {
+                    into_transfer(&mut tx, principal, t, account)
+                        .await
+                        .map_err(at_row(r))?;
+                    out.transfers += 1;
+                } else {
+                    out.matched += 1;
+                }
+                t
+            }
+        };
+        imported.push(Fingerprint {
+            account_id: account,
+            fingerprint: r.fingerprint.clone(),
+            transaction_id: became,
+            raw: Some(r.raw.clone()),
+        });
+    }
+    if !imported.is_empty() {
+        store::imports::add_fingerprints(&mut *tx, &imported).await?;
+    }
+    if let Some(b) = out.import_batch_id {
+        store::import_batches::touch(&mut *tx, b).await?;
+    }
+    for s in &statements {
+        if let (Some(amount), Some(date), Some(account)) =
+            (s.ledger_amount, s.ledger_date, s.account_id)
+        {
+            out.balance_checks.push(
+                crate::balance_checks::record(
+                    &mut tx,
+                    principal,
+                    account,
+                    s.commodity_id,
+                    date,
+                    Amount::from_decimal(amount),
+                    "ofx",
+                )
+                .await?,
+            );
+        }
+    }
+    store::imports::delete(&mut *tx, id).await?;
+    audit(
+        &mut tx,
+        principal,
+        Action::Delete,
+        "staged_import",
+        id,
+        Some(&json!({ "file_name": import.file_name, "committed": true })),
+        Some(
+            &json!({ "import_batch_id": out.import_batch_id, "created": out.created,
+                      "transfers": out.transfers, "matched": out.matched,
+                      "skipped": out.skipped }),
+        ),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(axum::Json(out))
 }

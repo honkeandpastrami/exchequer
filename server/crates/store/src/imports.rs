@@ -43,6 +43,12 @@ pub struct RowRow {
     pub raw: Value,
     pub status: String,
     pub match_transaction_id: Option<Uuid>,
+    /// `match`, `new`, `skip`, or `None` for the status's default.
+    pub decision: Option<String>,
+    pub set_description: Option<String>,
+    pub counterparty_id: Option<Uuid>,
+    pub category_id: Option<Uuid>,
+    pub purpose_id: Option<Uuid>,
 }
 
 /// How many of a statement's rows have each status.
@@ -279,7 +285,8 @@ pub async fn rows(
     sqlx::query_as!(
         RowRow,
         "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,
-                status, match_transaction_id
+                status, match_transaction_id, decision, set_description, counterparty_id,
+                category_id, purpose_id
          FROM staged_row
          WHERE import_id = $1
            AND ($2::int2 IS NULL OR statement = $2)
@@ -429,6 +436,8 @@ pub struct Fingerprint {
     pub account_id: Uuid,
     pub fingerprint: String,
     pub transaction_id: Uuid,
+    /// The row as the bank file had it, if known.
+    pub raw: Option<Value>,
 }
 
 /// Of `items`, those whose transaction has no split on the account.
@@ -464,13 +473,15 @@ pub async fn add_fingerprints(
     let accounts: Vec<Uuid> = items.iter().map(|f| f.account_id).collect();
     let fps: Vec<String> = items.iter().map(|f| f.fingerprint.clone()).collect();
     let transactions: Vec<Uuid> = items.iter().map(|f| f.transaction_id).collect();
+    let raw: Vec<Option<Value>> = items.iter().map(|f| f.raw.clone()).collect();
     let r = sqlx::query!(
-        "INSERT INTO import_fingerprint (account_id, fingerprint, transaction_id)
-         SELECT * FROM unnest($1::uuid[], $2::text[], $3::uuid[])
+        "INSERT INTO import_fingerprint (account_id, fingerprint, transaction_id, raw)
+         SELECT * FROM unnest($1::uuid[], $2::text[], $3::uuid[], $4::jsonb[])
          ON CONFLICT (account_id, fingerprint) DO NOTHING",
         &accounts,
         &fps,
         &transactions,
+        &raw as &[Option<Value>],
     )
     .execute(db)
     .await?;
@@ -486,7 +497,7 @@ pub async fn recorded_fingerprints(
     let fps: Vec<String> = keys.iter().map(|k| k.1.clone()).collect();
     sqlx::query_as!(
         Fingerprint,
-        "SELECT f.account_id, f.fingerprint, f.transaction_id FROM import_fingerprint f
+        "SELECT f.account_id, f.fingerprint, f.transaction_id, f.raw FROM import_fingerprint f
          JOIN unnest($1::uuid[], $2::text[]) AS u(account_id, fingerprint)
            ON u.account_id = f.account_id AND u.fingerprint = f.fingerprint",
         &accounts,
@@ -494,4 +505,28 @@ pub async fn recorded_fingerprints(
     )
     .fetch_all(db)
     .await
+}
+
+/// One row's decision and labels, replacing what it had.
+pub async fn set_decision(
+    db: impl PgExecutor<'_>,
+    import_id: Uuid,
+    r: &RowRow,
+) -> Result<bool, sqlx::Error> {
+    let done = sqlx::query!(
+        "UPDATE staged_row SET decision = $4, set_description = $5, counterparty_id = $6,
+                               category_id = $7, purpose_id = $8
+         WHERE import_id = $1 AND statement = $2 AND position = $3",
+        import_id,
+        r.statement,
+        r.position,
+        r.decision,
+        r.set_description,
+        r.counterparty_id,
+        r.category_id,
+        r.purpose_id,
+    )
+    .execute(db)
+    .await?;
+    Ok(done.rows_affected() > 0)
 }

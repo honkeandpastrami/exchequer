@@ -409,12 +409,24 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    counts by status, `GET /imports/{id}/rows` the rows; `PATCH
    /imports/{id}/statements/{n}` sets a statement's account (optionally remembering the
    file's number for it) and works its rows' statuses out again; `DELETE` discards it.
-7. **Commit** is all or nothing. Each transaction keeps its `import_batch_id`, so undoing a
-   batch is one call. Every transaction has one and edits never change it: a migration is a
-   batch, and a transaction entered by hand is a batch of its own. Uploaded files aren't
-   kept; only each row's parsed raw form is.
-8. **Balance check.** An OFX `LEDGERBAL` is recorded as a balance check, and a mismatch is
-   shown after commit (§7.1).
+7. **Commit** is all or nothing. Each row has a decision (`PATCH
+   /imports/{id}/rows/{statement}/{position}`): `match` (the default for duplicates,
+   near-duplicates and transfer matches), `new` (the default for new rows; never for a
+   duplicate) or `skip`, plus optional labels for the new transaction (description,
+   counterparty, category, purpose). `POST /imports/{id}/commit` first works every status
+   out again; if one changed, nothing is committed and the client reviews again (409). Then:
+   `new` rows become one-split transactions in one `file` import batch (the outside side is
+   the chosen counterparty, or unknown); a transfer match puts the statement's account on
+   the matched transaction's outside side, making it a transfer (purpose and category go);
+   every row now in the ledger is recorded in `import_fingerprint` with its raw fields, the
+   transaction's provenance. A closed month or a broken ledger rule refuses the whole commit,
+   naming the row. Each transaction keeps its `import_batch_id`, so undoing a batch is one
+   call; it deletes the new transactions and their recorded rows, but a transaction made a
+   transfer stays one (it belongs to its own batch). Every transaction has a batch and
+   edits never change it: a migration is a batch, and a transaction entered by hand is a
+   batch of its own. Uploaded files aren't kept; only each row's parsed raw form is.
+8. **Balance check.** An OFX `LEDGERBAL` is recorded on commit as a balance check (source
+   `ofx`), returned with the commit's result, with candidates if it doesn't match (§7.1).
 
 ## 7. Component: query and reporting engine
 

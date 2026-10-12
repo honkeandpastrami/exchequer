@@ -13,12 +13,14 @@ from .candidate_reason import CandidateReason
 from .candidate_split import CandidateSplit
 from .category import Category
 from .category_amount import CategoryAmount
+from .committed import Committed
 from .commodity import Commodity
 from .commodity_kind import CommodityKind
 from .commodity_update import CommodityUpdate
 from .counterparty import Counterparty
 from .created_token import CreatedToken
 from .credit_limit import CreditLimit
+from .decision import Decision
 from .edge import Edge
 from .external_ref import ExternalRef
 from .file_format import FileFormat
@@ -86,6 +88,7 @@ from .query_result import QueryResult
 from .row import Row
 from .row_counts import RowCounts
 from .row_status import RowStatus
+from .row_update import RowUpdate
 from .settlement import Settlement
 from .settlement_params import SettlementParams
 from .skipped_line import SkippedLine
@@ -118,12 +121,14 @@ __all__ = (
     "CandidateSplit",
     "Category",
     "CategoryAmount",
+    "Committed",
     "Commodity",
     "CommodityKind",
     "CommodityUpdate",
     "Counterparty",
     "CreatedToken",
     "CreditLimit",
+    "Decision",
     "Edge",
     "ExternalRef",
     "FileFormat",
@@ -191,6 +196,7 @@ __all__ = (
     "Row",
     "RowCounts",
     "RowStatus",
+    "RowUpdate",
     "Settlement",
     "SettlementParams",
     "SkippedLine",

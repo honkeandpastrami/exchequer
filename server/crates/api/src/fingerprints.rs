@@ -94,6 +94,7 @@ async fn add_fingerprints(
             account_id: f.account_id,
             fingerprint: f.fingerprint.clone(),
             transaction_id: f.transaction_id,
+            raw: None,
         })
         .collect();
 

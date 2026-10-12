@@ -2262,6 +2262,92 @@
         ]
       }
     },
+    "/api/v1/imports/{id}/commit": {
+      "post": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Commit the import: all or nothing. Every row's status is worked out\nagain first; if any changed (the ledger moved on since), nothing is\ncommitted and the import comes back with a 409 to review again. Then each\nrow's decision is carried out: new transactions go into one `file`\nimport batch; transfer matches turn the matched transaction into a\ntransfer; every row that's now in the ledger is recorded as imported, so\nthe same row is a duplicate next time. Each statement's ledger balance\nbecomes a balance check. The staged import is then gone.",
+        "operationId": "imports_commit",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Committed"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A statement has no account, a row's status changed, or a month is closed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A row breaks a ledger rule",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/imports/{id}/rows": {
       "get": {
         "tags": [
@@ -2332,6 +2418,118 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/imports/{id}/rows/{statement}/{position}": {
+      "patch": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Decide what committing does with a row, and label the transaction it\nwill become.",
+        "operationId": "imports_set_row",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "statement",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "position",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "The import's ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RowUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The import's"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StagedRow"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4712,6 +4910,57 @@
           }
         }
       },
+      "Committed": {
+        "type": "object",
+        "description": "What a commit did.",
+        "required": [
+          "created",
+          "transfers",
+          "matched",
+          "skipped",
+          "balance_checks"
+        ],
+        "properties": {
+          "balance_checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BalanceCheck"
+            },
+            "description": "One per statement with a ledger balance: the bank's balance against\nthe ledger's."
+          },
+          "created": {
+            "type": "integer",
+            "format": "int64",
+            "description": "New transactions.",
+            "minimum": 0
+          },
+          "import_batch_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The batch the new transactions are in; absent if there were none."
+          },
+          "matched": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Rows recorded as already in the ledger (duplicates, near-duplicates).",
+            "minimum": 0
+          },
+          "skipped": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "transfers": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Existing transactions made transfers.",
+            "minimum": 0
+          }
+        }
+      },
       "Commodity": {
         "type": "object",
         "required": [
@@ -4844,6 +5093,15 @@
           }
         },
         "additionalProperties": false
+      },
+      "Decision": {
+        "type": "string",
+        "description": "What committing does with a row.",
+        "enum": [
+          "match",
+          "new",
+          "skip"
+        ]
       },
       "Edge": {
         "type": "object",
@@ -6138,6 +6396,7 @@
                 "amount",
                 "description",
                 "status",
+                "decided",
                 "raw"
               ],
               "properties": {
@@ -6146,9 +6405,39 @@
                   "description": "Signed from the account's side: negative is money leaving it.",
                   "example": "-80.00"
                 },
+                "category_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "counterparty_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid",
+                  "description": "For a new transaction: who's on the outside side (unknown if absent)."
+                },
                 "date": {
                   "type": "string",
                   "format": "date"
+                },
+                "decided": {
+                  "type": "boolean",
+                  "description": "Whether `decision` is the client's choice rather than the default."
+                },
+                "decision": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Decision",
+                      "description": "What committing does with the row: the client's choice, else the\ndefault for its status. Absent while the statement has no account."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "description": {
                   "type": "string"
@@ -6172,9 +6461,24 @@
                   "type": "integer",
                   "format": "int32"
                 },
+                "purpose_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid",
+                  "description": "Who the money was for; absent, the account's owner."
+                },
                 "raw": {
                   "type": "object",
                   "description": "The row's fields as the file had them."
+                },
+                "set_description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The new transaction's description, if not the bank's."
                 },
                 "statement": {
                   "type": "integer",
@@ -6626,6 +6930,51 @@
           "needs_account"
         ]
       },
+      "RowUpdate": {
+        "type": "object",
+        "description": "Fields to change; omitted ones stay as they are, `null` clears one.",
+        "properties": {
+          "category_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "counterparty_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "decision": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Decision",
+                "description": "`null`: back to the default for the row's status."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "purpose_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "set_description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "Settlement": {
         "type": "object",
         "description": "A month's parameters and state.",
@@ -6789,6 +7138,7 @@
           "amount",
           "description",
           "status",
+          "decided",
           "raw"
         ],
         "properties": {
@@ -6797,9 +7147,39 @@
             "description": "Signed from the account's side: negative is money leaving it.",
             "example": "-80.00"
           },
+          "category_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "counterparty_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "For a new transaction: who's on the outside side (unknown if absent)."
+          },
           "date": {
             "type": "string",
             "format": "date"
+          },
+          "decided": {
+            "type": "boolean",
+            "description": "Whether `decision` is the client's choice rather than the default."
+          },
+          "decision": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Decision",
+                "description": "What committing does with the row: the client's choice, else the\ndefault for its status. Absent while the statement has no account."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "description": {
             "type": "string"
@@ -6823,9 +7203,24 @@
             "type": "integer",
             "format": "int32"
           },
+          "purpose_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Who the money was for; absent, the account's owner."
+          },
           "raw": {
             "type": "object",
             "description": "The row's fields as the file had them."
+          },
+          "set_description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The new transaction's description, if not the bank's."
           },
           "statement": {
             "type": "integer",

@@ -334,6 +334,32 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v1/imports/{id}/commit': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Commit the import: all or nothing. Every row's status is worked out
+		 *     again first; if any changed (the ledger moved on since), nothing is
+		 *     committed and the import comes back with a 409 to review again. Then each
+		 *     row's decision is carried out: new transactions go into one `file`
+		 *     import batch; transfer matches turn the matched transaction into a
+		 *     transfer; every row that's now in the ledger is recorded as imported, so
+		 *     the same row is a duplicate next time. Each statement's ledger balance
+		 *     becomes a balance check. The staged import is then gone.
+		 */
+		post: operations['imports_commit'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/imports/{id}/rows': {
 		parameters: {
 			query?: never;
@@ -349,6 +375,26 @@ export interface paths {
 		options?: never;
 		head?: never;
 		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/imports/{id}/rows/{statement}/{position}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		/**
+		 * Decide what committing does with a row, and label the transaction it
+		 *     will become.
+		 */
+		patch: operations['imports_set_row'];
 		trace?: never;
 	};
 	'/api/v1/imports/{id}/statements/{position}': {
@@ -834,6 +880,36 @@ export interface components {
 			/** Format: uuid */
 			category_id?: string | null;
 		};
+		/** @description What a commit did. */
+		Committed: {
+			/**
+			 * @description One per statement with a ledger balance: the bank's balance against
+			 *     the ledger's.
+			 */
+			balance_checks: components['schemas']['BalanceCheck'][];
+			/**
+			 * Format: int64
+			 * @description New transactions.
+			 */
+			created: number;
+			/**
+			 * Format: uuid
+			 * @description The batch the new transactions are in; absent if there were none.
+			 */
+			import_batch_id?: string | null;
+			/**
+			 * Format: int64
+			 * @description Rows recorded as already in the ledger (duplicates, near-duplicates).
+			 */
+			matched: number;
+			/** Format: int64 */
+			skipped: number;
+			/**
+			 * Format: int64
+			 * @description Existing transactions made transfers.
+			 */
+			transfers: number;
+		};
 		Commodity: {
 			/** @description `USD`, `EUR`, `VTI`, `BRK.B`… */
 			code: string;
@@ -879,6 +955,11 @@ export interface components {
 			 */
 			quantity: string;
 		};
+		/**
+		 * @description What committing does with a row.
+		 * @enum {string}
+		 */
+		Decision: 'match' | 'new' | 'skip';
 		/**
 		 * @description One edge of the settlement tree (a child and its parent) for one month.
 		 *     Positive amounts go from the child to the parent.
@@ -1349,8 +1430,18 @@ export interface components {
 				 * @example -80.00
 				 */
 				amount: string;
+				/** Format: uuid */
+				category_id?: string | null;
+				/**
+				 * Format: uuid
+				 * @description For a new transaction: who's on the outside side (unknown if absent).
+				 */
+				counterparty_id?: string | null;
 				/** Format: date */
 				date: string;
+				/** @description Whether `decision` is the client's choice rather than the default. */
+				decided: boolean;
+				decision?: components['schemas']['Decision'] | null;
 				description: string;
 				/**
 				 * Format: uuid
@@ -1361,8 +1452,15 @@ export interface components {
 				native_id?: string | null;
 				/** Format: int32 */
 				position: number;
+				/**
+				 * Format: uuid
+				 * @description Who the money was for; absent, the account's owner.
+				 */
+				purpose_id?: string | null;
 				/** @description The row's fields as the file had them. */
 				raw: Record<string, never>;
+				/** @description The new transaction's description, if not the bank's. */
+				set_description?: string | null;
 				/** Format: int32 */
 				statement: number;
 				status: components['schemas']['RowStatus'];
@@ -1508,6 +1606,17 @@ export interface components {
 		 * @enum {string}
 		 */
 		RowStatus: 'new' | 'duplicate' | 'near_duplicate' | 'transfer_match' | 'needs_account';
+		/** @description Fields to change; omitted ones stay as they are, `null` clears one. */
+		RowUpdate: {
+			/** Format: uuid */
+			category_id?: string | null;
+			/** Format: uuid */
+			counterparty_id?: string | null;
+			decision?: components['schemas']['Decision'] | null;
+			/** Format: uuid */
+			purpose_id?: string | null;
+			set_description?: string | null;
+		};
 		/** @description A month's parameters and state. */
 		Settlement: {
 			closed: boolean;
@@ -1564,8 +1673,18 @@ export interface components {
 			 * @example -80.00
 			 */
 			amount: string;
+			/** Format: uuid */
+			category_id?: string | null;
+			/**
+			 * Format: uuid
+			 * @description For a new transaction: who's on the outside side (unknown if absent).
+			 */
+			counterparty_id?: string | null;
 			/** Format: date */
 			date: string;
+			/** @description Whether `decision` is the client's choice rather than the default. */
+			decided: boolean;
+			decision?: components['schemas']['Decision'] | null;
 			description: string;
 			/**
 			 * Format: uuid
@@ -1576,8 +1695,15 @@ export interface components {
 			native_id?: string | null;
 			/** Format: int32 */
 			position: number;
+			/**
+			 * Format: uuid
+			 * @description Who the money was for; absent, the account's owner.
+			 */
+			purpose_id?: string | null;
 			/** @description The row's fields as the file had them. */
 			raw: Record<string, never>;
+			/** @description The new transaction's description, if not the bank's. */
+			set_description?: string | null;
 			/** Format: int32 */
 			statement: number;
 			status: components['schemas']['RowStatus'];
@@ -3113,6 +3239,67 @@ export interface operations {
 			};
 		};
 	};
+	imports_commit: {
+		parameters: {
+			query?: never;
+			header: {
+				/** @description ETag from your last read */
+				'If-Match': string;
+			};
+			path: {
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Committed'];
+				};
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description A statement has no account, a row's status changed, or a month is closed */
+			409: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Precondition Failed */
+			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description A row breaks a ledger rule */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
 	imports_rows: {
 		parameters: {
 			query?: {
@@ -3144,6 +3331,66 @@ export interface operations {
 			};
 			/** @description Not Found */
 			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	imports_set_row: {
+		parameters: {
+			query?: never;
+			header: {
+				/** @description The import's ETag from your last read */
+				'If-Match': string;
+			};
+			path: {
+				id: string;
+				statement: number;
+				position: number;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['RowUpdate'];
+			};
+		};
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					/** @description The import's */
+					ETag?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['StagedRow'];
+				};
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Precondition Failed */
+			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
 				headers: {
 					[name: string]: unknown;
 				};

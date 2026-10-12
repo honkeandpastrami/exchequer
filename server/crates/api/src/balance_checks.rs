@@ -450,3 +450,43 @@ async fn delete(
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// Records a balance a bank file reported (`source`, e.g. `ofx`), signed as
+/// the ledger signs it, and returns the check, with candidates if it
+/// doesn't match.
+pub(crate) async fn record(
+    db: &mut PgConnection,
+    principal: Principal,
+    account_id: Uuid,
+    commodity_id: Uuid,
+    date: Date,
+    balance: Amount,
+    source: &str,
+) -> Result<BalanceCheck, Problem> {
+    let id = Uuid::now_v7();
+    store::balance_checks::insert(
+        &mut *db,
+        id,
+        account_id,
+        commodity_id,
+        date,
+        balance.as_decimal(),
+        source,
+    )
+    .await?;
+    let row = one(&mut *db, id).await?;
+    let check = output(&mut *db, row, true).await?;
+    let mut logged = check.clone();
+    logged.candidates = None;
+    audit(
+        db,
+        principal,
+        Action::Create,
+        "balance_check",
+        id,
+        None,
+        Some(&logged),
+    )
+    .await?;
+    Ok(check)
+}

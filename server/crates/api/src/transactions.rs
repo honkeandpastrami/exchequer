@@ -591,25 +591,12 @@ async fn create(
     Json(req): Json<NewTransaction>,
 ) -> Result<Response, Problem> {
     let req = normalize(req)?;
-    let id = Uuid::now_v7();
     let mut tx = state.pool.begin().await?;
     check_open(&mut tx, &[req.date]).await?;
-    let classified = classify(&mut tx, &req.splits).await?;
+    classify(&mut tx, &req.splits).await?;
     let batch = batch_for(&mut tx, principal, req.import_batch_id).await?;
-    let version = store::transactions::upsert(&mut tx, &to_full(id, batch, &req))
-        .await
-        .map_err(|e| write_error(e, duplicate_ref))?;
-    let created = output(id, version, batch, req, classified);
-    audit(
-        &mut tx,
-        principal,
-        Action::Create,
-        "transaction",
-        id,
-        None,
-        Some(&created),
-    )
-    .await?;
+    let created = create_in(&mut tx, principal, req, batch).await?;
+    let id = created.id;
     tx.commit().await?;
     let mut res = respond(StatusCode::CREATED, &created);
     if let Ok(loc) = format!("/api/v1/transactions/{id}").parse() {
@@ -719,4 +706,158 @@ pub(crate) async fn delete_one(
         None,
     )
     .await
+}
+
+impl Leg {
+    pub(crate) const fn new(
+        account_id: Option<Uuid>,
+        counterparty_id: Option<Uuid>,
+        commodity_id: Uuid,
+        quantity: Amount,
+    ) -> Self {
+        Self {
+            account_id,
+            counterparty_id,
+            commodity_id,
+            quantity,
+        }
+    }
+}
+
+impl NewTransaction {
+    /// One split, no notes, tags or references.
+    pub(crate) fn single(
+        date: Date,
+        description: String,
+        from: Leg,
+        to: Leg,
+        purpose_id: Option<Uuid>,
+        category_id: Option<Uuid>,
+    ) -> Self {
+        Self {
+            date,
+            description,
+            notes: None,
+            tags: Vec::new(),
+            external_refs: Vec::new(),
+            import_batch_id: None,
+            splits: vec![NewSplit {
+                from,
+                to,
+                purpose_id,
+                category_id,
+                description: None,
+                settles: None,
+            }],
+        }
+    }
+}
+
+/// Creates a transaction in `batch`, with every check a `POST` makes, and
+/// records it.
+pub(crate) async fn create_in(
+    db: &mut PgConnection,
+    principal: Principal,
+    req: NewTransaction,
+    batch: Uuid,
+) -> Result<Transaction, Problem> {
+    let req = normalize(req)?;
+    let id = Uuid::now_v7();
+    check_open(&mut *db, &[req.date]).await?;
+    let classified = classify(&mut *db, &req.splits).await?;
+    let version = store::transactions::upsert(&mut *db, &to_full(id, batch, &req))
+        .await
+        .map_err(|e| write_error(e, duplicate_ref))?;
+    let created = output(id, version, batch, req, classified);
+    audit(
+        db,
+        principal,
+        Action::Create,
+        "transaction",
+        id,
+        None,
+        Some(&created),
+    )
+    .await?;
+    Ok(created)
+}
+
+/// Turns a one-split expense or income into a transfer by putting
+/// `account_id` on its outside side (design §6.4): a bank file showed the
+/// money arriving in (or leaving) that account. Transfers have no purpose or
+/// category, so those go.
+pub(crate) async fn into_transfer(
+    db: &mut PgConnection,
+    principal: Principal,
+    id: Uuid,
+    account_id: Uuid,
+) -> Result<(), Problem> {
+    let full = store::transactions::get(&mut *db, id, true)
+        .await?
+        .ok_or_else(|| Problem::conflict(format!("transaction {id} no longer exists")))?;
+    check_open(&mut *db, &[full.transaction.date]).await?;
+    let [row] = &full.splits[..] else {
+        return Err(Problem::conflict(format!(
+            "transaction {id} no longer has exactly one split"
+        )));
+    };
+    let mut split = new_split_from_row(row);
+    match (split.from.account_id, split.to.account_id) {
+        (Some(_), None) => {
+            split.to.account_id = Some(account_id);
+            split.to.counterparty_id = None;
+        }
+        (None, Some(_)) => {
+            split.from.account_id = Some(account_id);
+            split.from.counterparty_id = None;
+        }
+        _ => {
+            return Err(Problem::conflict(format!(
+                "transaction {id} is no longer between an account and the outside"
+            )));
+        }
+    }
+    split.purpose_id = None;
+    split.category_id = None;
+    split.settles = None;
+    let t = &full.transaction;
+    let req = NewTransaction {
+        date: t.date,
+        description: t.description.clone(),
+        notes: t.notes.clone(),
+        tags: full.tags.clone(),
+        external_refs: full
+            .external_refs
+            .iter()
+            .map(|(source, reference)| ExternalRef {
+                source: source.clone(),
+                reference: reference.clone(),
+            })
+            .collect(),
+        import_batch_id: None,
+        splits: vec![split],
+    };
+    let batch = t.import_batch_id;
+    let before = from_one(&mut *db, full).await?;
+    let classified = classify(&mut *db, &req.splits).await?;
+    let version = store::transactions::upsert(&mut *db, &to_full(id, batch, &req))
+        .await
+        .map_err(|e| write_error(e, duplicate_ref))?;
+    let after = output(id, version, batch, req, classified);
+    audit(
+        db,
+        principal,
+        Action::Update,
+        "transaction",
+        id,
+        Some(&before),
+        Some(&after),
+    )
+    .await
+}
+
+impl Transaction {
+    pub(crate) const fn id(&self) -> Uuid {
+        self.id
+    }
 }
