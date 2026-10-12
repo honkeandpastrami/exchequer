@@ -994,7 +994,14 @@ dependencies = [
 name = "import"
 version = "0.0.0"
 dependencies = [
+ "csv",
+ "domain",
  "ofx-rs",
+ "rust_decimal",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror",
+ "time",
 ]
 
 [[package]]
