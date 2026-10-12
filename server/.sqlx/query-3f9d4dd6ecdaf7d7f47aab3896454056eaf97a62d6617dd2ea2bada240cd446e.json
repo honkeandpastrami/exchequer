@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM staged_suggestion WHERE import_id = $1 AND statement = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3f9d4dd6ecdaf7d7f47aab3896454056eaf97a62d6617dd2ea2bada240cd446e"
+}

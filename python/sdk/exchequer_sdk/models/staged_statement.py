@@ -11,6 +11,7 @@ from ..models.statement_kind import StatementKind
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.account_suggestion import AccountSuggestion
     from ..models.ledger_balance import LedgerBalance
     from ..models.row_counts import RowCounts
     from ..models.skipped_line import SkippedLine
@@ -24,18 +25,22 @@ class StagedStatement:
     """One account's part of the file.
 
     Attributes:
+        account_suggested (bool): Whether `account_id` is the suggestion's, not yet the statement's own.
         commodity_id (UUID):
         counts (RowCounts): How many rows have each status.
         position (int):
         skipped (list[SkippedLine]):
-        account_id (None | Unset | UUID): `null` until the account is known: from the number in the file, or
-            set by the client.
+        account_id (None | Unset | UUID): The account the rows are worked out against: the one the file's
+            number belongs to, or the client's choice, else a confident suggestion
+            (`account_suggested`). `null` until there is one.
         kind (None | StatementKind | Unset):
         ledger (LedgerBalance | None | Unset):
         number_last4 (None | str | Unset): The last four of the account number in the file (CSVs have none). Example:
             6789.
+        suggested_account (AccountSuggestion | None | Unset):
     """
 
+    account_suggested: bool
     commodity_id: UUID
     counts: RowCounts
     position: int
@@ -44,10 +49,14 @@ class StagedStatement:
     kind: None | StatementKind | Unset = UNSET
     ledger: LedgerBalance | None | Unset = UNSET
     number_last4: None | str | Unset = UNSET
+    suggested_account: AccountSuggestion | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.account_suggestion import AccountSuggestion  # noqa: PLC0415
         from ..models.ledger_balance import LedgerBalance  # noqa: PLC0415
+
+        account_suggested = self.account_suggested
 
         commodity_id = str(self.commodity_id)
 
@@ -90,10 +99,19 @@ class StagedStatement:
         else:
             number_last4 = self.number_last4
 
+        suggested_account: dict[str, Any] | None | Unset
+        if isinstance(self.suggested_account, Unset):
+            suggested_account = UNSET
+        elif isinstance(self.suggested_account, AccountSuggestion):
+            suggested_account = self.suggested_account.to_dict()
+        else:
+            suggested_account = self.suggested_account
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "account_suggested": account_suggested,
                 "commodity_id": commodity_id,
                 "counts": counts,
                 "position": position,
@@ -108,16 +126,21 @@ class StagedStatement:
             field_dict["ledger"] = ledger
         if number_last4 is not UNSET:
             field_dict["number_last4"] = number_last4
+        if suggested_account is not UNSET:
+            field_dict["suggested_account"] = suggested_account
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.account_suggestion import AccountSuggestion  # noqa: PLC0415
         from ..models.ledger_balance import LedgerBalance  # noqa: PLC0415
         from ..models.row_counts import RowCounts  # noqa: PLC0415
         from ..models.skipped_line import SkippedLine  # noqa: PLC0415
 
         d = dict(src_dict)
+        account_suggested = d.pop("account_suggested")
+
         commodity_id = UUID(d.pop("commodity_id"))
 
         counts = RowCounts.from_dict(d.pop("counts"))
@@ -191,7 +214,25 @@ class StagedStatement:
 
         number_last4 = _parse_number_last4(d.pop("number_last4", UNSET))
 
+        def _parse_suggested_account(data: object) -> AccountSuggestion | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                suggested_account_type_0 = AccountSuggestion.from_dict(data)
+
+                return suggested_account_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(AccountSuggestion | None | Unset, data)
+
+        suggested_account = _parse_suggested_account(d.pop("suggested_account", UNSET))
+
         staged_statement = cls(
+            account_suggested=account_suggested,
             commodity_id=commodity_id,
             counts=counts,
             position=position,
@@ -200,6 +241,7 @@ class StagedStatement:
             kind=kind,
             ledger=ledger,
             number_last4=number_last4,
+            suggested_account=suggested_account,
         )
 
         staged_statement.additional_properties = d

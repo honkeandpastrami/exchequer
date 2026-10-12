@@ -4706,6 +4706,37 @@
           "other"
         ]
       },
+      "AccountSuggestion": {
+        "type": "object",
+        "description": "A statement's suggested account.",
+        "required": [
+          "account_id",
+          "confidence",
+          "confident",
+          "reason",
+          "suggester"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "confidence": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Per mille: 900 is 0.9."
+          },
+          "confident": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "suggester": {
+            "$ref": "#/components/schemas/Suggester"
+          }
+        }
+      },
       "AccountUpdate": {
         "type": "object",
         "description": "Fields to change; omitted ones stay as they are. The owner can't change.",
@@ -5605,6 +5636,54 @@
           "conversion"
         ]
       },
+      "Label": {
+        "type": "string",
+        "description": "A label a row's new transaction gets.",
+        "enum": [
+          "counterparty",
+          "category",
+          "purpose"
+        ]
+      },
+      "LabelSuggestion": {
+        "type": "object",
+        "description": "A suggested value for one of a row's labels.",
+        "required": [
+          "label",
+          "confidence",
+          "confident",
+          "reason",
+          "suggester"
+        ],
+        "properties": {
+          "confidence": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Per mille: 900 is 0.9."
+          },
+          "confident": {
+            "type": "boolean",
+            "description": "Whether it's confident enough (at least 900) to be committed unless\nyou choose otherwise."
+          },
+          "label": {
+            "$ref": "#/components/schemas/Label"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "suggester": {
+            "$ref": "#/components/schemas/Suggester"
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The suggested counterparty, category or party; `null` suggests none."
+          }
+        }
+      },
       "LedgerBalance": {
         "type": "object",
         "description": "The balance the bank reported at the end of the statement.",
@@ -6496,6 +6575,9 @@
                 "description",
                 "status",
                 "decided",
+                "chosen",
+                "suggestions",
+                "missing",
                 "raw"
               ],
               "properties": {
@@ -6511,13 +6593,20 @@
                   ],
                   "format": "uuid"
                 },
+                "chosen": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Label"
+                  },
+                  "description": "The labels you set (a `null` one is an explicit none)."
+                },
                 "counterparty_id": {
                   "type": [
                     "string",
                     "null"
                   ],
                   "format": "uuid",
-                  "description": "For a new transaction: who's on the outside side (unknown if absent)."
+                  "description": "The labels below are what a new transaction gets: your choice, else a\nconfident suggestion. For a new transaction: who's on the outside\nside (unknown if absent)."
                 },
                 "date": {
                   "type": "string",
@@ -6548,6 +6637,13 @@
                   ],
                   "format": "uuid",
                   "description": "The existing transaction a duplicate or match is of."
+                },
+                "missing": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Label"
+                  },
+                  "description": "For a row that will be a new transaction: the labels that are\nneither yours nor confidently suggested. Commit refuses while any row\nhas some."
                 },
                 "native_id": {
                   "type": [
@@ -6585,6 +6681,13 @@
                 },
                 "status": {
                   "$ref": "#/components/schemas/RowStatus"
+                },
+                "suggestions": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LabelSuggestion"
+                  },
+                  "description": "At most one per label, confident or not."
                 }
               }
             }
@@ -7065,6 +7168,13 @@
             ],
             "format": "uuid"
           },
+          "revert": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Label"
+            },
+            "description": "Labels to stop choosing, so their suggestions apply again. Setting a\nlabel (to a value or `null`) makes it your choice."
+          },
           "set_description": {
             "type": [
               "string",
@@ -7238,6 +7348,9 @@
           "description",
           "status",
           "decided",
+          "chosen",
+          "suggestions",
+          "missing",
           "raw"
         ],
         "properties": {
@@ -7253,13 +7366,20 @@
             ],
             "format": "uuid"
           },
+          "chosen": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Label"
+            },
+            "description": "The labels you set (a `null` one is an explicit none)."
+          },
           "counterparty_id": {
             "type": [
               "string",
               "null"
             ],
             "format": "uuid",
-            "description": "For a new transaction: who's on the outside side (unknown if absent)."
+            "description": "The labels below are what a new transaction gets: your choice, else a\nconfident suggestion. For a new transaction: who's on the outside\nside (unknown if absent)."
           },
           "date": {
             "type": "string",
@@ -7290,6 +7410,13 @@
             ],
             "format": "uuid",
             "description": "The existing transaction a duplicate or match is of."
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Label"
+            },
+            "description": "For a row that will be a new transaction: the labels that are\nneither yours nor confidently suggested. Commit refuses while any row\nhas some."
           },
           "native_id": {
             "type": [
@@ -7327,6 +7454,13 @@
           },
           "status": {
             "$ref": "#/components/schemas/RowStatus"
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabelSuggestion"
+            },
+            "description": "At most one per label, confident or not."
           }
         }
       },
@@ -7335,6 +7469,7 @@
         "description": "One account's part of the file.",
         "required": [
           "position",
+          "account_suggested",
           "commodity_id",
           "skipped",
           "counts"
@@ -7346,7 +7481,11 @@
               "null"
             ],
             "format": "uuid",
-            "description": "`null` until the account is known: from the number in the file, or\nset by the client."
+            "description": "The account the rows are worked out against: the one the file's\nnumber belongs to, or the client's choice, else a confident suggestion\n(`account_suggested`). `null` until there is one."
+          },
+          "account_suggested": {
+            "type": "boolean",
+            "description": "Whether `account_id` is the suggestion's, not yet the statement's own."
           },
           "commodity_id": {
             "type": "string",
@@ -7392,6 +7531,17 @@
             "items": {
               "$ref": "#/components/schemas/SkippedLine"
             }
+          },
+          "suggested_account": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AccountSuggestion",
+                "description": "A suggested account, confident or not; it stays after you pick one,\nto record how good it was."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -7482,6 +7632,46 @@
           }
         },
         "additionalProperties": false
+      },
+      "Suggester": {
+        "type": "object",
+        "description": "The exact system that made a suggestion.",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "version",
+          "details"
+        ],
+        "properties": {
+          "details": {
+            "type": "object",
+            "description": "What else identifies it, e.g. the data a local model learned from."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SuggesterKind"
+          },
+          "name": {
+            "type": "string",
+            "description": "E.g. the rules, a local method, or a remote deployment and model."
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "SuggesterKind": {
+        "type": "string",
+        "description": "Which level of the suggestion stack made a suggestion (docs/ai.md).",
+        "enum": [
+          "rule",
+          "local",
+          "remote"
+        ]
       },
       "Tag": {
         "type": "object",

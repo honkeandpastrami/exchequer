@@ -31,6 +31,33 @@ pub struct StatementRow {
     pub ledger_amount: Option<Decimal>,
     pub ledger_date: Option<Date>,
     pub skipped: Value,
+    pub suggestion: Option<AccountSuggestion>,
+}
+
+impl StatementRow {
+    /// The account the rows are worked out against: the statement's own,
+    /// else a confident suggestion.
+    pub fn effective_account(&self) -> Option<Uuid> {
+        self.account_id.or_else(|| {
+            self.suggestion
+                .as_ref()
+                .filter(|s| s.confidence >= CONFIDENT)
+                .map(|s| s.account_id)
+        })
+    }
+}
+
+/// Confidence, per mille, from which a suggestion counts as made (design §8).
+pub const CONFIDENT: i16 = 900;
+
+/// A statement's suggested account.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountSuggestion {
+    pub account_id: Uuid,
+    pub suggester_id: Uuid,
+    /// Per mille.
+    pub confidence: i16,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone)]
@@ -51,6 +78,9 @@ pub struct RowRow {
     pub counterparty_id: Option<Uuid>,
     pub category_id: Option<Uuid>,
     pub purpose_id: Option<Uuid>,
+    /// The labels set by the client (`counterparty`, `category`,
+    /// `purpose`); the others are open to suggestions.
+    pub chosen: Vec<String>,
 }
 
 /// How many of a statement's rows have each status.
@@ -208,7 +238,8 @@ pub async fn statements(
 ) -> Result<Vec<(Uuid, StatementRow)>, sqlx::Error> {
     let rows = sqlx::query!(
         "SELECT import_id, position, account_number, account_id, kind, commodity_id,
-                ledger_amount, ledger_date, skipped
+                ledger_amount, ledger_date, skipped, suggested_account_id,
+                account_suggester_id, account_confidence, account_reason
          FROM staged_statement WHERE import_id = ANY($1) ORDER BY import_id, position",
         imports
     )
@@ -228,6 +259,22 @@ pub async fn statements(
                     ledger_amount: r.ledger_amount,
                     ledger_date: r.ledger_date,
                     skipped: r.skipped,
+                    suggestion: match (
+                        r.suggested_account_id,
+                        r.account_suggester_id,
+                        r.account_confidence,
+                        r.account_reason,
+                    ) {
+                        (Some(account_id), Some(suggester_id), Some(confidence), Some(reason)) => {
+                            Some(AccountSuggestion {
+                                account_id,
+                                suggester_id,
+                                confidence,
+                                reason,
+                            })
+                        }
+                        _ => None,
+                    },
                 },
             )
         })
@@ -293,7 +340,7 @@ pub async fn rows(
         RowRow,
         "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,
                 status, match_transaction_id, decision, set_description, counterparty_id,
-                category_id, purpose_id
+                category_id, purpose_id, chosen
          FROM staged_row
          WHERE import_id = $1
            AND ($2::int2 IS NULL OR statement = $2)
@@ -518,7 +565,7 @@ pub async fn set_decision(
 ) -> Result<bool, sqlx::Error> {
     let done = sqlx::query!(
         "UPDATE staged_row SET decision = $4, set_description = $5, counterparty_id = $6,
-                               category_id = $7, purpose_id = $8
+                               category_id = $7, purpose_id = $8, chosen = $9
          WHERE import_id = $1 AND statement = $2 AND position = $3",
         import_id,
         r.statement,
@@ -528,6 +575,7 @@ pub async fn set_decision(
         r.counterparty_id,
         r.category_id,
         r.purpose_id,
+        &r.chosen,
     )
     .execute(db)
     .await?;
@@ -594,4 +642,205 @@ pub async fn rows_of_transaction(
     )
     .fetch_all(db)
     .await
+}
+
+// --------------------------------------------------------- Suggestions ----
+
+/// The exact system that made suggestions (design §8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SuggesterRow {
+    pub id: Uuid,
+    /// `rule`, `local` or `remote`.
+    pub kind: String,
+    pub name: String,
+    pub version: String,
+    pub details: Value,
+}
+
+/// The suggester with this identity, recorded the first time it's seen.
+pub async fn suggester(
+    db: &mut sqlx::PgConnection,
+    kind: &str,
+    name: &str,
+    version: &str,
+    details: &Value,
+) -> Result<Uuid, sqlx::Error> {
+    sqlx::query!(
+        "INSERT INTO suggester (id, kind, name, version, details) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (kind, name, version, details) DO NOTHING",
+        Uuid::now_v7(),
+        kind,
+        name,
+        version,
+        details,
+    )
+    .execute(&mut *db)
+    .await?;
+    sqlx::query_scalar!(
+        "SELECT id FROM suggester WHERE kind = $1 AND name = $2 AND version = $3 AND details = $4",
+        kind,
+        name,
+        version,
+        details,
+    )
+    .fetch_one(&mut *db)
+    .await
+}
+
+pub async fn suggesters(
+    db: impl PgExecutor<'_>,
+    ids: &[Uuid],
+) -> Result<Vec<SuggesterRow>, sqlx::Error> {
+    sqlx::query_as!(
+        SuggesterRow,
+        "SELECT id, kind, name, version, details FROM suggester WHERE id = ANY($1)",
+        ids
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// A suggested label for a staged row; `value` `None` suggests "none".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SuggestionRow {
+    pub statement: i16,
+    pub position: i32,
+    /// `counterparty`, `category` or `purpose`.
+    pub label: String,
+    pub value: Option<Uuid>,
+    pub suggester_id: Uuid,
+    /// Per mille.
+    pub confidence: i16,
+    pub reason: String,
+}
+
+/// The suggestions for these rows of an import.
+pub async fn suggestions(
+    db: impl PgExecutor<'_>,
+    import_id: Uuid,
+    rows: &[(i16, i32)],
+) -> Result<Vec<SuggestionRow>, sqlx::Error> {
+    let statements: Vec<i16> = rows.iter().map(|r| r.0).collect();
+    let positions: Vec<i32> = rows.iter().map(|r| r.1).collect();
+    sqlx::query_as!(
+        SuggestionRow,
+        r#"SELECT s.statement, s.position, s.label,
+                  coalesce(s.counterparty_id, s.category_id, s.purpose_id) AS value,
+                  s.suggester_id, s.confidence, s.reason
+           FROM staged_suggestion s
+           JOIN unnest($2::int2[], $3::int4[]) AS u(statement, position)
+             ON u.statement = s.statement AND u.position = s.position
+           WHERE s.import_id = $1
+           ORDER BY s.statement, s.position, s.label"#,
+        import_id,
+        &statements,
+        &positions,
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// Replaces the suggestions for the rows of one statement with these.
+pub async fn set_suggestions(
+    db: &mut sqlx::PgConnection,
+    import_id: Uuid,
+    statement: i16,
+    items: &[SuggestionRow],
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "DELETE FROM staged_suggestion WHERE import_id = $1 AND statement = $2",
+        import_id,
+        statement
+    )
+    .execute(&mut *db)
+    .await?;
+    let positions: Vec<i32> = items.iter().map(|s| s.position).collect();
+    let labels: Vec<String> = items.iter().map(|s| s.label.clone()).collect();
+    let values: Vec<Option<Uuid>> = items.iter().map(|s| s.value).collect();
+    let suggesters: Vec<Uuid> = items.iter().map(|s| s.suggester_id).collect();
+    let confidences: Vec<i16> = items.iter().map(|s| s.confidence).collect();
+    let reasons: Vec<String> = items.iter().map(|s| s.reason.clone()).collect();
+    sqlx::query!(
+        "INSERT INTO staged_suggestion (import_id, statement, position, label, counterparty_id,
+                                        category_id, purpose_id, suggester_id, confidence, reason)
+         SELECT $1, $2, u.position, u.label,
+                CASE WHEN u.label = 'counterparty' THEN u.value END,
+                CASE WHEN u.label = 'category' THEN u.value END,
+                CASE WHEN u.label = 'purpose' THEN u.value END,
+                u.suggester, u.confidence, u.reason
+         FROM unnest($3::int4[], $4::text[], $5::uuid[], $6::uuid[], $7::int2[], $8::text[])
+              AS u(position, label, value, suggester, confidence, reason)",
+        import_id,
+        statement,
+        &positions,
+        &labels,
+        &values as &[Option<Uuid>],
+        &suggesters,
+        &confidences,
+        &reasons,
+    )
+    .execute(&mut *db)
+    .await?;
+    Ok(())
+}
+
+/// Sets or clears a statement's suggested account.
+pub async fn set_account_suggestion(
+    db: impl PgExecutor<'_>,
+    import_id: Uuid,
+    statement: i16,
+    s: Option<&AccountSuggestion>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE staged_statement SET suggested_account_id = $3, account_suggester_id = $4,
+                                     account_confidence = $5, account_reason = $6
+         WHERE import_id = $1 AND position = $2",
+        import_id,
+        statement,
+        s.map(|s| s.account_id),
+        s.map(|s| s.suggester_id),
+        s.map(|s| s.confidence),
+        s.map(|s| s.reason.clone()),
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// What a suggestion became on commit.
+#[derive(Debug, Clone)]
+pub struct Outcome {
+    pub suggester_id: Uuid,
+    /// `account`, `counterparty`, `category` or `purpose`.
+    pub label: String,
+    pub suggested: Option<Uuid>,
+    pub confidence: i16,
+    pub committed: Option<Uuid>,
+    pub transaction_id: Option<Uuid>,
+}
+
+pub async fn add_outcomes(db: impl PgExecutor<'_>, items: &[Outcome]) -> Result<(), sqlx::Error> {
+    let ids: Vec<Uuid> = items.iter().map(|_| Uuid::now_v7()).collect();
+    let suggesters: Vec<Uuid> = items.iter().map(|o| o.suggester_id).collect();
+    let labels: Vec<String> = items.iter().map(|o| o.label.clone()).collect();
+    let suggested: Vec<Option<Uuid>> = items.iter().map(|o| o.suggested).collect();
+    let confidences: Vec<i16> = items.iter().map(|o| o.confidence).collect();
+    let committed: Vec<Option<Uuid>> = items.iter().map(|o| o.committed).collect();
+    let transactions: Vec<Option<Uuid>> = items.iter().map(|o| o.transaction_id).collect();
+    sqlx::query!(
+        "INSERT INTO suggestion_outcome (id, suggester_id, label, suggested, confidence,
+                                         committed, transaction_id)
+         SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::text[], $4::uuid[], $5::int2[],
+                              $6::uuid[], $7::uuid[])",
+        &ids,
+        &suggesters,
+        &labels,
+        &suggested as &[Option<Uuid>],
+        &confidences,
+        &committed as &[Option<Uuid>],
+        &transactions as &[Option<Uuid>],
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }

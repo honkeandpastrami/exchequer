@@ -814,6 +814,19 @@ export interface components {
 		 */
 		AccountKind:
 			'checking' | 'savings' | 'credit_card' | 'brokerage' | 'mortgage' | 'cash' | 'other';
+		/** @description A statement's suggested account. */
+		AccountSuggestion: {
+			/** Format: uuid */
+			account_id: string;
+			/**
+			 * Format: int32
+			 * @description Per mille: 900 is 0.9.
+			 */
+			confidence: number;
+			confident: boolean;
+			reason: string;
+			suggester: components['schemas']['Suggester'];
+		};
 		/** @description Fields to change; omitted ones stay as they are. The owner can't change. */
 		AccountUpdate: {
 			archived?: boolean | null;
@@ -1163,6 +1176,32 @@ export interface components {
 		Kind: 'expense' | 'income' | 'transfer' | 'conversion';
 		/** @enum {string} */
 		KindName: 'expense' | 'income' | 'transfer' | 'conversion';
+		/**
+		 * @description A label a row's new transaction gets.
+		 * @enum {string}
+		 */
+		Label: 'counterparty' | 'category' | 'purpose';
+		/** @description A suggested value for one of a row's labels. */
+		LabelSuggestion: {
+			/**
+			 * Format: int32
+			 * @description Per mille: 900 is 0.9.
+			 */
+			confidence: number;
+			/**
+			 * @description Whether it's confident enough (at least 900) to be committed unless
+			 *     you choose otherwise.
+			 */
+			confident: boolean;
+			label: components['schemas']['Label'];
+			reason: string;
+			suggester: components['schemas']['Suggester'];
+			/**
+			 * Format: uuid
+			 * @description The suggested counterparty, category or party; `null` suggests none.
+			 */
+			value?: string | null;
+		};
 		/** @description The balance the bank reported at the end of the statement. */
 		LedgerBalance: {
 			/** @example 1234.56 */
@@ -1477,9 +1516,13 @@ export interface components {
 				amount: string;
 				/** Format: uuid */
 				category_id?: string | null;
+				/** @description The labels you set (a `null` one is an explicit none). */
+				chosen: components['schemas']['Label'][];
 				/**
 				 * Format: uuid
-				 * @description For a new transaction: who's on the outside side (unknown if absent).
+				 * @description The labels below are what a new transaction gets: your choice, else a
+				 *     confident suggestion. For a new transaction: who's on the outside
+				 *     side (unknown if absent).
 				 */
 				counterparty_id?: string | null;
 				/** Format: date */
@@ -1493,6 +1536,12 @@ export interface components {
 				 * @description The existing transaction a duplicate or match is of.
 				 */
 				match_transaction_id?: string | null;
+				/**
+				 * @description For a row that will be a new transaction: the labels that are
+				 *     neither yours nor confidently suggested. Commit refuses while any row
+				 *     has some.
+				 */
+				missing: components['schemas']['Label'][];
 				/** @description The bank's own ID for the row, if it has one. */
 				native_id?: string | null;
 				/** Format: int32 */
@@ -1509,6 +1558,8 @@ export interface components {
 				/** Format: int32 */
 				statement: number;
 				status: components['schemas']['RowStatus'];
+				/** @description At most one per label, confident or not. */
+				suggestions: components['schemas']['LabelSuggestion'][];
 			}[];
 			/** @description Pass as `cursor` to get the next page; absent on the last page. */
 			next_cursor?: string | null;
@@ -1660,6 +1711,11 @@ export interface components {
 			decision?: components['schemas']['Decision'] | null;
 			/** Format: uuid */
 			purpose_id?: string | null;
+			/**
+			 * @description Labels to stop choosing, so their suggestions apply again. Setting a
+			 *     label (to a value or `null`) makes it your choice.
+			 */
+			revert?: components['schemas']['Label'][];
 			set_description?: string | null;
 		};
 		/** @description A month's parameters and state. */
@@ -1720,9 +1776,13 @@ export interface components {
 			amount: string;
 			/** Format: uuid */
 			category_id?: string | null;
+			/** @description The labels you set (a `null` one is an explicit none). */
+			chosen: components['schemas']['Label'][];
 			/**
 			 * Format: uuid
-			 * @description For a new transaction: who's on the outside side (unknown if absent).
+			 * @description The labels below are what a new transaction gets: your choice, else a
+			 *     confident suggestion. For a new transaction: who's on the outside
+			 *     side (unknown if absent).
 			 */
 			counterparty_id?: string | null;
 			/** Format: date */
@@ -1736,6 +1796,12 @@ export interface components {
 			 * @description The existing transaction a duplicate or match is of.
 			 */
 			match_transaction_id?: string | null;
+			/**
+			 * @description For a row that will be a new transaction: the labels that are
+			 *     neither yours nor confidently suggested. Commit refuses while any row
+			 *     has some.
+			 */
+			missing: components['schemas']['Label'][];
 			/** @description The bank's own ID for the row, if it has one. */
 			native_id?: string | null;
 			/** Format: int32 */
@@ -1752,15 +1818,20 @@ export interface components {
 			/** Format: int32 */
 			statement: number;
 			status: components['schemas']['RowStatus'];
+			/** @description At most one per label, confident or not. */
+			suggestions: components['schemas']['LabelSuggestion'][];
 		};
 		/** @description One account's part of the file. */
 		StagedStatement: {
 			/**
 			 * Format: uuid
-			 * @description `null` until the account is known: from the number in the file, or
-			 *     set by the client.
+			 * @description The account the rows are worked out against: the one the file's
+			 *     number belongs to, or the client's choice, else a confident suggestion
+			 *     (`account_suggested`). `null` until there is one.
 			 */
 			account_id?: string | null;
+			/** @description Whether `account_id` is the suggestion's, not yet the statement's own. */
+			account_suggested: boolean;
 			/** Format: uuid */
 			commodity_id: string;
 			counts: components['schemas']['RowCounts'];
@@ -1774,6 +1845,7 @@ export interface components {
 			/** Format: int32 */
 			position: number;
 			skipped: components['schemas']['SkippedLine'][];
+			suggested_account?: components['schemas']['AccountSuggestion'] | null;
 		};
 		/** @description The statement for one month (design §4.3). */
 		Statement: {
@@ -1811,6 +1883,22 @@ export interface components {
 			/** Format: uuid */
 			party_id: string;
 		};
+		/** @description The exact system that made a suggestion. */
+		Suggester: {
+			/** @description What else identifies it, e.g. the data a local model learned from. */
+			details: Record<string, never>;
+			/** Format: uuid */
+			id: string;
+			kind: components['schemas']['SuggesterKind'];
+			/** @description E.g. the rules, a local method, or a remote deployment and model. */
+			name: string;
+			version: string;
+		};
+		/**
+		 * @description Which level of the suggestion stack made a suggestion (docs/ai.md).
+		 * @enum {string}
+		 */
+		SuggesterKind: 'rule' | 'local' | 'remote';
 		Tag: {
 			/** Format: uuid */
 			id: string;

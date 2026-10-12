@@ -9,10 +9,12 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..models.decision import Decision
+from ..models.label import Label
 from ..models.row_status import RowStatus
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.label_suggestion import LabelSuggestion
     from ..models.staged_row_raw import StagedRowRaw
 
 
@@ -24,15 +26,22 @@ class StagedRow:
     """
     Attributes:
         amount (str): Signed from the account's side: negative is money leaving it. Example: -80.00.
+        chosen (list[Label]): The labels you set (a `null` one is an explicit none).
         date (datetime.date):
         decided (bool): Whether `decision` is the client's choice rather than the default.
         description (str):
+        missing (list[Label]): For a row that will be a new transaction: the labels that are
+            neither yours nor confidently suggested. Commit refuses while any row
+            has some.
         position (int):
         raw (StagedRowRaw): The row's fields as the file had them.
         statement (int):
         status (RowStatus): What a row would become.
+        suggestions (list[LabelSuggestion]): At most one per label, confident or not.
         category_id (None | Unset | UUID):
-        counterparty_id (None | Unset | UUID): For a new transaction: who's on the outside side (unknown if absent).
+        counterparty_id (None | Unset | UUID): The labels below are what a new transaction gets: your choice, else a
+            confident suggestion. For a new transaction: who's on the outside
+            side (unknown if absent).
         decision (Decision | None | Unset):
         match_transaction_id (None | Unset | UUID): The existing transaction a duplicate or match is of.
         native_id (None | str | Unset): The bank's own ID for the row, if it has one.
@@ -41,13 +50,16 @@ class StagedRow:
     """
 
     amount: str
+    chosen: list[Label]
     date: datetime.date
     decided: bool
     description: str
+    missing: list[Label]
     position: int
     raw: StagedRowRaw
     statement: int
     status: RowStatus
+    suggestions: list[LabelSuggestion]
     category_id: None | Unset | UUID = UNSET
     counterparty_id: None | Unset | UUID = UNSET
     decision: Decision | None | Unset = UNSET
@@ -60,11 +72,21 @@ class StagedRow:
     def to_dict(self) -> dict[str, Any]:
         amount = self.amount
 
+        chosen = []
+        for chosen_item_data in self.chosen:
+            chosen_item = chosen_item_data.value
+            chosen.append(chosen_item)
+
         date = self.date.isoformat()
 
         decided = self.decided
 
         description = self.description
+
+        missing = []
+        for missing_item_data in self.missing:
+            missing_item = missing_item_data.value
+            missing.append(missing_item)
 
         position = self.position
 
@@ -73,6 +95,11 @@ class StagedRow:
         statement = self.statement
 
         status = self.status.value
+
+        suggestions = []
+        for suggestions_item_data in self.suggestions:
+            suggestions_item = suggestions_item_data.to_dict()
+            suggestions.append(suggestions_item)
 
         category_id: None | str | Unset
         if isinstance(self.category_id, Unset):
@@ -131,13 +158,16 @@ class StagedRow:
         field_dict.update(
             {
                 "amount": amount,
+                "chosen": chosen,
                 "date": date,
                 "decided": decided,
                 "description": description,
+                "missing": missing,
                 "position": position,
                 "raw": raw,
                 "statement": statement,
                 "status": status,
+                "suggestions": suggestions,
             }
         )
         if category_id is not UNSET:
@@ -159,16 +189,31 @@ class StagedRow:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.label_suggestion import LabelSuggestion  # noqa: PLC0415
         from ..models.staged_row_raw import StagedRowRaw  # noqa: PLC0415
 
         d = dict(src_dict)
         amount = d.pop("amount")
+
+        chosen = []
+        _chosen = d.pop("chosen")
+        for chosen_item_data in _chosen:
+            chosen_item = Label(chosen_item_data)
+
+            chosen.append(chosen_item)
 
         date = datetime.date.fromisoformat(d.pop("date"))
 
         decided = d.pop("decided")
 
         description = d.pop("description")
+
+        missing = []
+        _missing = d.pop("missing")
+        for missing_item_data in _missing:
+            missing_item = Label(missing_item_data)
+
+            missing.append(missing_item)
 
         position = d.pop("position")
 
@@ -177,6 +222,13 @@ class StagedRow:
         statement = d.pop("statement")
 
         status = RowStatus(d.pop("status"))
+
+        suggestions = []
+        _suggestions = d.pop("suggestions")
+        for suggestions_item_data in _suggestions:
+            suggestions_item = LabelSuggestion.from_dict(suggestions_item_data)
+
+            suggestions.append(suggestions_item)
 
         def _parse_category_id(data: object) -> None | Unset | UUID:
             if data is None:
@@ -283,13 +335,16 @@ class StagedRow:
 
         staged_row = cls(
             amount=amount,
+            chosen=chosen,
             date=date,
             decided=decided,
             description=description,
+            missing=missing,
             position=position,
             raw=raw,
             statement=statement,
             status=status,
+            suggestions=suggestions,
             category_id=category_id,
             counterparty_id=counterparty_id,
             decision=decision,

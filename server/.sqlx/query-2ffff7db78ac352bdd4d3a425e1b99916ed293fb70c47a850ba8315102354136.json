@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT import_id, position, account_number, account_id, kind, commodity_id,\n                ledger_amount, ledger_date, skipped\n         FROM staged_statement WHERE import_id = ANY($1) ORDER BY import_id, position",
+  "query": "SELECT import_id, position, account_number, account_id, kind, commodity_id,\n                ledger_amount, ledger_date, skipped, suggested_account_id,\n                account_suggester_id, account_confidence, account_reason\n         FROM staged_statement WHERE import_id = ANY($1) ORDER BY import_id, position",
   "describe": {
     "columns": [
       {
@@ -101,6 +101,50 @@
             "name": "skipped"
           }
         }
+      },
+      {
+        "ordinal": 9,
+        "name": "suggested_account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "suggested_account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "account_suggester_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "account_suggester_id"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "account_confidence",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "account_confidence"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "account_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "account_reason"
+          }
+        }
       }
     ],
     "parameters": {
@@ -117,8 +161,12 @@
       false,
       true,
       true,
-      false
+      false,
+      true,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "5eaedda70de15941d6a34d0b70073055c74a264294f6331102c9f735e3df708b"
+  "hash": "2ffff7db78ac352bdd4d3a425e1b99916ed293fb70c47a850ba8315102354136"
 }

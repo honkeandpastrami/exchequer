@@ -47,7 +47,7 @@ Sam, and the *Household* itself. Amounts are round and illustrative.
         └──────────────────┼──────────────────┘
                     ┌──────▼───────┐        outbound only on request:
                     │  API server  │ ─────▶ FX / quote provider (prices)
-                    │  (stateless) │ ─────▶ LLM provider (classify/match/explain)
+                    │  (stateless) │ ─────▶ remote AI (suggestions, §8; optional)
                     │              │ ─────▶ OIDC JWKS (if Entra auth is on)
                     └──────┬───────┘
                     ┌──────▼───────┐
@@ -209,7 +209,7 @@ three-decimal share quantities, large balances, float-damaged inputs) plus `prop
 properties asserting that split sums, balances and converted totals are exactly
 reproducible.
 
-### 3.6 PII at runtime: logs and LLM calls
+### 3.6 PII at runtime: logs and remote AI calls
 
 The server stores the household's data and shows it to the household. It must not leak that
 data through side channels:
@@ -218,8 +218,12 @@ data through side channels:
   on masked values. `AccountNumber` in `domain` formats itself as `…1234` in `Display` and
   `Debug`; getting the full number takes an explicit `.reveal()`, used only by parsers and
   the DB layer. Request and response bodies and raw bank rows are never logged.
-- **LLM calls.** All LLM traffic goes through `outbound` (§15). What each prompt may contain
-  is designed together with classification (§8). *Open: to be designed.*
+- **Remote AI calls** (§8) go through `outbound` (§15) and carry features, not
+  identifiers: account numbers only as their last four, and descriptions normalized so
+  runs of five or more digits (card, reference and trace numbers) are replaced. A request
+  the service refuses (e.g. a content filter or PII guardrail its operator configured)
+  makes the remote level step aside for that row, recorded; the import never fails
+  because of it. Details in [`docs/ai.md`](ai.md).
 
 ## 4. Component: household ownership and monthly settlement
 
@@ -358,7 +362,7 @@ adjustment, or a past mistake: one that the old system made and that is now carr
 
 ```
 upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerprint/dedup
-     ─▶ transfer matching ─▶ classify (conditions → learned → LLM) ─▶ STAGED batch
+     ─▶ transfer matching ─▶ suggest (rules → local AI → remote AI) ─▶ STAGED batch
      ─▶ client review (accept / edit / reject per row) ─▶ COMMIT (atomic)
 ```
 
@@ -376,7 +380,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    accounts' numbers (stored without spaces or dashes, shown only as their last four). A
    CSV names no account. A statement whose account isn't known (a CSV, an unknown number)
    is staged anyway, its rows `needs-account`, and the account is picked in review (the
-   upload may name it if the client already knows); LLM suggestion later. Picking it can
+   upload may name it if the client already knows), or suggested (§8). Picking it can
    add the file's number to the account.
 3. **Deduplication,** done once, on the server, with full DB access:
    - *Exact:* native ID (FITID or bank reference), or a content hash with an occurrence
@@ -399,8 +403,9 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    each other: statuses are worked out again on commit (§6.7), so the second of two files
    staged together finds what the first one committed. Transfers between a person and the
    Household are also matched against open settlements (§4.3).
-5. **Classification** (§8): proposed purpose, counterparty, category, tags and bill, each
-   with a confidence and a reason.
+5. **Suggestions** (§8): the statement's account when unknown, then each row's
+   counterparty, purpose and category, each with a confidence, a reason and the exact
+   suggester.
 6. **Staging and review.** The batch lives on the server, so a review started in one client
    can finish in another. Rows are `new`, `duplicate`, `near-duplicate`, `transfer-match` or
    `needs-account`. `POST /imports` takes the file's bytes (at most 10 MiB; optional
@@ -460,17 +465,39 @@ with the ledger balance on that date.
   2. **AI explanation (optional):** the window, the difference and the ranked candidates go
      to the LLM, which returns a short ranked explanation. The AI explains but never edits.
 
-## 8. Component: classification (import conditions + AI)
+## 8. Component: classification (rules and AI)
 
-One interface, `suggest(row, context) → proposals with confidence + reason`, with three
-providers tried in order. **Purpose is the most important target**, and migrated history
-provides labeled training data from day one.
+Imported rows are labeled from suggestions made **in staging** and **reviewed in
+staging**; nothing is committed unreviewed. How it operates (what's shown, what commit
+takes, the API) is in [`docs/ai.md`](ai.md).
 
-1. **Import conditions as code, not a rules engine.** One small **[Rhai](https://rhai.rs)**
-   script, stored in the DB (`RuleScript`). Rhai is a scripting language for embedding in
-   Rust, with Rust-like syntax. It's sandboxed (no file system, network or process access)
-   and limited in operations per call. The active version is compiled once and runs for each
-   staged row before the other providers. If/else is the rule language.
+- **Targets,** in priority order: **counterparty, purpose, category**, suggested together
+  as one proposal per row (they're highly correlated), each with its own confidence. A
+  statement's **account** is suggested first, when the file doesn't settle it; a
+  confident one counts as the account and the rows are worked out against it. Bills and
+  tags come later (#8); near-duplicate detection moves onto the same stack afterwards
+  (#9).
+- **A stack of three levels,** tried in order: rules → local AI → remote AI. A level runs
+  while a label is still below **0.9 confidence**; labels already settled (by an earlier
+  level at ≥ 0.9, or by you) are given to the next level as facts. Below 0.9 everywhere,
+  the best suggestion is kept but shown as unsure. Re-running suggestions on request is
+  for later (#11).
+- **Every suggestion names the exact system that made it** (`suggester`: kind, name,
+  version, details), with a confidence stored per mille (no float is stored, §3.5) and a
+  reason. On commit, each suggestion is recorded with what was committed
+  (`suggestion_outcome`), to measure each suggester and compare models.
+- **Review:** badges, one hue per level, solid when confident, outlined when not; your own
+  choices plain. **Commit takes what's on screen** and is refused (`409`) while a
+  statement has no account or a new row has a label neither yours nor confident.
+  *None* is an explicit choice.
+
+The levels:
+
+1. **Rules, as code: one [Rhai](https://rhai.rs) script** stored in the DB (`RuleScript`).
+   Rhai is a scripting language for embedding in Rust, with Rust-like syntax. It's
+   sandboxed (no file system, network or process access) and limited in operations per
+   call. The active version is compiled once and runs for each staged row. If/else is the
+   rule language. A rule that sets a label is confidence 1.0.
 
    ```rust
    fn classify(row, s) {
@@ -478,35 +505,41 @@ provides labeled training data from day one.
        if d.starts_with("ACME CORP PAYROLL") && row.amount > amount("0") {
            s.counterparty("ACME Corp"); s.category("Salary"); s.purpose(HOUSEHOLD);
        } else if d.contains("CITY WATER") {
-           s.counterparty("City Water"); s.category("Utilities"); s.bill("Water"); s.purpose(HOUSEHOLD);
+           s.counterparty("City Water"); s.category("Utilities"); s.purpose(HOUSEHOLD);
        }
    }
    ```
 
    Rhai is built with `no_float`, and amounts reach scripts as the server's `Amount` type
-   (compared via `amount("…")` literals), so §3.5 holds inside scripts. Suggestions are
-   labeled `rule:v<version>:<line>`.
+   (compared via `amount("…")` literals), so §3.5 holds inside scripts. Suggestions name
+   the script's version and line. The script **starts empty**: rules are written where
+   local AI is measurably wrong in a way a rule fixes (typically a purpose that depends on
+   the account, amount or date), not carried over from another tool.
 
    **Editing and versioning:**
    - `PUT /rules` uploads a new version. The server compiles it and checks every referenced
-     name (categories, bills, accounts, parties) against the DB. **An invalid script is
-     rejected with line-numbered errors and never becomes active.** A valid one is active
+     name (categories, accounts, parties) against the DB. **An invalid script is rejected
+     with line-numbered errors and never becomes active.** A valid one is active
      immediately, without a restart.
    - `POST /rules/dry-run?from=&to=` reports what a candidate script *would* change.
    - Every version is kept: list, diff, and rollback (re-uploading an old version as a new
      one). Each version records its author and an optional note.
    - CLI: `exchequer rules edit | log | diff | rollback | dry-run`.
-   - `POST /reclassify?from=&to=` re-runs all classifiers over existing transactions and
-     returns a *staged* batch of proposed changes, never silent edits.
-2. **Learned from history.** A local model trained on past labels (purpose, category,
-   counterparty) over normalized description, counterparty, account owner and amount
-   features. Hand-written in Rust (token-based naive Bayes / nearest neighbor) in the
-   `heuristics` crate. Retrained on request (e.g. after a commit), never on a schedule.
-3. **LLM fallback** for rows the first two can't classify confidently, and for account
-   detection. Pluggable provider over plain HTTPS + JSON, structured output validated
-   against known IDs. Optional: the system works fully without it.
-
-Suggestions are never auto-committed; they pre-fill staged rows for review.
+2. **Local AI, lexical,** in-process and pure Rust: descriptions normalized (card and
+   reference digits, dates, processor prefixes stripped), an alias memory (this text was
+   counterparty X the last N times), and nearest labeled transactions by trigram/TF-IDF
+   similarity voting on the whole combination of labels, weighted by similarity; the
+   account's owner, direction and amount break ties. Confidence is calibrated by a
+   backtest (train on earlier months, predict the next), so 0.9 means about 90% right on
+   the ledger's own data. Embeddings are for later (#10). No model files, no training
+   pipeline.
+3. **Remote AI, optional:** a decision model deployed on Azure AI Foundry, asked
+   multiple-choice questions whose options are the ledger's own IDs (plus *none* and
+   *can't tell*), and answering with a probability per option. One question set per row,
+   one per statement for the account. The context it's given is computed from the data
+   on each request (similar past transactions, usage statistics of the account and of
+   each option), never hand-written descriptions that would go stale. What may be sent is
+   in §3.6. The system works fully without it.
 
 ## 9. Component: bills and recurrences
 
@@ -638,7 +671,7 @@ secrets**, generated on the host once and handed to containers as files under
 |---|---|
 | `exchequer_db_password` | db (sets it), api (connects), backup (dumps) |
 | `exchequer_bootstrap_token` | api (first admin token, §10) |
-| `exchequer_llm_api_key` | api (optional, §8) |
+| `exchequer_llm_api_key` | api (optional: remote AI, §8) |
 | `exchequer_price_api_key` | api (§3.4) |
 | `exchequer_azure_backup_sas` | backup unit, offsite step (optional, §14.2) |
 
@@ -827,8 +860,8 @@ The components are independent behind the API contract, but they have a natural 
 4. **Household settlement** (§4) + **query/report engine** (§7), validated against migrated
    history (§4.5). Balance checks and the deterministic discrepancy finder (§7.1) too.
 5. **Import pipeline** (§6) + **CLI import/review** (§12).
-6. **Classification** (§8): import conditions, then learned, then LLM (including the
-   discrepancy finder's AI explanation).
+6. **Classification** (§8): suggestion storage and review, then local AI, rules, and
+   remote AI (including the discrepancy finder's AI explanation).
 7. **Price fetching + valuation** (§3.4).
 8. **Web app** (§13).
 9. **Bills/recurrences** (§9), **Entra OIDC** (§10 tier 2).
@@ -861,9 +894,10 @@ The components are independent behind the API contract, but they have a natural 
 | 20 | License | BSD-2-Clause, no GPL dependencies | §16.4 |
 | 21 | Import rules | One Rhai script, versioned in the DB, validated before it becomes active | §8 |
 | 22 | Repo hygiene | Conventions only: fictional examples, synthetic fixtures, push protection | §16.3 |
-| 23 | PII at runtime | `AccountNumber` masking, no bodies in logs; LLM prompt policy designed with §8 | §3.6 |
+| 23 | PII at runtime | `AccountNumber` masking, no bodies in logs; remote AI gets features, not identifiers | §3.6 |
 | 24 | Name | Exchequer: originally the treasury of the royal household | — |
 
 ### Open
 
-- LLM prompt contents and minimization (§3.6, §8).
+None.
+

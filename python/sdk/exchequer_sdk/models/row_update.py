@@ -7,6 +7,7 @@ from uuid import UUID
 from attrs import define as _attrs_define
 
 from ..models.decision import Decision
+from ..models.label import Label
 from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="RowUpdate")
@@ -21,6 +22,8 @@ class RowUpdate:
         counterparty_id (None | Unset | UUID):
         decision (Decision | None | Unset):
         purpose_id (None | Unset | UUID):
+        revert (list[Label] | Unset): Labels to stop choosing, so their suggestions apply again. Setting a
+            label (to a value or `null`) makes it your choice.
         set_description (None | str | Unset):
     """
 
@@ -28,6 +31,7 @@ class RowUpdate:
     counterparty_id: None | Unset | UUID = UNSET
     decision: Decision | None | Unset = UNSET
     purpose_id: None | Unset | UUID = UNSET
+    revert: list[Label] | Unset = UNSET
     set_description: None | str | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
@@ -63,6 +67,13 @@ class RowUpdate:
         else:
             purpose_id = self.purpose_id
 
+        revert: list[str] | Unset = UNSET
+        if not isinstance(self.revert, Unset):
+            revert = []
+            for revert_item_data in self.revert:
+                revert_item = revert_item_data.value
+                revert.append(revert_item)
+
         set_description: None | str | Unset
         if isinstance(self.set_description, Unset):
             set_description = UNSET
@@ -80,6 +91,8 @@ class RowUpdate:
             field_dict["decision"] = decision
         if purpose_id is not UNSET:
             field_dict["purpose_id"] = purpose_id
+        if revert is not UNSET:
+            field_dict["revert"] = revert
         if set_description is not UNSET:
             field_dict["set_description"] = set_description
 
@@ -157,6 +170,15 @@ class RowUpdate:
 
         purpose_id = _parse_purpose_id(d.pop("purpose_id", UNSET))
 
+        _revert = d.pop("revert", UNSET)
+        revert: list[Label] | Unset = UNSET
+        if _revert is not UNSET:
+            revert = []
+            for revert_item_data in _revert:
+                revert_item = Label(revert_item_data)
+
+                revert.append(revert_item)
+
         def _parse_set_description(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -171,6 +193,7 @@ class RowUpdate:
             counterparty_id=counterparty_id,
             decision=decision,
             purpose_id=purpose_id,
+            revert=revert,
             set_description=set_description,
         )
 

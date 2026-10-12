@@ -55,13 +55,12 @@ counts, amounts, patterns, names) goes here or in any commit.
 
 ## Next
 
-- **Step 5, import pipeline (§6)** with CLI import and review (§12). The web app's import
-  review (§13) follows it.
+- **Step 6, classification (§8, [`ai.md`](ai.md)):** 6.2 local AI (lexical) and its
+  backtest; then 6.3 Rhai rules and 6.4 remote AI.
 
 ## To do
 
-5. Import pipeline (§6) + CLI import/review (§12).
-6. Classification (§8).
+6. Classification (§8): done through 6.1 (suggestion storage and review).
 7. Price fetching + valuation (§3.4).
 8. Web app (§13): done through 8.6, plus import review (5.8b).
 9. Bills/recurrences (§9), Entra OIDC (§10 tier 2).
@@ -173,5 +172,3 @@ Items finished enough to move on, with known follow-ups.
 - **Cross-account conversion out of investments** (step 1): selling in Alex Brokerage with
   the cash landing directly in Alex Checking (ACME → USD across accounts) is a conversion,
   so it is not flagged as a liquidation and can't carry a purpose. Should it count as one?
-- **LLM prompt contents and minimization** (§3.6, §8). Open item in the design; due before
-  step 6.

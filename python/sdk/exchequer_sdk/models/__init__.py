@@ -3,6 +3,7 @@
 from .account import Account
 from .account_balance import AccountBalance
 from .account_kind import AccountKind
+from .account_suggestion import AccountSuggestion
 from .account_update import AccountUpdate
 from .balance_check import BalanceCheck
 from .balances import Balances
@@ -38,6 +39,8 @@ from .imported_row_raw_type_0 import ImportedRowRawType0
 from .in_transit import InTransit
 from .kind import Kind
 from .kind_name import KindName
+from .label import Label
+from .label_suggestion import LabelSuggestion
 from .ledger_balance import LedgerBalance
 from .leg import Leg
 from .line import Line
@@ -103,6 +106,9 @@ from .statement import Statement
 from .statement_kind import StatementKind
 from .statement_update import StatementUpdate
 from .stipend import Stipend
+from .suggester import Suggester
+from .suggester_details import SuggesterDetails
+from .suggester_kind import SuggesterKind
 from .tag import Tag
 from .token import Token
 from .transaction import Transaction
@@ -113,6 +119,7 @@ __all__ = (
     "Account",
     "AccountBalance",
     "AccountKind",
+    "AccountSuggestion",
     "AccountUpdate",
     "BalanceCheck",
     "Balances",
@@ -148,6 +155,8 @@ __all__ = (
     "InTransit",
     "Kind",
     "KindName",
+    "Label",
+    "LabelSuggestion",
     "LedgerBalance",
     "Leg",
     "Line",
@@ -213,6 +222,9 @@ __all__ = (
     "StatementKind",
     "StatementUpdate",
     "Stipend",
+    "Suggester",
+    "SuggesterDetails",
+    "SuggesterKind",
     "Tag",
     "Token",
     "Transaction",

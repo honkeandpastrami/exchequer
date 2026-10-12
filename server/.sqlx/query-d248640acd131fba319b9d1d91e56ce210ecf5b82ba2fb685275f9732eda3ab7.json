@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,\n                status, match_transaction_id, decision, set_description, counterparty_id,\n                category_id, purpose_id\n         FROM staged_row\n         WHERE import_id = $1\n           AND ($2::int2 IS NULL OR statement = $2)\n           AND ($3::text IS NULL OR status = $3)\n           AND ($4::int2 IS NULL OR (statement, position) > ($4, $5::int4))\n         ORDER BY statement, position LIMIT $6",
+  "query": "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,\n                status, match_transaction_id, decision, set_description, counterparty_id,\n                category_id, purpose_id, chosen\n         FROM staged_row\n         WHERE import_id = $1\n           AND ($2::int2 IS NULL OR statement = $2)\n           AND ($3::text IS NULL OR status = $3)\n           AND ($4::int2 IS NULL OR (statement, position) > ($4, $5::int4))\n         ORDER BY statement, position LIMIT $6",
   "describe": {
     "columns": [
       {
@@ -167,6 +167,17 @@
             "name": "purpose_id"
           }
         }
+      },
+      {
+        "ordinal": 15,
+        "name": "chosen",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "chosen"
+          }
+        }
       }
     ],
     "parameters": {
@@ -194,8 +205,9 @@
       true,
       true,
       true,
-      true
+      true,
+      false
     ]
   },
-  "hash": "33792513882f83f9508f4ced5f09e951194400038d4cbfe8d5a6d3a6fc6eb964"
+  "hash": "d248640acd131fba319b9d1d91e56ce210ecf5b82ba2fb685275f9732eda3ab7"
 }

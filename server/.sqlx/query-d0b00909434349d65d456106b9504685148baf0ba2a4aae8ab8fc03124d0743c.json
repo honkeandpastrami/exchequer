@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO suggester (id, kind, name, version, details) VALUES ($1, $2, $3, $4, $5)\n         ON CONFLICT (kind, name, version, details) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d0b00909434349d65d456106b9504685148baf0ba2a4aae8ab8fc03124d0743c"
+}

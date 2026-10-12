@@ -17,7 +17,10 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::PgConnection;
 use store::audit::Action;
-use store::imports::{Fingerprint, ImportRow, ImportedRow, NearCandidate, RowRow, StatementRow};
+use store::imports::{
+    CONFIDENT, Fingerprint, ImportRow, ImportedRow, NearCandidate, Outcome, RowRow, StatementRow,
+    SuggesterRow, SuggestionRow,
+};
 use time::{Date, OffsetDateTime};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
@@ -150,9 +153,16 @@ pub struct StagedStatement {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "6789")]
     number_last4: Option<String>,
-    /// `null` until the account is known: from the number in the file, or
-    /// set by the client.
+    /// The account the rows are worked out against: the one the file's
+    /// number belongs to, or the client's choice, else a confident suggestion
+    /// (`account_suggested`). `null` until there is one.
     account_id: Option<Uuid>,
+    /// Whether `account_id` is the suggestion's, not yet the statement's own.
+    account_suggested: bool,
+    /// A suggested account, confident or not; it stays after you pick one,
+    /// to record how good it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    suggested_account: Option<AccountSuggestion>,
     #[serde(skip_serializing_if = "Option::is_none")]
     kind: Option<StatementKind>,
     commodity_id: Uuid,
@@ -160,6 +170,101 @@ pub struct StagedStatement {
     ledger: Option<LedgerBalance>,
     skipped: Vec<SkippedLine>,
     counts: RowCounts,
+}
+
+/// A label a row's new transaction gets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Label {
+    Counterparty,
+    Category,
+    Purpose,
+}
+
+impl Label {
+    const ALL: [Self; 3] = [Self::Counterparty, Self::Category, Self::Purpose];
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Counterparty => "counterparty",
+            Self::Category => "category",
+            Self::Purpose => "purpose",
+        }
+    }
+
+    fn parse(s: &str) -> Result<Self, Problem> {
+        Self::ALL
+            .into_iter()
+            .find(|l| l.as_str() == s)
+            .ok_or_else(Problem::internal)
+    }
+}
+
+/// Which level of the suggestion stack made a suggestion (docs/ai.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SuggesterKind {
+    Rule,
+    Local,
+    Remote,
+}
+
+/// The exact system that made a suggestion.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct Suggester {
+    id: Uuid,
+    kind: SuggesterKind,
+    /// E.g. the rules, a local method, or a remote deployment and model.
+    name: String,
+    version: String,
+    /// What else identifies it, e.g. the data a local model learned from.
+    #[schema(value_type = Object)]
+    details: serde_json::Value,
+}
+
+impl TryFrom<SuggesterRow> for Suggester {
+    type Error = Problem;
+
+    fn try_from(r: SuggesterRow) -> Result<Self, Problem> {
+        Ok(Self {
+            id: r.id,
+            kind: match r.kind.as_str() {
+                "rule" => SuggesterKind::Rule,
+                "local" => SuggesterKind::Local,
+                "remote" => SuggesterKind::Remote,
+                _ => return Err(Problem::internal()),
+            },
+            name: r.name,
+            version: r.version,
+            details: r.details,
+        })
+    }
+}
+
+/// A suggested value for one of a row's labels.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct LabelSuggestion {
+    label: Label,
+    /// The suggested counterparty, category or party; `null` suggests none.
+    value: Option<Uuid>,
+    /// Per mille: 900 is 0.9.
+    confidence: i16,
+    /// Whether it's confident enough (at least 900) to be committed unless
+    /// you choose otherwise.
+    confident: bool,
+    reason: String,
+    suggester: Suggester,
+}
+
+/// A statement's suggested account.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AccountSuggestion {
+    account_id: Uuid,
+    /// Per mille: 900 is 0.9.
+    confidence: i16,
+    confident: bool,
+    reason: String,
+    suggester: Suggester,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -202,7 +307,9 @@ pub struct StagedRow {
     /// The new transaction's description, if not the bank's.
     #[serde(skip_serializing_if = "Option::is_none")]
     set_description: Option<String>,
-    /// For a new transaction: who's on the outside side (unknown if absent).
+    /// The labels below are what a new transaction gets: your choice, else a
+    /// confident suggestion. For a new transaction: who's on the outside
+    /// side (unknown if absent).
     #[serde(skip_serializing_if = "Option::is_none")]
     counterparty_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -210,6 +317,14 @@ pub struct StagedRow {
     /// Who the money was for; absent, the account's owner.
     #[serde(skip_serializing_if = "Option::is_none")]
     purpose_id: Option<Uuid>,
+    /// The labels you set (a `null` one is an explicit none).
+    chosen: Vec<Label>,
+    /// At most one per label, confident or not.
+    suggestions: Vec<LabelSuggestion>,
+    /// For a row that will be a new transaction: the labels that are
+    /// neither yours nor confidently suggested. Commit refuses while any row
+    /// has some.
+    missing: Vec<Label>,
     /// The row's fields as the file had them.
     #[schema(value_type = Object)]
     raw: serde_json::Value,
@@ -290,6 +405,10 @@ pub struct RowUpdate {
     #[serde(default, deserialize_with = "nullable")]
     #[schema(value_type = Option<Uuid>)]
     purpose_id: Option<Option<Uuid>>,
+    /// Labels to stop choosing, so their suggestions apply again. Setting a
+    /// label (to a value or `null`) makes it your choice.
+    #[serde(default)]
+    revert: Vec<Label>,
 }
 
 /// What a commit did.
@@ -369,11 +488,40 @@ fn kind_of(s: &str) -> Result<StatementKind, Problem> {
     }
 }
 
+/// The suggesters with these IDs, as the API shows them.
+async fn suggesters(
+    db: &mut PgConnection,
+    ids: impl IntoIterator<Item = Uuid>,
+) -> Result<HashMap<Uuid, Suggester>, Problem> {
+    let mut ids: Vec<Uuid> = ids.into_iter().collect();
+    ids.sort_unstable();
+    ids.dedup();
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    store::imports::suggesters(&mut *db, &ids)
+        .await?
+        .into_iter()
+        .map(|r| Ok((r.id, Suggester::try_from(r)?)))
+        .collect()
+}
+
+fn known(suggesters: &HashMap<Uuid, Suggester>, id: Uuid) -> Result<Suggester, Problem> {
+    suggesters.get(&id).cloned().ok_or_else(Problem::internal)
+}
+
 /// The imports as the API shows them, with their statements and counts.
 async fn output(db: &mut PgConnection, imports: Vec<ImportRow>) -> Result<Vec<Import>, Problem> {
     let ids: Vec<Uuid> = imports.iter().map(|i| i.id).collect();
     let statements = store::imports::statements(&mut *db, &ids).await?;
     let counts = store::imports::counts(&mut *db, &ids).await?;
+    let by = suggesters(
+        db,
+        statements
+            .iter()
+            .filter_map(|(_, s)| s.suggestion.as_ref().map(|a| a.suggester_id)),
+    )
+    .await?;
     imports
         .into_iter()
         .map(|i| {
@@ -391,7 +539,22 @@ async fn output(db: &mut PgConnection, imports: Vec<ImportRow>) -> Result<Vec<Im
                     Ok(StagedStatement {
                         position: s.position,
                         number_last4: s.account_number.as_ref().map(|n| n.last4().to_owned()),
-                        account_id: s.account_id,
+                        account_id: s.effective_account(),
+                        account_suggested: s.account_id.is_none()
+                            && s.effective_account().is_some(),
+                        suggested_account: s
+                            .suggestion
+                            .as_ref()
+                            .map(|a| {
+                                Ok::<_, Problem>(AccountSuggestion {
+                                    account_id: a.account_id,
+                                    confidence: a.confidence,
+                                    confident: a.confidence >= CONFIDENT,
+                                    reason: a.reason.clone(),
+                                    suggester: known(&by, a.suggester_id)?,
+                                })
+                            })
+                            .transpose()?,
                         kind: s.kind.as_deref().map(kind_of).transpose()?,
                         commodity_id: s.commodity_id,
                         ledger: s
@@ -485,7 +648,8 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
     let rows =
         store::imports::rows(&mut *db, import_id, Some(statement), None, None, i64::MAX).await?;
     let mut matched: HashMap<i32, (RowStatus, Uuid)> = HashMap::new();
-    if let Some(account) = s.account_id {
+    let account = s.effective_account();
+    if let Some(account) = account {
         let fps: Vec<String> = rows.iter().map(|r| r.fingerprint.clone()).collect();
         let known: HashMap<String, Uuid> =
             store::imports::known_fingerprints(&mut *db, account, &fps)
@@ -529,7 +693,7 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
     let statuses: Vec<(i32, String, Option<Uuid>)> = rows
         .iter()
         .map(|r| {
-            let (status, t) = match (s.account_id, matched.get(&r.position)) {
+            let (status, t) = match (account, matched.get(&r.position)) {
                 (None, _) => (RowStatus::NeedsAccount, None),
                 (Some(_), Some((status, t))) => (*status, Some(*t)),
                 (Some(_), None) => (RowStatus::New, None),
@@ -541,9 +705,104 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
     Ok(())
 }
 
-fn staged_row(r: RowRow) -> Result<StagedRow, Problem> {
+/// What a new transaction would get for each label: your choice, else a
+/// confident suggestion; a label with neither is missing.
+#[derive(Debug, PartialEq, Eq)]
+struct Labels {
+    counterparty: Option<Uuid>,
+    category: Option<Uuid>,
+    purpose: Option<Uuid>,
+    missing: Vec<Label>,
+}
+
+/// `suggestions` may hold other rows' too.
+fn labels(r: &RowRow, suggestions: &[SuggestionRow]) -> Labels {
+    let mut out = Labels {
+        counterparty: r.counterparty_id,
+        category: r.category_id,
+        purpose: r.purpose_id,
+        missing: Vec::new(),
+    };
+    for label in Label::ALL {
+        if r.chosen.iter().any(|c| c == label.as_str()) {
+            continue;
+        }
+        let slot = match label {
+            Label::Counterparty => &mut out.counterparty,
+            Label::Category => &mut out.category,
+            Label::Purpose => &mut out.purpose,
+        };
+        match suggestions.iter().find(|s| {
+            (s.statement, s.position) == (r.statement, r.position)
+                && s.label == label.as_str()
+                && s.confidence >= CONFIDENT
+        }) {
+            Some(s) => *slot = s.value,
+            None => {
+                *slot = None;
+                out.missing.push(label);
+            }
+        }
+    }
+    out
+}
+
+/// The decision committing carries out for a row; `None` while its
+/// statement has no account.
+fn decision_of(r: &RowRow) -> Result<Option<Decision>, Problem> {
+    let status = RowStatus::parse(&r.status)?;
+    if status == RowStatus::NeedsAccount {
+        return Ok(None);
+    }
+    Ok(match r.decision.as_deref() {
+        Some(d) => Some(Decision::parse(d)?),
+        None => Decision::default_for(status),
+    })
+}
+
+/// Rows as the API shows them, with their suggestions.
+async fn shown(
+    db: &mut PgConnection,
+    import_id: Uuid,
+    rows: Vec<RowRow>,
+) -> Result<Vec<StagedRow>, Problem> {
+    let keys: Vec<(i16, i32)> = rows.iter().map(|r| (r.statement, r.position)).collect();
+    let all = store::imports::suggestions(&mut *db, import_id, &keys).await?;
+    let by = suggesters(db, all.iter().map(|s| s.suggester_id)).await?;
+    rows.into_iter()
+        .map(|r| {
+            let mine: Vec<SuggestionRow> = all
+                .iter()
+                .filter(|s| (s.statement, s.position) == (r.statement, r.position))
+                .cloned()
+                .collect();
+            staged_row(r, &mine, &by)
+        })
+        .collect()
+}
+
+fn staged_row(
+    r: RowRow,
+    suggestions: &[SuggestionRow],
+    by: &HashMap<Uuid, Suggester>,
+) -> Result<StagedRow, Problem> {
     let status = RowStatus::parse(&r.status)?;
     let chosen = r.decision.as_deref().map(Decision::parse).transpose()?;
+    let decision = decision_of(&r)?;
+    let l = labels(&r, suggestions);
+    let suggestions = suggestions
+        .iter()
+        .map(|s| {
+            Ok(LabelSuggestion {
+                label: Label::parse(&s.label)?,
+                value: s.value,
+                confidence: s.confidence,
+                confident: s.confidence >= CONFIDENT,
+                reason: s.reason.clone(),
+                suggester: known(by, s.suggester_id)?,
+            })
+        })
+        .collect::<Result<_, Problem>>()?;
     Ok(StagedRow {
         statement: r.statement,
         position: r.position,
@@ -553,16 +812,22 @@ fn staged_row(r: RowRow) -> Result<StagedRow, Problem> {
         native_id: r.native_id,
         status,
         match_transaction_id: r.match_transaction_id,
-        decision: if status == RowStatus::NeedsAccount {
-            None
-        } else {
-            chosen.or(Decision::default_for(status))
-        },
+        decision,
         decided: chosen.is_some(),
         set_description: r.set_description,
-        counterparty_id: r.counterparty_id,
-        category_id: r.category_id,
-        purpose_id: r.purpose_id,
+        counterparty_id: l.counterparty,
+        category_id: l.category,
+        purpose_id: l.purpose,
+        chosen: Label::ALL
+            .into_iter()
+            .filter(|l| r.chosen.iter().any(|c| c == l.as_str()))
+            .collect(),
+        suggestions,
+        missing: if decision == Some(Decision::New) {
+            l.missing
+        } else {
+            Vec::new()
+        },
         raw: r.raw,
     })
 }
@@ -733,6 +998,7 @@ async fn upload(
                 counterparty_id: None,
                 category_id: None,
                 purpose_id: None,
+                chosen: Vec::new(),
             });
         }
         let account_id = resolve(&mut tx, s.account.as_ref(), p.account_id).await?;
@@ -748,6 +1014,7 @@ async fn upload(
             ledger_amount: s.ledger.as_ref().map(|l| l.amount.as_decimal()),
             ledger_date: s.ledger.as_ref().map(|l| l.date),
             skipped: serde_json::to_value(&skipped).map_err(|_| Problem::internal())?,
+            suggestion: None,
         };
         store::imports::insert_statement(&mut *tx, id, &statement).await?;
         if !rows.is_empty() {
@@ -807,10 +1074,7 @@ async fn rows(
         limit + 1,
     )
     .await?;
-    let items = rows
-        .into_iter()
-        .map(staged_row)
-        .collect::<Result<Vec<_>, Problem>>()?;
+    let items = shown(&mut db, id, rows).await?;
     Ok(axum::Json(Page::from_rows(items, limit, |r| {
         format!("{}:{}", r.statement, r.position)
     })))
@@ -1019,14 +1283,30 @@ async fn set_row(
         }
         row.set_description = d;
     }
-    if let Some(c) = req.counterparty_id {
-        row.counterparty_id = c;
-    }
-    if let Some(c) = req.category_id {
-        row.category_id = c;
-    }
-    if let Some(p) = req.purpose_id {
-        row.purpose_id = p;
+    for (label, value, slot) in [
+        (
+            Label::Counterparty,
+            req.counterparty_id,
+            &mut row.counterparty_id,
+        ),
+        (Label::Category, req.category_id, &mut row.category_id),
+        (Label::Purpose, req.purpose_id, &mut row.purpose_id),
+    ] {
+        let name = label.as_str().to_owned();
+        if req.revert.contains(&label) {
+            if value.is_some() {
+                return Err(Problem::invalid(format!(
+                    "{name}: set and reverted at once"
+                )));
+            }
+            *slot = None;
+            row.chosen.retain(|c| *c != name);
+        } else if let Some(v) = value {
+            *slot = v;
+            if !row.chosen.contains(&name) {
+                row.chosen.push(name);
+            }
+        }
     }
     store::imports::set_decision(&mut *tx, id, &row)
         .await
@@ -1035,8 +1315,12 @@ async fn set_row(
     let version = store::imports::lock(&mut *tx, id)
         .await?
         .ok_or_else(Problem::internal)?;
+    let row = shown(&mut tx, id, vec![row])
+        .await?
+        .pop()
+        .ok_or_else(Problem::internal)?;
     tx.commit().await?;
-    Ok((StatusCode::OK, etag(version), axum::Json(staged_row(row)?)).into_response())
+    Ok((StatusCode::OK, etag(version), axum::Json(row)).into_response())
 }
 
 /// Commit the import: all or nothing. Every row's status is worked out
@@ -1077,7 +1361,7 @@ async fn commit(
         .into_iter()
         .map(|(_, s)| s)
         .collect();
-    if let Some(s) = statements.iter().find(|s| s.account_id.is_none()) {
+    if let Some(s) = statements.iter().find(|s| s.effective_account().is_none()) {
         return Err(Problem::conflict(format!(
             "statement {} has no account yet",
             s.position
@@ -1101,6 +1385,39 @@ async fn commit(
         ));
     }
 
+    // Every new transaction needs each label from you or a confident
+    // suggestion (design §8).
+    let keys: Vec<(i16, i32)> = rows.iter().map(|r| (r.statement, r.position)).collect();
+    let suggestions = store::imports::suggestions(&mut *tx, id, &keys).await?;
+    let mut lacking = Vec::new();
+    for r in &rows {
+        let l = labels(r, &suggestions);
+        if decision_of(r)? == Some(Decision::New) && !l.missing.is_empty() {
+            let names: Vec<&str> = l.missing.iter().map(|l| l.as_str()).collect();
+            lacking.push(format!(
+                "statement {} row {} ({})",
+                r.statement,
+                r.position,
+                names.join(", ")
+            ));
+        }
+    }
+    if !lacking.is_empty() {
+        let n = lacking.len();
+        lacking.truncate(10);
+        return Err(Problem::new(
+            StatusCode::CONFLICT,
+            "labels-missing",
+            "Rows need labels",
+        )
+        .detail(format!(
+            "{n} new rows have labels that are neither chosen nor confidently suggested: {}{}",
+            lacking.join("; "),
+            if n > 10 { "; …" } else { "" }
+        )));
+    }
+    let mut outcomes = Vec::new();
+
     let mut out = Committed {
         import_batch_id: None,
         created: 0,
@@ -1116,12 +1433,9 @@ async fn commit(
             .iter()
             .find(|s| s.position == r.statement)
             .ok_or_else(Problem::internal)?;
-        let account = s.account_id.ok_or_else(Problem::internal)?;
+        let account = s.effective_account().ok_or_else(Problem::internal)?;
         let status = RowStatus::parse(&r.status)?;
-        let decision = match r.decision.as_deref() {
-            Some(d) => Decision::parse(d)?,
-            None => Decision::default_for(status).ok_or_else(Problem::internal)?,
-        };
+        let decision = decision_of(r)?.ok_or_else(Problem::internal)?;
         if !decision.fits(status) {
             return Err(at_row(r)(Problem::conflict(format!(
                 "a {} row can't be {}",
@@ -1147,9 +1461,10 @@ async fn commit(
                         b
                     }
                 };
+                let l = labels(r, &suggestions);
                 let quantity = Amount::from_decimal(r.amount.abs());
                 let mine = Leg::new(Some(account), None, s.commodity_id, quantity);
-                let outside = Leg::new(None, r.counterparty_id, s.commodity_id, quantity);
+                let outside = Leg::new(None, l.counterparty, s.commodity_id, quantity);
                 let (from, to) = if r.amount.is_sign_negative() {
                     (mine, outside)
                 } else {
@@ -1159,18 +1474,30 @@ async fn commit(
                     .set_description
                     .clone()
                     .unwrap_or_else(|| r.description.chars().take(500).collect());
-                let req = NewTransaction::single(
-                    r.date,
-                    description,
-                    from,
-                    to,
-                    r.purpose_id,
-                    r.category_id,
-                );
+                let req =
+                    NewTransaction::single(r.date, description, from, to, l.purpose, l.category);
                 let t = create_in(&mut tx, principal, req, batch)
                     .await
                     .map_err(at_row(r))?;
                 out.created += 1;
+                for sg in suggestions
+                    .iter()
+                    .filter(|sg| (sg.statement, sg.position) == (r.statement, r.position))
+                {
+                    let committed = match Label::parse(&sg.label)? {
+                        Label::Counterparty => l.counterparty,
+                        Label::Category => l.category,
+                        Label::Purpose => l.purpose,
+                    };
+                    outcomes.push(Outcome {
+                        suggester_id: sg.suggester_id,
+                        label: sg.label.clone(),
+                        suggested: sg.value,
+                        confidence: sg.confidence,
+                        committed,
+                        transaction_id: Some(t.id()),
+                    });
+                }
                 t.id()
             }
             Decision::Match => {
@@ -1208,8 +1535,23 @@ async fn commit(
         store::import_batches::touch(&mut *tx, b).await?;
     }
     for s in &statements {
+        if let Some(a) = &s.suggestion {
+            outcomes.push(Outcome {
+                suggester_id: a.suggester_id,
+                label: "account".to_owned(),
+                suggested: Some(a.account_id),
+                confidence: a.confidence,
+                committed: s.effective_account(),
+                transaction_id: None,
+            });
+        }
+    }
+    if !outcomes.is_empty() {
+        store::imports::add_outcomes(&mut *tx, &outcomes).await?;
+    }
+    for s in &statements {
         if let (Some(amount), Some(date), Some(account)) =
-            (s.ledger_amount, s.ledger_date, s.account_id)
+            (s.ledger_amount, s.ledger_date, s.effective_account())
         {
             out.balance_checks.push(
                 crate::balance_checks::record(

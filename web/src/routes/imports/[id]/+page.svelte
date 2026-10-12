@@ -5,6 +5,7 @@
 	import { all, api, ApiError, done, ok, type Schemas } from '#lib/api/client.ts';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
+	import SuggestionBadge from '#lib/components/SuggestionBadge.svelte';
 	import { localDate } from '#lib/dates.ts';
 	import { partyKinds, rank } from '#lib/labels.ts';
 	import { accountLabel, accountsByOwner } from '#lib/names.ts';
@@ -14,15 +15,28 @@
 		counted,
 		decisionLabel,
 		decisionsFor,
+		labelNames,
+		labelState,
+		noneNames,
 		plan,
 		rowKey,
 		statementName,
 		statuses,
-		totals
+		totals,
+		unlabeled
 	} from '#lib/views/imports.ts';
 
 	type Row = Schemas['StagedRow'];
 	type Status = Schemas['RowStatus'];
+	type Label = Schemas['Label'];
+	const labels = Object.keys(labelNames) as Label[];
+	const field = {
+		counterparty: 'counterparty_id',
+		category: 'category_id',
+		purpose: 'purpose_id'
+	} as const;
+	// The select value for an explicit "none".
+	const NONE = '-';
 
 	const id = $derived(page.params.id ?? '');
 
@@ -31,7 +45,8 @@
 	let etag = '';
 	let rows: Row[] = $state([]);
 	let txs: Map<string, Schemas['Transaction']> = $state(new Map());
-	let shown: Status | '' = $state('');
+	// A status, or the rows that need labels.
+	let shown = $state<Status | 'unlabeled' | ''>('');
 	let open: string | null = $state(null);
 	// Whether to remember each statement's number; yes unless unticked.
 	let remember: Record<number, boolean> = $state({});
@@ -107,12 +122,41 @@
 			rows = rows.map((x) => (rowKey(x) === rowKey(updated) ? updated : x));
 		});
 
+	const setLabel = (row: Row, label: Label, value: string | null) =>
+		setRow(row, { [field[label]]: value });
+
+	/** A label's value on screen: yours, else a suggestion's. */
+	function valueOf(row: Row, label: Label): string | null | undefined {
+		const st = labelState(row, label);
+		if (st.kind === 'yours') return row[field[label]] ?? null;
+		if (st.kind === 'missing') return undefined;
+		return st.suggestion.value ?? null;
+	}
+
+	function nameOf(r: Reference, label: Label, value: string | null | undefined): string {
+		if (value === undefined) return '?';
+		if (value === null) return noneNames[label];
+		const named =
+			label === 'counterparty'
+				? r.counterparties.get(value)
+				: label === 'category'
+					? r.categories.get(value)
+					: r.parties.get(value);
+		return named?.name ?? '?';
+	}
+
+	/** A select's value: an ID, NONE, or '' while missing. */
+	function selected(row: Row, label: Label): string {
+		const v = valueOf(row, label);
+		return v === undefined || labelState(row, label).kind === 'unsure' ? '' : (v ?? NONE);
+	}
+
 	/** A typed counterparty: an existing one by name, else a new one. */
 	async function counterparty(row: Row, name: string) {
 		const r = ref;
 		if (!r) return;
 		const wanted = name.trim();
-		if (!wanted) return setRow(row, { counterparty_id: null });
+		if (!wanted) return;
 		let c = [...r.counterparties.values()].find(
 			(c) => c.name.toLowerCase() === wanted.toLowerCase()
 		);
@@ -160,8 +204,11 @@
 	}
 
 	const missingAccount = $derived(imp?.statements.some((s) => !s.account_id) ?? false);
+	const blocked = $derived(unlabeled(rows));
 	const planned = $derived(plan(rows));
-	const visible = $derived(shown ? rows.filter((r) => r.status === shown) : rows);
+	const visible = $derived(
+		shown === 'unlabeled' ? blocked : shown ? rows.filter((r) => r.status === shown) : rows
+	);
 	const allCounts = $derived(imp ? counted(totals(imp.statements)) : []);
 	const owners = $derived(
 		ref
@@ -231,7 +278,19 @@
 						<option value={a.id}>{accountLabel(a, r)}</option>
 					{/each}
 				</select>
-				{#if s.number_last4 && !s.account_id}
+				{#if s.suggested_account && (s.account_suggested || !s.account_id)}
+					{@const a = r.accounts.get(s.suggested_account.account_id)}
+					<span class="suggested">
+						{#if !s.account_suggested}Suggested: {a ? accountLabel(a, r) : '?'}{/if}
+						<SuggestionBadge suggestion={s.suggested_account} />
+						<button
+							class="link"
+							onclick={() => s.suggested_account && setAccount(s, s.suggested_account.account_id)}
+							>{s.account_suggested ? 'Accept' : 'Use it'}</button
+						>
+					</span>
+				{/if}
+				{#if s.number_last4 && (!s.account_id || s.account_suggested)}
 					<label class="check">
 						<input
 							type="checkbox"
@@ -265,11 +324,14 @@
 	{#if failure}<Failure error={failure} />{/if}
 
 	<div class="actions">
-		<button disabled={busy || missingAccount} onclick={commit}>
+		<button disabled={busy || missingAccount || blocked.length > 0} onclick={commit}>
 			Commit: {planned.new} new, {planned.match} already there or transfers, {planned.skip} skipped
 		</button>
 		<button class="quiet" onclick={discard}>Discard</button>
 		{#if missingAccount}<span class="muted small">Every statement needs an account first.</span
+			>{:else if blocked.length}<span class="small warn"
+				>{blocked.length} new {blocked.length === 1 ? 'row needs' : 'rows need'} labels:
+				<button class="link" onclick={() => (shown = 'unlabeled')}>show them</button></span
 			>{/if}
 	</div>
 
@@ -282,6 +344,13 @@
 				>{statuses[status]} {n}</button
 			>
 		{/each}
+		{#if blocked.length}
+			<button
+				class="link"
+				aria-pressed={shown === 'unlabeled'}
+				onclick={() => (shown = 'unlabeled')}>Needs labels {blocked.length}</button
+			>
+		{/if}
 	</nav>
 
 	<div class="list">
@@ -307,6 +376,23 @@
 							{row.set_description ?? row.description}
 							{#if row.set_description}<span class="muted small">(bank: {row.description})</span
 								>{/if}
+							{#if row.decision === 'new'}
+								<div class="chips small">
+									{#each labels as label (label)}
+										{@const st = labelState(row, label)}
+										<span
+											class="chip"
+											class:missing={st.kind === 'missing' || st.kind === 'unsure'}
+										>
+											<span class="muted">{labelNames[label]}:</span>
+											{nameOf(r, label, valueOf(row, label))}
+											{#if st.kind === 'confident' || st.kind === 'unsure'}<SuggestionBadge
+													suggestion={st.suggestion}
+												/>{/if}
+										</span>
+									{/each}
+								</div>
+							{/if}
 						</td>
 						<td class="num"><Amount value={row.amount} {code} /></td>
 						<td>
@@ -353,40 +439,79 @@
 													setRow(row, { set_description: e.currentTarget.value.trim() || null })}
 											/>
 										</label>
-										<label class="field">
-											<span>Counterparty</span>
-											<input
-												list="counterparties"
-												value={row.counterparty_id
-													? (r.counterparties.get(row.counterparty_id)?.name ?? '')
-													: ''}
-												placeholder="Unknown"
-												onchange={(e) => counterparty(row, e.currentTarget.value)}
-											/>
-										</label>
-										<label class="field">
-											<span>Category</span>
-											<select
-												value={row.category_id ?? ''}
-												onchange={(e) =>
-													setRow(row, { category_id: e.currentTarget.value || null })}
-											>
-												<option value="">None</option>
-												{#each sorted(r.categories) as c (c.id)}<option value={c.id}
-														>{c.name}</option
-													>{/each}
-											</select>
-										</label>
-										<label class="field">
-											<span>For</span>
-											<select
-												value={row.purpose_id ?? ''}
-												onchange={(e) => setRow(row, { purpose_id: e.currentTarget.value || null })}
-											>
-												<option value="">Default</option>
-												{#each owners as o (o.id)}<option value={o.id}>{o.name}</option>{/each}
-											</select>
-										</label>
+									</div>
+									<div class="labels">
+										{#each labels as label (label)}
+											{@const st = labelState(row, label)}
+											<div class="field">
+												<label for="{key}-{label}">{labelNames[label]}</label>
+												{#if label === 'counterparty'}
+													<input
+														id="{key}-{label}"
+														list="counterparties"
+														value={st.kind === 'yours' || st.kind === 'confident'
+															? row.counterparty_id
+																? (r.counterparties.get(row.counterparty_id)?.name ?? '')
+																: ''
+															: ''}
+														placeholder={st.kind === 'yours' || st.kind === 'confident'
+															? noneNames.counterparty
+															: 'Type a name'}
+														onchange={(e) => counterparty(row, e.currentTarget.value)}
+													/>
+												{:else}
+													<select
+														id="{key}-{label}"
+														value={selected(row, label)}
+														onchange={(e) =>
+															setLabel(
+																row,
+																label,
+																e.currentTarget.value === NONE ? null : e.currentTarget.value
+															)}
+													>
+														<option value="" disabled>Choose…</option>
+														<option value={NONE}>{noneNames[label]}</option>
+														{#if label === 'category'}
+															{#each sorted(r.categories) as c (c.id)}<option value={c.id}
+																	>{c.name}</option
+																>{/each}
+														{:else}
+															{#each owners as o (o.id)}<option value={o.id}>{o.name}</option
+																>{/each}
+														{/if}
+													</select>
+												{/if}
+												<span class="hint">
+													{#if st.kind === 'yours'}
+														Yours.
+														{#if row.suggestions.some((x) => x.label === label)}
+															<button class="link" onclick={() => setRow(row, { revert: [label] })}
+																>Back to the suggestion</button
+															>
+														{/if}
+													{:else if st.kind === 'confident'}
+														<SuggestionBadge suggestion={st.suggestion} />
+														{st.suggestion.reason}
+													{:else if st.kind === 'unsure'}
+														<SuggestionBadge suggestion={st.suggestion} />
+														{nameOf(r, label, st.suggestion.value)}? {st.suggestion.reason}
+														<button
+															class="link"
+															onclick={() => setLabel(row, label, st.suggestion.value ?? null)}
+															>Accept</button
+														>
+													{:else}
+														<span class="warn">Needed.</span>
+													{/if}
+													{#if label === 'counterparty' && !(st.kind === 'yours' && !row.counterparty_id)}
+														<button class="link" onclick={() => setLabel(row, label, null)}
+															>{noneNames.counterparty}</button
+														>
+													{/if}
+												</span>
+											</div>
+										{/each}
 									</div>
 								{:else if row.decision === 'match' && row.status !== 'transfer_match'}
 									<p class="small muted">
@@ -453,6 +578,35 @@
 		flex-wrap: wrap;
 		align-items: center;
 		gap: var(--space-2) var(--space-3);
+	}
+	.suggested {
+		display: inline-flex;
+		align-items: baseline;
+		gap: var(--space-2);
+		font-size: var(--text-sm);
+	}
+	.chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-1) var(--space-3);
+		margin-top: var(--space-1);
+	}
+	.chip.missing {
+		color: var(--color-warning);
+	}
+	.warn {
+		color: var(--color-warning);
+	}
+	.hint {
+		font-size: var(--text-xs);
+		color: var(--color-text-muted);
+	}
+	.hint > * + * {
+		margin-left: var(--space-1);
+	}
+	.labels + .labels {
+		margin-top: var(--space-3);
+		align-items: flex-start;
 	}
 	.check {
 		display: flex;

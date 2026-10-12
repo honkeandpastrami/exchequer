@@ -54,6 +54,13 @@
 	--color-focus: #2f81f7;
 	--shadow-1: 0 1px 2px rgb(0 0 0 / 0.06);
 
+	/* Suggestions, one hue per source (docs/ai.md): solid when confident,
+	   outlined when not. Your own choices carry no color. */
+	--color-suggest-rule: #6b46c1;
+	--color-suggest-local: #2b6cb0;
+	--color-suggest-remote: #b83280;
+	--color-on-suggest: #ffffff;
+
 	/* Chart series, in order. */
 	--chart-1: #1f5f4a;
 	--chart-2: #b7791f;
@@ -87,6 +94,10 @@
 		--color-error-bg: #3d1d1a;
 		--color-focus: #58a6ff;
 		--shadow-1: none;
+		--color-suggest-rule: #a68ae8;
+		--color-suggest-local: #6aa6e8;
+		--color-suggest-remote: #e06aa8;
+		--color-on-suggest: #0c1612;
 		--chart-1: #5cb595;
 		--chart-2: #e0a84a;
 		--chart-3: #6aa6e8;
@@ -117,6 +128,10 @@
 	--color-error-bg: #3d1d1a;
 	--color-focus: #58a6ff;
 	--shadow-1: none;
+	--color-suggest-rule: #a68ae8;
+	--color-suggest-local: #6aa6e8;
+	--color-suggest-remote: #e06aa8;
+	--color-on-suggest: #0c1612;
 	--chart-1: #5cb595;
 	--chart-2: #e0a84a;
 	--chart-3: #6aa6e8;

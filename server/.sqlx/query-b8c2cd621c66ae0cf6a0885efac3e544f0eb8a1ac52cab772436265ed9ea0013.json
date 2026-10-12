@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE staged_statement SET suggested_account_id = $3, account_suggester_id = $4,\n                                     account_confidence = $5, account_reason = $6\n         WHERE import_id = $1 AND position = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2",
+        "Uuid",
+        "Uuid",
+        "Int2",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b8c2cd621c66ae0cf6a0885efac3e544f0eb8a1ac52cab772436265ed9ea0013"
+}

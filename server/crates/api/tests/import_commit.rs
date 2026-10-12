@@ -76,6 +76,26 @@ async fn set_row(pool: &PgPool, h: &H, id: &str, position: i32, body: Value) -> 
     .await
 }
 
+/// Gives every new row's missing labels an explicit "none", as commit
+/// needs (design §8).
+async fn label_none(pool: &PgPool, h: &H, id: &str) {
+    for r in rows(pool, h, id).await {
+        if r["missing"].as_array().unwrap().is_empty() {
+            continue;
+        }
+        let position = i32::try_from(r["position"].as_i64().unwrap()).unwrap();
+        let body: serde_json::Map<String, Value> = r["missing"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| (format!("{}_id", l.as_str().unwrap()), Value::Null))
+            .collect();
+        let r = set_row(pool, h, id, position, Value::Object(body)).await;
+        assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+        assert_eq!(r.body["missing"], json!([]));
+    }
+}
+
 async fn count(pool: &PgPool, sql: &'static str) -> i64 {
     sqlx::query_scalar(sql).fetch_one(pool).await.unwrap()
 }
@@ -100,6 +120,22 @@ async fn a_card_statement_becomes_transactions_and_a_balance_check(pool: PgPool)
         commit(&pool, &h, &id, &etag).await.status,
         StatusCode::PRECONDITION_FAILED
     );
+    // New rows need their labels: yours or confidently suggested.
+    let r = commit(&pool, &h, &id, &read(&pool, &h, &id).await.etag()).await;
+    assert_eq!(r.status, StatusCode::CONFLICT, "{}", r.body);
+    assert_eq!(
+        r.body["type"],
+        json!("urn:exchequer:problem:labels-missing")
+    );
+    assert!(
+        r.body["detail"]
+            .as_str()
+            .unwrap()
+            .contains("statement 0 row 0 (counterparty, category, purpose)"),
+        "{}",
+        r.body
+    );
+    label_none(&pool, &h, &id).await;
     let r = commit(&pool, &h, &id, &read(&pool, &h, &id).await.etag()).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_eq!(
@@ -316,6 +352,29 @@ async fn decisions_labels_and_transfers(pool: PgPool) {
     let r = set_row(&pool, &h, &id, 1, json!({ "purpose_id": null })).await;
     assert_eq!(r.body.get("purpose_id"), None);
     assert_eq!(r.body["counterparty_id"], json!(h.store));
+    // `null` is a choice too: the account's owner. Only the category is open.
+    assert_eq!(
+        (&r.body["chosen"], &r.body["missing"]),
+        (&json!(["counterparty", "purpose"]), &json!(["category"]))
+    );
+    let r = set_row(&pool, &h, &id, 1, json!({ "category_id": null })).await;
+    assert_eq!(r.body["missing"], json!([]));
+    // Reverting gives the label back to suggestions; there are none.
+    let r = set_row(&pool, &h, &id, 1, json!({ "revert": ["counterparty"] })).await;
+    assert_eq!(
+        (r.body.get("counterparty_id"), &r.body["missing"]),
+        (None, &json!(["counterparty"]))
+    );
+    let r = set_row(
+        &pool,
+        &h,
+        &id,
+        1,
+        json!({ "revert": ["counterparty"], "counterparty_id": h.store }),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY);
+    set_row(&pool, &h, &id, 1, json!({ "counterparty_id": h.store })).await;
 
     let r = commit(&pool, &h, &id, &read(&pool, &h, &id).await.etag()).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
@@ -391,6 +450,8 @@ async fn commit_rechecks_and_is_all_or_nothing(pool: PgPool) {
     );
 
     // A closed month refuses the whole commit.
+    label_none(&pool, &h, &id).await;
+    let now = read(&pool, &h, &id).await;
     h.put_params(
         &pool,
         "2026-03",

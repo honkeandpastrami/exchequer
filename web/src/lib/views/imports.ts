@@ -75,3 +75,54 @@ export function plan(rows: Schemas['StagedRow'][]): Record<Decision, number> {
 /** A row's key, unique in its import. */
 export const rowKey = (r: { statement: number; position: number }) =>
 	`${r.statement}/${r.position}`;
+
+// ------------------------------------------------------- Suggestions ----
+// Design §8, docs/ai.md: a label is yours, confidently suggested (committed
+// as shown), unsurely suggested (shown, but not committed unless you accept
+// it) or missing.
+
+type Label = Schemas['Label'];
+type Suggestion = Schemas['LabelSuggestion'];
+
+/** In display order. */
+export const labelNames: Record<Label, string> = {
+	counterparty: 'Counterparty',
+	category: 'Category',
+	purpose: 'For'
+};
+
+/** What choosing "none" means for each label. */
+export const noneNames: Record<Label, string> = {
+	counterparty: 'Unknown',
+	category: 'No category',
+	purpose: "The account's owner"
+};
+
+export const sourceNames: Record<Schemas['SuggesterKind'], string> = {
+	rule: 'Rule',
+	local: 'Local AI',
+	remote: 'Remote AI'
+};
+
+export type LabelState =
+	| { kind: 'yours' }
+	| { kind: 'confident'; suggestion: Suggestion }
+	| { kind: 'unsure'; suggestion: Suggestion }
+	| { kind: 'missing' };
+
+export function labelState(row: Schemas['StagedRow'], label: Label): LabelState {
+	if (row.chosen.includes(label)) return { kind: 'yours' };
+	const suggestion = row.suggestions.find((s) => s.label === label);
+	if (!suggestion) return { kind: 'missing' };
+	return { kind: suggestion.confident ? 'confident' : 'unsure', suggestion };
+}
+
+/** A per-mille confidence as a whole percentage. */
+export const percent = (perMille: number) => `${Math.round(perMille / 10)}%`;
+
+/** Who made a suggestion, exactly. */
+export const suggesterName = (s: Schemas['Suggester']) =>
+	`${sourceNames[s.kind]}: ${s.name} ${s.version}`;
+
+/** Rows commit refuses until their labels are settled. */
+export const unlabeled = (rows: Schemas['StagedRow'][]) => rows.filter((r) => r.missing.length);

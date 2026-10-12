@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { Schemas } from '../api/client';
-import { counted, decisionLabel, decisionsFor, plan, statementName, totals } from './imports';
+import {
+	counted,
+	decisionLabel,
+	decisionsFor,
+	labelState,
+	percent,
+	plan,
+	statementName,
+	totals,
+	unlabeled
+} from './imports';
 
 const counts = (c: Partial<Schemas['RowCounts']>): Schemas['RowCounts'] => ({
 	new: 0,
@@ -19,7 +29,8 @@ const statement = (
 	commodity_id: 'usd',
 	number_last4,
 	counts: counts(c),
-	skipped: []
+	skipped: [],
+	account_suggested: false
 });
 
 const row = (decision: Schemas['Decision'] | null): Schemas['StagedRow'] => ({
@@ -31,7 +42,19 @@ const row = (decision: Schemas['Decision'] | null): Schemas['StagedRow'] => ({
 	status: 'new',
 	decided: false,
 	decision,
-	raw: {}
+	raw: {},
+	chosen: [],
+	suggestions: [],
+	missing: []
+});
+
+const suggestion = (label: Schemas['Label'], confidence: number): Schemas['LabelSuggestion'] => ({
+	label,
+	value: null,
+	confidence,
+	confident: confidence >= 900,
+	reason: 'like before',
+	suggester: { id: 's', kind: 'local', name: 'lexical-knn', version: '1', details: {} }
 });
 
 describe('import review', () => {
@@ -67,5 +90,20 @@ describe('import review', () => {
 			match: 0,
 			skip: 1
 		});
+	});
+
+	it('tells your labels from suggested and missing ones', () => {
+		const r = {
+			...row('new'),
+			chosen: ['purpose' as const],
+			suggestions: [suggestion('counterparty', 930), suggestion('category', 610)],
+			missing: ['category' as const]
+		};
+		expect(labelState(r, 'purpose').kind).toBe('yours');
+		expect(labelState(r, 'counterparty').kind).toBe('confident');
+		expect(labelState(r, 'category').kind).toBe('unsure');
+		expect(labelState({ ...r, suggestions: [] }, 'counterparty').kind).toBe('missing');
+		expect(unlabeled([r, row('new')])).toEqual([r]);
+		expect(percent(926)).toBe('93%');
 	});
 });

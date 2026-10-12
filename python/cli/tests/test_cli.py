@@ -46,6 +46,7 @@ def test_a_statement_shows_its_account_counts_and_balance():
         position=0,
         skipped=[SkippedLine(line=4, reason="unreadable date")],
         account_id=CARD,
+        account_suggested=False,
         number_last4="2222",
         ledger=LedgerBalance(amount="-50.00", date=datetime.date(2026, 3, 31)),
     )
@@ -53,6 +54,8 @@ def test_a_statement_shows_its_account_counts_and_balance():
         "  …2222 → Alex · Card: 3 new, 1 duplicate; bank balance -50.00 on 2026-03-31; "
         "1 unreadable lines"
     )
+    s.account_suggested = True
+    assert statement_line(s, names).startswith("  …2222 → Alex · Card (suggested): ")
     s.account_id = None
     s.number_last4 = None
     assert statement_line(s, names).startswith("  no number → NO ACCOUNT YET")
@@ -68,6 +71,9 @@ def test_a_row_and_what_it_can_become():
         raw=StagedRowRaw(),
         statement=0,
         status=RowStatus.NEAR_DUPLICATE,
+        chosen=[],
+        suggestions=[],
+        missing=[],
     )
     assert row_line(r, "2026-03-01 'Groceries'") == (
         "2026-03-02        -80.00  GROCER" + " " * 34 + "  near duplicate of 2026-03-01 'Groceries'"

@@ -126,6 +126,8 @@ def _all(fetch: Callable[[str | Unset], Response[Any]]) -> Iterator[Any]:
 def statement_line(s: StagedStatement, names: Names) -> str:
     number = f"…{s.number_last4}" if isinstance(s.number_last4, str) else "no number"
     account = names.accounts.get(s.account_id, "?") if isinstance(s.account_id, UUID) else None
+    if account and s.account_suggested:
+        account += " (suggested)"
     counts = s.counts.to_dict()
     shown = ", ".join(f"{counts[k.value]} {STATUS[k]}" for k in STATUS if counts.get(k.value))
     text = f"  {number} → {account or 'NO ACCOUNT YET'}: {shown or 'no rows'}"
@@ -239,6 +241,14 @@ class Importer:
             ):
                 self.ui.say("  the ledger changed since the rows were checked; here they are again")
                 continue
+            if (
+                r.status_code == 409
+                and isinstance(r.parsed, Problem)
+                and r.parsed.type_.endswith(":labels-missing")
+            ):
+                # Labels are chosen in the web app's review (design §8).
+                self.ui.say(f"  left staged ({imp.id}): {r.parsed.detail}")
+                return False
             done: Committed = ok(r, "commit")
             for line in committed_lines(done, self.names):
                 self.ui.say(line)
