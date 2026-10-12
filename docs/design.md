@@ -379,7 +379,9 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
 3. **Deduplication,** done once, on the server, with full DB access:
    - *Exact:* native ID (FITID or bank reference), or a content hash with an occurrence
      suffix for identical rows in one file; unique per account (`import_fingerprint`,
-     recorded on commit and deleted with its transaction).
+     recorded on commit and deleted with its transaction). Transactions that came in another
+     way get theirs through `POST /import-fingerprints`; the Firefly migration records each
+     journal's `external_id`, the ID the preimporter gave the row (§11).
    - *Near:* same account, commodity and signed amount, date within ±3 days, matched
      one-to-one: the most similar descriptions first (`pg_trgm`), then the closest dates.
      Similarity only ranks: a transaction typed by hand rarely reads like the bank's text,

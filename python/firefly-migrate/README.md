@@ -13,6 +13,7 @@ uv run firefly-migrate settle MAPPING      # the settlement pass, then the settl
 uv run firefly-migrate settlement MAPPING  # only the settlement check
 uv run firefly-migrate numbers MAPPING     # account numbers Firefly has that Exchequer lacks
 uv run firefly-migrate numbers MAPPING --apply  # ... and add them (shows last four only)
+uv run firefly-migrate fingerprints MAPPING [--apply]  # record which bank rows were imported
 ```
 
 `MAPPING` is a TOML file you keep privately (never in this repo). It names:

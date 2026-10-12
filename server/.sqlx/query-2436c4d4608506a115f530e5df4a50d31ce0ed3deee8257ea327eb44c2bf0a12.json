@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (u.n - 1)::int8 AS \"n!\" FROM unnest($1::uuid[], $2::uuid[])\n               WITH ORDINALITY AS u(account_id, transaction_id, n)\n           WHERE NOT EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = u.transaction_id\n                             AND u.account_id IN (s.from_account_id, s.to_account_id))\n           ORDER BY u.n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2436c4d4608506a115f530e5df4a50d31ce0ed3deee8257ea327eb44c2bf0a12"
+}

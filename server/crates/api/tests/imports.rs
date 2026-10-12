@@ -385,3 +385,112 @@ async fn rows_matching_the_other_side_of_a_transfer(pool: PgPool) {
     let all = rows(&pool, &h, &r.id(), "").await;
     assert!(!statuses(&all).contains(&"transfer_match"), "{all:?}");
 }
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn fingerprints_recorded_for_existing_transactions(pool: PgPool) {
+    let h = H::new(&pool).await;
+    let coffee = |date: &str| {
+        json!({ "date": date, "description": "Coffee", "splits": [{
+            "from": h.leg(h.acct(&h.alex_checking), "4.50"),
+            "to": h.leg(("counterparty_id", &h.store), "4.50") }] })
+    };
+    let a = h
+        .send(
+            &pool,
+            "POST",
+            "/api/v1/transactions",
+            Some(coffee("2026-02-01")),
+        )
+        .await
+        .id();
+    let b = h
+        .send(
+            &pool,
+            "POST",
+            "/api/v1/transactions",
+            Some(coffee("2026-02-02")),
+        )
+        .await
+        .id();
+    // The CSV's first coffee, as the old tool fingerprinted it.
+    let first = upload(&pool, &h, &format!("?account_id={}", h.joint_savings), CSV).await;
+    let fp: String = sqlx::query_scalar(
+        "SELECT fingerprint FROM staged_row WHERE import_id = $1::uuid AND position = 0",
+    )
+    .bind(first.id())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let post = |items: Value| {
+        let pool = pool.clone();
+        let t = h.t.clone();
+        async move {
+            call(&pool, "POST", "/api/v1/import-fingerprints")
+                .token(&t)
+                .json(json!({ "items": items }))
+                .send()
+                .await
+        }
+    };
+    let item = |account: &str, fp: &str, t: &str| json!({ "account_id": account, "fingerprint": fp, "transaction_id": t });
+    for bad in [
+        json!([]),
+        json!([item(&h.alex_checking, "", &a)]),
+        json!([item(&h.joint_savings, "X1", &a)]), // no split on that account
+        json!([
+            item(&h.alex_checking, "X1", &a),
+            item(&h.alex_checking, "X1", &b)
+        ]),
+    ] {
+        let r = post(bad.clone()).await;
+        assert_eq!(
+            r.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{bad} {}",
+            r.body
+        );
+    }
+    let r = post(json!([
+        item(&h.alex_checking, &fp, &a),
+        item(&h.alex_checking, "X1", &a)
+    ]))
+    .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(
+        r.body,
+        json!({ "added": 2, "unchanged": 0, "conflicts": [] })
+    );
+    let r = post(json!([
+        item(&h.alex_checking, &fp, &a),
+        item(&h.alex_checking, "X1", &b)
+    ]))
+    .await;
+    assert_eq!(
+        r.body,
+        json!({ "added": 0, "unchanged": 1,
+                "conflicts": [item(&h.alex_checking, "X1", &b)] })
+    );
+
+    // Now the row is an exact duplicate of the transaction.
+    let r = upload(&pool, &h, &format!("?account_id={}", h.alex_checking), CSV).await;
+    let all = rows(&pool, &h, &r.id(), "").await;
+    assert_eq!(all[0]["status"], json!("duplicate"));
+    assert_eq!(all[0]["match_transaction_id"], json!(a));
+
+    // Deleting the transaction forgets its fingerprints.
+    let etag = h
+        .send(&pool, "GET", &format!("/api/v1/transactions/{a}"), None)
+        .await
+        .etag();
+    call(&pool, "DELETE", format!("/api/v1/transactions/{a}"))
+        .token(&h.t)
+        .if_match(&etag)
+        .send()
+        .await;
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM import_fingerprint")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(left, 0);
+}

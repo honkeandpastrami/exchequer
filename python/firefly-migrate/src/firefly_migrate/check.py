@@ -61,6 +61,18 @@ def _all(fetch: Any) -> list[Any]:
         cursor = page.next_cursor
 
 
+def accounts_by_key(client: AuthenticatedClient) -> dict[str, Any]:
+    """Exchequer's accounts by `Owner · Name`."""
+    parties = {
+        str(p.id): p.name
+        for p in _all(lambda c: list_parties.sync(client=client, limit=500, cursor=c))
+    }
+    return {
+        account_key(parties[str(a.owner_id)], a.name): a
+        for a in _all(lambda c: list_accounts.sync(client=client, limit=500, cursor=c))
+    }
+
+
 def exchequer_view(
     client: AuthenticatedClient, dates: list[date]
 ) -> tuple[dict[tuple[str, str, date], Decimal], dict[tuple[str, str], Decimal]]:

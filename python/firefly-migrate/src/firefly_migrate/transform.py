@@ -58,6 +58,9 @@ class Transaction:
     firefly_id: str | None = None  # the group ID; None for opening balances
     # The import tag it came in with in Firefly, if any: its import batch.
     import_batch: str | None = None
+    # (account, row ID) for each bank row it was imported from: the journals'
+    # `external_id`s, on the migrated accounts they touch (design §6.3).
+    fingerprints: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -95,6 +98,9 @@ class Plan:
 
 
 # --------------------------------------------------------------- Helpers ----
+
+# The longest row ID Exchequer records.
+MAX_FINGERPRINT = 200
 
 NUMBER = re.compile(r"^[0-9A-Za-z]{1,34}$")
 
@@ -177,6 +183,7 @@ class _Journal:
     budget: str | None
     category: str | None
     tags: list[str]
+    external_id: str | None = None
 
 
 def _journals(groups: list[dict[str, Any]]) -> list[list[_Journal]]:
@@ -209,6 +216,7 @@ def _journals(groups: list[dict[str, Any]]) -> list[list[_Journal]]:
                     budget=t.get("budget_name") or None,
                     category=t.get("category_name") or None,
                     tags=list(t.get("tags") or []),
+                    external_id=str(t.get("external_id") or "").strip() or None,
                 )
             )
         out.append(journals)
@@ -396,6 +404,18 @@ class _Builder:
             }
         )
         notes = "\n\n".join(dict.fromkeys(j.notes for j in journals if j.notes)) or None
+        fingerprints: list[tuple[str, str]] = []
+        for j in journals:
+            if not j.external_id:
+                continue
+            if len(j.external_id) > MAX_FINGERPRINT:
+                self.report.counts["external IDs left out (over 200 characters)"] += 1
+                continue
+            for fid in (j.source_id, j.destination_id):
+                account = self.m.by_firefly_id.get(fid)
+                pair = (account.key, j.external_id) if account else None
+                if pair and pair not in fingerprints:
+                    fingerprints.append(pair)
         return Transaction(
             date=first.date,
             description=(first.group_title if len(journals) > 1 else None) or first.description,
@@ -404,6 +424,7 @@ class _Builder:
             tags=tags,
             firefly_id=first.group_id,
             import_batch=batches[0] if batches else None,
+            fingerprints=fingerprints,
         )
 
 
@@ -518,6 +539,9 @@ def plan(
         t.splits = splits
         final.append(t)
 
+    report.counts["bank row IDs (Firefly external IDs) on migrated accounts"] = sum(
+        len(t.fingerprints) for t in final
+    )
     used_categories = {s.category for t in final for s in t.splits if s.category}
     return Plan(
         year=m.year,

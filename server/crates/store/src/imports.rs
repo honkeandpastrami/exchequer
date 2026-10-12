@@ -422,3 +422,76 @@ pub async fn transfer_candidates(
     .fetch_all(db)
     .await
 }
+
+/// One imported row's ID in an account, and the transaction it became.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fingerprint {
+    pub account_id: Uuid,
+    pub fingerprint: String,
+    pub transaction_id: Uuid,
+}
+
+/// Of `items`, those whose transaction has no split on the account.
+pub async fn fingerprints_off_account(
+    db: impl PgExecutor<'_>,
+    items: &[Fingerprint],
+) -> Result<Vec<usize>, sqlx::Error> {
+    let accounts: Vec<Uuid> = items.iter().map(|f| f.account_id).collect();
+    let transactions: Vec<Uuid> = items.iter().map(|f| f.transaction_id).collect();
+    let rows = sqlx::query_scalar!(
+        r#"SELECT (u.n - 1)::int8 AS "n!" FROM unnest($1::uuid[], $2::uuid[])
+               WITH ORDINALITY AS u(account_id, transaction_id, n)
+           WHERE NOT EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = u.transaction_id
+                             AND u.account_id IN (s.from_account_id, s.to_account_id))
+           ORDER BY u.n"#,
+        &accounts,
+        &transactions,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|n| usize::try_from(n).ok())
+        .collect())
+}
+
+/// Records fingerprints, leaving any already recorded alone; returns how
+/// many were new.
+pub async fn add_fingerprints(
+    db: impl PgExecutor<'_>,
+    items: &[Fingerprint],
+) -> Result<u64, sqlx::Error> {
+    let accounts: Vec<Uuid> = items.iter().map(|f| f.account_id).collect();
+    let fps: Vec<String> = items.iter().map(|f| f.fingerprint.clone()).collect();
+    let transactions: Vec<Uuid> = items.iter().map(|f| f.transaction_id).collect();
+    let r = sqlx::query!(
+        "INSERT INTO import_fingerprint (account_id, fingerprint, transaction_id)
+         SELECT * FROM unnest($1::uuid[], $2::text[], $3::uuid[])
+         ON CONFLICT (account_id, fingerprint) DO NOTHING",
+        &accounts,
+        &fps,
+        &transactions,
+    )
+    .execute(db)
+    .await?;
+    Ok(r.rows_affected())
+}
+
+/// What's recorded for these (account, fingerprint) pairs.
+pub async fn recorded_fingerprints(
+    db: impl PgExecutor<'_>,
+    keys: &[(Uuid, String)],
+) -> Result<Vec<Fingerprint>, sqlx::Error> {
+    let accounts: Vec<Uuid> = keys.iter().map(|k| k.0).collect();
+    let fps: Vec<String> = keys.iter().map(|k| k.1.clone()).collect();
+    sqlx::query_as!(
+        Fingerprint,
+        "SELECT f.account_id, f.fingerprint, f.transaction_id FROM import_fingerprint f
+         JOIN unnest($1::uuid[], $2::text[]) AS u(account_id, fingerprint)
+           ON u.account_id = f.account_id AND u.fingerprint = f.fingerprint",
+        &accounts,
+        &fps,
+    )
+    .fetch_all(db)
+    .await
+}

@@ -9,6 +9,9 @@ settle      the settlement pass over a migrated ledger: payment links,
 settlement  only the settlement check (implied stipends, design §4.5).
 numbers     the account numbers Firefly has that the migrated accounts lack;
             with --apply, adds them. Reads only Firefly's accounts.
+fingerprints  plan, then record which bank rows the migrated transactions
+            came from (Firefly's external IDs) with --apply, so files with
+            those rows find them as duplicates. Re-runnable.
 
 Firefly is only ever read (see `firefly.py`).
 """
@@ -21,7 +24,7 @@ from datetime import date
 from pathlib import Path
 
 from exchequer_sdk import AuthenticatedClient
-from firefly_migrate import check, mapping, numbers, settle, transform
+from firefly_migrate import check, fingerprints, mapping, numbers, settle, transform
 from firefly_migrate.firefly import FireflyReader
 from firefly_migrate.report import render
 from firefly_migrate.writer import WriteError, Writer
@@ -48,10 +51,11 @@ def _plan(m: mapping.Mapping, ff: FireflyReader) -> tuple[transform.Plan, list[d
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="firefly-migrate", description=__doc__.split("\n")[0])
     parser.add_argument(
-        "command", choices=["plan", "run", "check", "settle", "settlement", "numbers"]
+        "command",
+        choices=["plan", "run", "check", "settle", "settlement", "numbers", "fingerprints"],
     )
     parser.add_argument("mapping", type=Path, help="the mapping file (TOML)")
-    parser.add_argument("--apply", action="store_true", help="numbers: add them")
+    parser.add_argument("--apply", action="store_true", help="numbers, fingerprints: write")
     args = parser.parse_args(argv)
 
     try:
@@ -68,15 +72,21 @@ def main(argv: list[str] | None = None) -> int:
     }
     if args.command in alone:
         return alone[args.command]()
+    return _migrate(m, args.command, apply=args.apply)
 
+
+def _migrate(m: mapping.Mapping, command: str, *, apply: bool) -> int:
+    """The commands that plan the migration from Firefly first."""
     with _reader(m) as ff:
         p, groups = _plan(m, ff)
         print(render(p))
-        if p.report.errors and args.command == "run":
+        if command == "fingerprints":
+            return _fingerprints(m, p, apply=apply)
+        if p.report.errors and command == "run":
             print("\nNot writing anything: fix the errors above first.", file=sys.stderr)
             return 1
 
-        if args.command == "run":
+        if command == "run":
             with _exchequer(m) as client:
 
                 def progress(i: int, total: int) -> None:
@@ -90,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
                     return 1
             print(f"\nWrote {len(p.transactions)} transactions.")
 
-        if args.command in ("run", "check"):
+        if command in ("run", "check"):
             dates = check.check_dates(m)
             with _exchequer(m) as client:
                 balances, totals = check.exchequer_view(client, dates)
@@ -106,6 +116,21 @@ def main(argv: list[str] | None = None) -> int:
             print("Settlement comparison: `firefly-migrate settlement MAPPING`.")
             return 1 if diffs or cats else 0
     return 0
+
+
+def _fingerprints(m: mapping.Mapping, p: transform.Plan, *, apply: bool) -> int:
+    print("\n## Bank row IDs\n")
+    with _exchequer(m) as client:
+        try:
+            out = fingerprints.fill(client, p, apply=apply, say=print)
+        except (fingerprints.FingerprintError, RuntimeError) as e:
+            print(f"recording row IDs failed: {e}", file=sys.stderr)
+            return 1
+    if apply:
+        print(f"added {out.added}, already there {out.unchanged}, conflicts {out.conflicts}")
+    else:
+        print("Nothing written (run with --apply).")
+    return 1 if out.conflicts else 0
 
 
 def _numbers(m: mapping.Mapping, *, apply: bool) -> int:

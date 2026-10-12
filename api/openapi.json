@@ -1976,6 +1976,52 @@
         ]
       }
     },
+    "/api/v1/import-fingerprints": {
+      "post": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Record that rows were already imported. Re-runnable: what's recorded\nstays as it is, and items recorded for another transaction are returned\nas conflicts.",
+        "operationId": "imports_add_fingerprints",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewImportFingerprints"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportFingerprintsAdded"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/imports": {
       "get": {
         "tags": [
@@ -5101,6 +5147,59 @@
           }
         }
       },
+      "ImportFingerprint": {
+        "type": "object",
+        "required": [
+          "account_id",
+          "fingerprint",
+          "transaction_id"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fingerprint": {
+            "type": "string",
+            "description": "The row's ID: the bank's own (OFX `FITID`), or the hash of its date,\ndescription and amount (design §6.3). 1-200 characters."
+          },
+          "transaction_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The transaction the row became; it must have a split on the account."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ImportFingerprintsAdded": {
+        "type": "object",
+        "required": [
+          "added",
+          "unchanged",
+          "conflicts"
+        ],
+        "properties": {
+          "added": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Recorded now.",
+            "minimum": 0
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImportFingerprint"
+            },
+            "description": "Already recorded for another transaction: left as they were."
+          },
+          "unchanged": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Already recorded for the same transaction.",
+            "minimum": 0
+          }
+        }
+      },
       "InTransit": {
         "allOf": [
           {
@@ -5389,6 +5488,22 @@
               "null"
             ],
             "description": "1-200 characters, e.g. where the transactions came from."
+          }
+        },
+        "additionalProperties": false
+      },
+      "NewImportFingerprints": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImportFingerprint"
+            },
+            "description": "1-1000 items, each (account, fingerprint) at most once."
           }
         },
         "additionalProperties": false

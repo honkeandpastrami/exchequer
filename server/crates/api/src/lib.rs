@@ -23,6 +23,7 @@ mod commodities;
 mod common;
 pub mod conventions;
 mod counterparties;
+mod fingerprints;
 mod health;
 mod import_batches;
 mod imports;
@@ -100,6 +101,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .merge(transactions::routes())
         .merge(import_batches::routes())
         .merge(imports::routes())
+        .merge(fingerprints::routes())
         .merge(settlements::routes())
         .merge(query::routes())
         .merge(reports::routes())

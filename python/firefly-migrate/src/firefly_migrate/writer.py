@@ -29,6 +29,7 @@ from exchequer_sdk.models import (
     CommodityKind,
     CreditLimit,
     ExternalRef,
+    ImportFingerprint,
     Leg,
     NewAccount,
     NewCategory,
@@ -43,6 +44,7 @@ from exchequer_sdk.models import (
     Problem,
 )
 from exchequer_sdk.types import UNSET, Response
+from firefly_migrate import fingerprints
 from firefly_migrate.mapping import Mapping
 from firefly_migrate.transform import FIREFLY, Plan
 from firefly_migrate.transform import Leg as PlanLeg
@@ -105,10 +107,20 @@ class Writer:
             raise WriteError("the target server already has data; migrate into an empty one")
         self._reference_data(plan)
         total = len(plan.transactions)
+        rows: list[ImportFingerprint] = []
         for i, t in enumerate(plan.transactions, 1):
-            self._transaction(t)
+            tid = self._transaction(t)
+            rows += [
+                ImportFingerprint(account_id=self.accounts[a], fingerprint=fp, transaction_id=tid)
+                for a, fp in t.fingerprints
+                if a in self.accounts
+            ]
             if progress:
                 progress(i, total)
+        try:
+            fingerprints.post(self.client, rows, fingerprints.Outcome())
+        except fingerprints.FingerprintError as e:
+            raise WriteError(str(e)) from e
 
     def _reference_data(self, plan: Plan) -> None:
         c = self.client
@@ -180,7 +192,7 @@ class Writer:
             self.batches[label] = _created(r, f"import batch {label!r}")
         return self.batches[label]
 
-    def _transaction(self, t: PlanTransaction) -> None:
+    def _transaction(self, t: PlanTransaction) -> UUID:
         splits = [
             NewSplit(
                 from_=self._leg(s.from_),
@@ -204,4 +216,4 @@ class Writer:
         )
         r = create_transaction.sync_detailed(client=self.client, body=body)
         where = f"Firefly transaction {t.firefly_id}" if t.firefly_id else t.description
-        _created(r, f"{where} ({t.date})")
+        return _created(r, f"{where} ({t.date})")

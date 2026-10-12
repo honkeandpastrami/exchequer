@@ -270,6 +270,27 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v1/import-fingerprints': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Record that rows were already imported. Re-runnable: what's recorded
+		 *     stays as it is, and items recorded for another transaction are returned
+		 *     as conflicts.
+		 */
+		post: operations['imports_add_fingerprints'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/imports': {
 		parameters: {
 			query?: never;
@@ -977,6 +998,34 @@ export interface components {
 			 */
 			transaction_count: number;
 		};
+		ImportFingerprint: {
+			/** Format: uuid */
+			account_id: string;
+			/**
+			 * @description The row's ID: the bank's own (OFX `FITID`), or the hash of its date,
+			 *     description and amount (design §6.3). 1-200 characters.
+			 */
+			fingerprint: string;
+			/**
+			 * Format: uuid
+			 * @description The transaction the row became; it must have a split on the account.
+			 */
+			transaction_id: string;
+		};
+		ImportFingerprintsAdded: {
+			/**
+			 * Format: int64
+			 * @description Recorded now.
+			 */
+			added: number;
+			/** @description Already recorded for another transaction: left as they were. */
+			conflicts: components['schemas']['ImportFingerprint'][];
+			/**
+			 * Format: int64
+			 * @description Already recorded for the same transaction.
+			 */
+			unchanged: number;
+		};
 		InTransit: components['schemas']['SplitPointer'] & {
 			amount: string;
 			cleared_by?: components['schemas']['SplitPointer'] | null;
@@ -1074,6 +1123,10 @@ export interface components {
 			kind: components['schemas']['BatchKind'];
 			/** @description 1-200 characters, e.g. where the transactions came from. */
 			label?: string | null;
+		};
+		NewImportFingerprints: {
+			/** @description 1-1000 items, each (account, fingerprint) at most once. */
+			items: components['schemas']['ImportFingerprint'][];
 		};
 		NewNumber: {
 			/**
@@ -2867,6 +2920,39 @@ export interface operations {
 			};
 			/** @description Precondition Failed */
 			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	imports_add_fingerprints: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['NewImportFingerprints'];
+			};
+		};
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ImportFingerprintsAdded'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
 				headers: {
 					[name: string]: unknown;
 				};

@@ -29,6 +29,8 @@ from .history import History
 from .household_pool import HouseholdPool
 from .import_ import Import
 from .import_batch import ImportBatch
+from .import_fingerprint import ImportFingerprint
+from .import_fingerprints_added import ImportFingerprintsAdded
 from .in_transit import InTransit
 from .kind import Kind
 from .kind_name import KindName
@@ -43,6 +45,7 @@ from .new_category import NewCategory
 from .new_commodity import NewCommodity
 from .new_counterparty import NewCounterparty
 from .new_import_batch import NewImportBatch
+from .new_import_fingerprints import NewImportFingerprints
 from .new_number import NewNumber
 from .new_party import NewParty
 from .new_split import NewSplit
@@ -131,6 +134,8 @@ __all__ = (
     "HouseholdPool",
     "Import",
     "ImportBatch",
+    "ImportFingerprint",
+    "ImportFingerprintsAdded",
     "InTransit",
     "Kind",
     "KindName",
@@ -145,6 +150,7 @@ __all__ = (
     "NewCommodity",
     "NewCounterparty",
     "NewImportBatch",
+    "NewImportFingerprints",
     "NewNumber",
     "NewParty",
     "NewSplit",

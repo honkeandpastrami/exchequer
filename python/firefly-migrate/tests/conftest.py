@@ -96,6 +96,7 @@ def journal(
     category: str | None = None,
     tags: list[str] | None = None,
     description: str = "something",
+    external_id: str | None = None,
 ) -> dict:
     """`source`/`destination`: a Firefly account ID (owned), or
     "Expense:<name>", "Revenue:<name>", "Cash", "Initial"."""
@@ -132,6 +133,7 @@ def journal(
         "budget_name": budget,
         "category_name": category,
         "tags": tags or [],
+        "external_id": external_id,
     }
 
 
