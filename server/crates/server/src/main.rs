@@ -85,12 +85,17 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         Some(zone) if zone != "UTC" => tracing::info!(zone, "time zone"),
         _ => tracing::warn!("no time zone (set TZ): dates are UTC"),
     }
+    match &config.local_ai {
+        Some(method) => tracing::info!(method, "local AI"),
+        None => tracing::info!("local AI off"),
+    }
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(bind = %config.bind, "listening");
     let state = api::AppState {
         pool,
         bootstrap_token: config.bootstrap_token.map(|s| s.expose().into()),
         zone: config.zone,
+        suggestions: api::Suggestions::new(config.local_ai.as_deref().and_then(heuristics::method)),
     };
     let app = match &config.web_dir {
         Some(dir) => api::app_with_web(state, dir),

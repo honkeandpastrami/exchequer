@@ -386,3 +386,238 @@ async fn confident_labels_are_committed_unless_you_choose(pool: PgPool) {
         ]
     );
 }
+
+/// Ten months of history: coffee on Alex's card for the household, pay into
+/// Alex's checking.
+async fn history(pool: &PgPool, h: &H) -> (String, String, String) {
+    let dining = create(
+        pool,
+        &h.t,
+        "/api/v1/categories",
+        json!({ "name": "Dining" }),
+    )
+    .await;
+    let salary = create(
+        pool,
+        &h.t,
+        "/api/v1/categories",
+        json!({ "name": "Salary" }),
+    )
+    .await;
+    let employer = create(
+        pool,
+        &h.t,
+        "/api/v1/counterparties",
+        json!({ "name": "Acme" }),
+    )
+    .await;
+    for month in 1..=10 {
+        for day in [3, 12, 21] {
+            let date = format!("2025-{month:02}-{day:02}");
+            let split = |from: Value, to: Value, category: &str, purpose: Option<&str>| {
+                let mut s = json!({ "from": from, "to": to, "category_id": category });
+                if let Some(p) = purpose {
+                    s["purpose_id"] = json!(p);
+                }
+                s
+            };
+            for (description, s) in [
+                (
+                    format!("SQ *CORNER CAFE #04{day} {month:02}/{day:02}"),
+                    split(
+                        h.leg(h.acct(&h.alex_credit), "4.75"),
+                        h.leg(("counterparty_id", &h.store), "4.75"),
+                        &dining,
+                        Some(&h.household),
+                    ),
+                ),
+                (
+                    format!("ACME PAYROLL DEP {month}{day}0001"),
+                    split(
+                        h.leg(("counterparty_id", &employer), "1000.00"),
+                        h.leg(h.acct(&h.alex_checking), "1000.00"),
+                        &salary,
+                        None,
+                    ),
+                ),
+            ] {
+                let r = h
+                    .send(
+                        pool,
+                        "POST",
+                        "/api/v1/transactions",
+                        Some(json!({ "date": date, "description": description, "splits": [s] })),
+                    )
+                    .await;
+                assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+            }
+        }
+    }
+    (dining, salary, employer)
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn local_ai_suggests_the_account_and_the_labels(pool: PgPool) {
+    let h = H::new(&pool).await;
+    let (dining, _, _) = history(&pool, &h).await;
+    let csv = "Date,Description,Amount\n\
+               11/03/2025,SQ *CORNER CAFE #0403 11/03,-4.75\n\
+               11/12/2025,SQ *CORNER CAFE #0412 11/12,-5.25\n\
+               11/14/2025,UNHEARD OF HARDWARE,-19.99\n";
+    let r = call(&pool, "POST", "/api/v1/imports?file_name=card.csv")
+        .token(&h.t)
+        .bytes(csv.as_bytes().to_vec())
+        .send()
+        .await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    let id = r.id();
+    // The rows look like the card's: its account, confidently, by local AI.
+    let s = &r.body["statements"][0];
+    assert_eq!(
+        (
+            &s["account_id"],
+            &s["account_suggested"],
+            &s["suggested_account"]["confident"],
+            &s["suggested_account"]["suggester"]["name"],
+            &s["counts"]["new"],
+        ),
+        (
+            &json!(h.alex_credit),
+            &json!(true),
+            &json!(true),
+            &json!("lexical-knn"),
+            &json!(3)
+        ),
+        "{s}"
+    );
+    let all = rows(&pool, &h, &id).await;
+    // The coffee: all three labels, confidently; the household as purpose.
+    assert_eq!(
+        (
+            &all[0]["counterparty_id"],
+            &all[0]["category_id"],
+            &all[0]["purpose_id"],
+            &all[0]["missing"],
+        ),
+        (
+            &json!(h.store),
+            &json!(dining),
+            &json!(h.household),
+            &json!([])
+        ),
+        "{}",
+        all[0]
+    );
+    let local = &all[0]["suggestions"][0]["suggester"];
+    assert_eq!(
+        (&local["kind"], &local["version"]),
+        (&json!("local"), &json!("1"))
+    );
+    assert!(local["details"]["snapshot"].is_string(), "{local}");
+    // A stranger: nothing confident.
+    assert_eq!(
+        all[2]["missing"],
+        json!(["counterparty", "category", "purpose"]),
+        "{}",
+        all[2]
+    );
+
+    // A label you choose stays yours when the account changes and the rows
+    // are suggested again.
+    let mine = create(
+        &pool,
+        &h.t,
+        "/api/v1/categories",
+        json!({ "name": "Treats" }),
+    )
+    .await;
+    patch(
+        &pool,
+        &h,
+        format!("/api/v1/imports/{id}/rows/0/1"),
+        json!({ "category_id": mine }),
+    )
+    .await;
+    patch(
+        &pool,
+        &h,
+        format!("/api/v1/imports/{id}/statements/0"),
+        json!({ "account_id": h.alex_checking }),
+    )
+    .await;
+    let all = rows(&pool, &h, &id).await;
+    let row = &all[1];
+    assert_eq!(
+        (&row["category_id"], &row["chosen"], &row["counterparty_id"]),
+        (&json!(mine), &json!(["category"]), &json!(h.store)),
+        "{row}"
+    );
+    assert!(
+        row["suggestions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|s| s["label"] != "category"),
+        "{row}"
+    );
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn a_backtest_measures_local_ai_on_past_months(pool: PgPool) {
+    let h = H::new(&pool).await;
+    history(&pool, &h).await;
+    let r = h
+        .send(
+            &pool,
+            "GET",
+            "/api/v1/suggesters/backtest?from=2025-09&to=2025-10",
+            None,
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(r.body["method"], json!("lexical-knn-v1"));
+    let october = &r.body["months"][1];
+    assert_eq!(
+        (&october["month"], &october["trained_on"]),
+        (&json!("2025-10"), &json!(54))
+    );
+    let counterparty = &october["labels"][0];
+    assert_eq!(
+        (
+            &counterparty["label"],
+            &counterparty["asked"],
+            &counterparty["right"]
+        ),
+        (&json!("counterparty"), &json!(6), &json!(6)),
+        "{counterparty}"
+    );
+    assert_eq!(october["accounts"]["asked"], json!(2));
+    assert_eq!(october["labels"][0]["bins"].as_array().unwrap().len(), 10);
+    // Nothing was stored.
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM suggester")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(n, 0);
+
+    for bad in [
+        "from=2025-10&method=magic-v9",
+        "from=2025-10&to=2025-09",
+        "from=2023-01&to=2025-10",
+    ] {
+        let r = h
+            .send(
+                &pool,
+                "GET",
+                &format!("/api/v1/suggesters/backtest?{bad}"),
+                None,
+            )
+            .await;
+        assert_eq!(
+            r.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{bad}: {}",
+            r.body
+        );
+    }
+}

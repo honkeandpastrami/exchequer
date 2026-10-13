@@ -19,6 +19,7 @@ pub mod balance_checks;
 pub mod categories;
 pub mod commodities;
 pub mod counterparties;
+pub mod history;
 pub mod idempotency;
 pub mod import_batches;
 pub mod imports;

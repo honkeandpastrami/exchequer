@@ -32,6 +32,7 @@ use crate::auth::Principal;
 use crate::common::{audit, nullable, write_error};
 use crate::conventions::{IfMatch, Page, PageParams, etag};
 use crate::problem::{Json, Path, Problem, Query};
+use crate::suggestions;
 use crate::transactions::{
     Leg, NewTransaction, Relabel, create_in, into_transfer, replace_with_row, replaceable,
 };
@@ -199,6 +200,16 @@ impl Label {
             .into_iter()
             .find(|l| l.as_str() == s)
             .ok_or_else(Problem::internal)
+    }
+}
+
+impl From<suggest::Label> for Label {
+    fn from(l: suggest::Label) -> Self {
+        match l {
+            suggest::Label::Counterparty => Self::Counterparty,
+            suggest::Label::Category => Self::Category,
+            suggest::Label::Purpose => Self::Purpose,
+        }
     }
 }
 
@@ -917,8 +928,10 @@ async fn get(State(state): State<AppState>, Path(id): Path<Uuid>) -> Result<Resp
 }
 
 /// Upload a bank file (OFX, QFX, QBO or CSV; the format is read from the
-/// content). Its rows are staged, each with what it would become; nothing
-/// enters the ledger until the import is committed.
+/// content). Its rows are staged, each with what it would become, and
+/// suggestions are made: the account of a statement that has none, and every
+/// row's labels (docs/ai.md). Nothing enters the ledger until the import is
+/// committed.
 #[utoipa::path(post, path = "/imports", tag = "imports", security(("bearer" = [])),
     params(UploadParams),
     request_body(content = BankFile, content_type = "application/octet-stream",
@@ -960,6 +973,7 @@ async fn upload(
     let mut tx = state.pool.begin().await?;
     let token = principal.actor().map(|t| *t.as_uuid());
     store::imports::insert(&mut *tx, id, file_name, &sha256, format, token).await?;
+    let levels = state.suggestions.levels(&mut tx).await?;
     for (i, s) in statements.into_iter().enumerate() {
         let position = i16::try_from(i).map_err(|_| Problem::invalid("too many statements"))?;
         let code = s.currency.as_deref().unwrap_or("USD");
@@ -1032,7 +1046,9 @@ async fn upload(
         if !rows.is_empty() {
             store::imports::insert_rows(&mut *tx, id, &rows).await?;
         }
+        suggestions::account(&mut tx, &levels, id, &statement).await?;
         restatus(&mut tx, id, position).await?;
+        suggestions::labels(&mut tx, &levels, id, position).await?;
     }
     let created = one(&mut tx, id).await?;
     audit(
@@ -1093,7 +1109,7 @@ async fn rows(
 }
 
 /// Set the account a statement is for; its rows' statuses are worked out
-/// again.
+/// again, and their labels suggested again (yours stay).
 #[utoipa::path(patch, path = "/imports/{id}/statements/{position}", tag = "imports", security(("bearer" = [])),
     params(("id" = Uuid, Path), ("position" = i16, Path),
            ("If-Match" = String, Header, description = "ETag from your last read")),
@@ -1148,6 +1164,9 @@ async fn set_statement(
     }
     store::imports::set_account(&mut *tx, id, position, req.account_id).await?;
     restatus(&mut tx, id, position).await?;
+    // The account is context for the rows' labels.
+    let levels = state.suggestions.levels(&mut tx).await?;
+    suggestions::labels(&mut tx, &levels, id, position).await?;
     store::imports::touch(&mut *tx, id).await?;
     let after = one(&mut tx, id).await?;
     audit(

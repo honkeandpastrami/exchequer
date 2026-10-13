@@ -69,6 +69,9 @@ pub struct Config {
     /// zone: what "today" and a bank file's dates mean. The image has no
     /// time zone files; the names come with the binary.
     pub zone: TimeZone,
+    /// `EXCHEQUER_LOCAL_AI`: the local AI method (design §8), by its ID,
+    /// default the newest (`lexical-knn-v1`); `off` for none.
+    pub local_ai: Option<String>,
 }
 
 #[derive(Debug)]
@@ -170,6 +173,19 @@ impl Config {
                 })?,
                 None => TimeZone::system(),
             },
+            local_ai: match env("EXCHEQUER_LOCAL_AI") {
+                Some(off) if off == "off" => None,
+                Some(id) => match heuristics::method(&id) {
+                    Some(m) => Some(m.id()),
+                    None => {
+                        return Err(ConfigError::Invalid {
+                            name: "EXCHEQUER_LOCAL_AI",
+                            value: id,
+                        });
+                    }
+                },
+                None => heuristics::METHODS.first().map(|m| m.id()),
+            },
         })
     }
 }
@@ -201,6 +217,23 @@ mod tests {
         assert_eq!(c.db.port, 5432);
         assert!(c.db.password.is_none());
         assert!(c.web_dir.is_none());
+        assert_eq!(c.local_ai.as_deref(), Some("lexical-knn-v1"));
+    }
+
+    #[test]
+    fn local_ai_by_method() {
+        let mut vars = DB.to_vec();
+        vars.push(("EXCHEQUER_LOCAL_AI", "off"));
+        assert_eq!(config(&vars).unwrap().local_ai, None);
+        vars.pop();
+        vars.push(("EXCHEQUER_LOCAL_AI", "magic-v9"));
+        assert!(matches!(
+            config(&vars),
+            Err(ConfigError::Invalid {
+                name: "EXCHEQUER_LOCAL_AI",
+                ..
+            })
+        ));
     }
 
     #[test]

@@ -83,8 +83,10 @@ def sync_detailed(
     file_name: str | Unset = UNSET,
 ) -> Response[Any | Import | Problem]:
     """Upload a bank file (OFX, QFX, QBO or CSV; the format is read from the
-    content). Its rows are staged, each with what it would become; nothing
-    enters the ledger until the import is committed.
+    content). Its rows are staged, each with what it would become, and
+    suggestions are made: the account of a statement that has none, and every
+    row's labels (docs/ai.md). Nothing enters the ledger until the import is
+    committed.
 
     Args:
         account_id (UUID | Unset):
@@ -120,8 +122,10 @@ def sync(
     file_name: str | Unset = UNSET,
 ) -> Any | Import | Problem | None:
     """Upload a bank file (OFX, QFX, QBO or CSV; the format is read from the
-    content). Its rows are staged, each with what it would become; nothing
-    enters the ledger until the import is committed.
+    content). Its rows are staged, each with what it would become, and
+    suggestions are made: the account of a statement that has none, and every
+    row's labels (docs/ai.md). Nothing enters the ledger until the import is
+    committed.
 
     Args:
         account_id (UUID | Unset):
@@ -152,8 +156,10 @@ async def asyncio_detailed(
     file_name: str | Unset = UNSET,
 ) -> Response[Any | Import | Problem]:
     """Upload a bank file (OFX, QFX, QBO or CSV; the format is read from the
-    content). Its rows are staged, each with what it would become; nothing
-    enters the ledger until the import is committed.
+    content). Its rows are staged, each with what it would become, and
+    suggestions are made: the account of a statement that has none, and every
+    row's labels (docs/ai.md). Nothing enters the ledger until the import is
+    committed.
 
     Args:
         account_id (UUID | Unset):
@@ -187,8 +193,10 @@ async def asyncio(
     file_name: str | Unset = UNSET,
 ) -> Any | Import | Problem | None:
     """Upload a bank file (OFX, QFX, QBO or CSV; the format is read from the
-    content). Its rows are staged, each with what it would become; nothing
-    enters the ledger until the import is committed.
+    content). Its rows are staged, each with what it would become, and
+    suggestions are made: the account of a statement that has none, and every
+    row's labels (docs/ai.md). Nothing enters the ledger until the import is
+    committed.
 
     Args:
         account_id (UUID | Unset):

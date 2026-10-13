@@ -303,8 +303,10 @@ export interface paths {
 		put?: never;
 		/**
 		 * Upload a bank file (OFX, QFX, QBO or CSV; the format is read from the
-		 *     content). Its rows are staged, each with what it would become; nothing
-		 *     enters the ledger until the import is committed.
+		 *     content). Its rows are staged, each with what it would become, and
+		 *     suggestions are made: the account of a statement that has none, and every
+		 *     row's labels (docs/ai.md). Nothing enters the ledger until the import is
+		 *     committed.
 		 */
 		post: operations['imports_upload'];
 		delete?: never;
@@ -414,7 +416,7 @@ export interface paths {
 		head?: never;
 		/**
 		 * Set the account a statement is for; its rows' statuses are worked out
-		 *     again.
+		 *     again, and their labels suggested again (yours stay).
 		 */
 		patch: operations['imports_set_statement'];
 		trace?: never;
@@ -604,6 +606,30 @@ export interface paths {
 		 *     outstanding and lines (design §4.3). Always computed from current data.
 		 */
 		get: operations['settlements_statement'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/suggesters/backtest': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Measure a local AI method on the ledger's own past (docs/ai.md). For each
+		 *     month, the method learns from everything before it, then suggests labels
+		 *     for the month's transactions (between one of your accounts and the
+		 *     outside) as if they were being imported, and an account for each
+		 *     account's transactions; its guesses are compared with the ledger. Reads
+		 *     only; nothing is stored.
+		 */
+		get: operations['suggesters_backtest'];
 		put?: never;
 		post?: never;
 		delete?: never;
@@ -835,6 +861,38 @@ export interface components {
 			liquid?: boolean | null;
 			name?: string | null;
 		};
+		Backtest: {
+			/** @description The method measured (`<name>-v<version>`). */
+			method: string;
+			months: components['schemas']['BacktestMonth'][];
+		};
+		/**
+		 * @description One month: the method trained on everything before it, then asked about
+		 *     its transactions.
+		 */
+		BacktestMonth: {
+			/**
+			 * @description Each account's transactions in the month, as one statement asked its
+			 *     account.
+			 */
+			accounts: components['schemas']['Score'];
+			/**
+			 * @description The month's transactions, each asked its labels with its account
+			 *     known.
+			 */
+			labels: components['schemas']['LabelScore'][];
+			month: string;
+			/**
+			 * @description What the trained suggester records as its details (e.g. its data's
+			 *     snapshot).
+			 */
+			suggester: Record<string, never>;
+			/**
+			 * Format: int64
+			 * @description Labeled transactions it learned from.
+			 */
+			trained_on: number;
+		};
 		BalanceCheck: {
 			/** Format: uuid */
 			account_id: string;
@@ -883,6 +941,21 @@ export interface components {
 		BankFile: string;
 		/** @enum {string} */
 		BatchKind: 'manual' | 'migration' | 'file';
+		/**
+		 * @description Guesses by confidence: those from `from` up to the next bin's `from`
+		 *     (the last bin includes 1000).
+		 */
+		Bin: {
+			/**
+			 * Format: int32
+			 * @description Per mille.
+			 */
+			from: number;
+			/** Format: int32 */
+			guesses: number;
+			/** Format: int32 */
+			right: number;
+		};
 		/** @enum {string} */
 		BucketName: 'day' | 'week' | 'month' | 'quarter' | 'year';
 		/** @description A possible explanation for the difference, most likely first. */
@@ -1186,6 +1259,9 @@ export interface components {
 		 * @enum {string}
 		 */
 		Label: 'counterparty' | 'category' | 'purpose';
+		LabelScore: components['schemas']['Score'] & {
+			label: components['schemas']['Label'];
+		};
 		/** @description A suggested value for one of a row's labels. */
 		LabelSuggestion: {
 			/**
@@ -1722,6 +1798,32 @@ export interface components {
 			 */
 			revert?: components['schemas']['Label'][];
 			set_description?: string | null;
+		};
+		/** @description Guesses against what the ledger says. */
+		Score: {
+			/**
+			 * Format: int32
+			 * @description Rows (or statements) asked about.
+			 */
+			asked: number;
+			bins: components['schemas']['Bin'][];
+			/**
+			 * Format: int32
+			 * @description Guesses at 900 or more, which commit would take.
+			 */
+			confident: number;
+			/** Format: int32 */
+			confident_right: number;
+			/**
+			 * Format: int32
+			 * @description Of them, those with a guess.
+			 */
+			guessed: number;
+			/**
+			 * Format: int32
+			 * @description Of them, those guessed right.
+			 */
+			right: number;
 		};
 		/** @description A month's parameters and state. */
 		Settlement: {
@@ -4207,6 +4309,45 @@ export interface operations {
 				};
 				content: {
 					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	suggesters_backtest: {
+		parameters: {
+			query: {
+				/** @description First month, `YYYY-MM`. */
+				from: string;
+				/** @description Last month, `YYYY-MM`; `from` if omitted (at most 24 months in all). */
+				to?: string;
+				/**
+				 * @description The local method to measure, as configured (`lexical-knn-v1`); the
+				 *     server's own if omitted.
+				 */
+				method?: string;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Backtest'];
 				};
 			};
 			/** @description Unprocessable Entity */

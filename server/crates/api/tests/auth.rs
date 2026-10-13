@@ -27,6 +27,7 @@ async fn call(
         pool: pool.clone(),
         bootstrap_token: Some(BOOTSTRAP.into()),
         zone: jiff::tz::TimeZone::get("America/New_York").unwrap(),
+        suggestions: api::Suggestions::default(),
     });
     let mut req = Request::builder().method(method).uri(path);
     if let Some(t) = token {

@@ -540,7 +540,9 @@ The levels:
    account's owner, direction and amount break ties. Confidence is calibrated by a
    backtest (train on earlier months, predict the next), so 0.9 means about 90% right on
    the ledger's own data. Embeddings are for later (#10). No model files, no training
-   pipeline.
+   pipeline. Local methods are interchangeable behind one interface, picked by
+   `EXCHEQUER_LOCAL_AI` and measured on the ledger's past by a backtest endpoint
+   (`docs/ai.md`).
 3. **Remote AI, optional:** a decision model deployed on Azure AI Foundry, asked
    multiple-choice questions whose options are the ledger's own IDs (plus *none* and
    *can't tell*), and answering with a probability per option. One question set per row,
@@ -751,7 +753,8 @@ boundary, so each side uses the language that suits it.
 | `domain` | Commodities, accounts, splits, invariants, derived kinds, settlement math (§3, §4), `AccountNumber` (§3.6). Pure logic: no I/O, no async | `rust_decimal`, `bigdecimal`, `time` |
 | `store` | Postgres access, compile-time-checked queries, migrations | `sqlx` |
 | `import` | Parsers, dedup, transfer matching, staging (§6) | `ofx-rs`, `csv`, `strsim` |
-| `heuristics` | Learned classifier, similarity scores; the only crate where float lints are allowed | — |
+| `suggest` | The suggestion interface every level implements (`Suggester`, local `Method`), the stack that combines the levels, the backtest (§8) | — |
+| `heuristics` | Local AI methods (`lexical-knn`), text normalization, calibration; the only crate where float lints are allowed | `suggest` |
 | `rules` | Embedded Rhai engine: compile, validate, run the stored script (§8) | `rhai` (`no_float`, `sync`) |
 | `api` | HTTP handlers, auth middleware, OpenAPI generation | `axum`, `tokio`, `utoipa`, `utoipa-axum`, `serde`, `tracing` |
 | `outbound` | Price and LLM clients; the only place data leaves the server | `reqwest` |
@@ -805,7 +808,7 @@ exchequer/
 │   ├── rust-toolchain.toml
 │   ├── clippy.toml                # disallowed-types = f32, f64
 │   ├── crates/
-│   │   ├── domain/  store/  import/  heuristics/  rules/  outbound/  api/  server/
+│   │   ├── domain/  store/  import/  suggest/  heuristics/  rules/  outbound/  api/  server/
 │   │   └── ofx-check/             # dev tool, not shipped (build step 0)
 │   ├── migrations/                # sqlx SQL migrations
 │   └── fixtures/                  # synthetic bank files + settlement scenarios

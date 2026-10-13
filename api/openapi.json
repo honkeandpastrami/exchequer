@@ -2073,7 +2073,7 @@
         "tags": [
           "imports"
         ],
-        "summary": "Upload a bank file (OFX, QFX, QBO or CSV; the format is read from the\ncontent). Its rows are staged, each with what it would become; nothing\nenters the ledger until the import is committed.",
+        "summary": "Upload a bank file (OFX, QFX, QBO or CSV; the format is read from the\ncontent). Its rows are staged, each with what it would become, and\nsuggestions are made: the account of a statement that has none, and every\nrow's labels (docs/ai.md). Nothing enters the ledger until the import is\ncommitted.",
         "operationId": "imports_upload",
         "parameters": [
           {
@@ -2551,7 +2551,7 @@
         "tags": [
           "imports"
         ],
-        "summary": "Set the account a statement is for; its rows' statuses are worked out\nagain.",
+        "summary": "Set the account a statement is for; its rows' statuses are worked out\nagain, and their labels suggested again (yours stay).",
         "operationId": "imports_set_statement",
         "parameters": [
           {
@@ -3567,6 +3567,71 @@
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/suggesters/backtest": {
+      "get": {
+        "tags": [
+          "suggesters"
+        ],
+        "summary": "Measure a local AI method on the ledger's own past (docs/ai.md). For each\nmonth, the method learns from everything before it, then suggests labels\nfor the month's transactions (between one of your accounts and the\noutside) as if they were being imported, and an account for each\naccount's transactions; its guesses are compared with the ledger. Reads\nonly; nothing is stored.",
+        "operationId": "suggesters_backtest",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "First month, `YYYY-MM`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Last month, `YYYY-MM`; `from` if omitted (at most 24 months in all).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "method",
+            "in": "query",
+            "description": "The local method to measure, as configured (`lexical-knn-v1`); the\nserver's own if omitted.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Backtest"
                 }
               }
             }
@@ -4783,6 +4848,62 @@
         },
         "additionalProperties": false
       },
+      "Backtest": {
+        "type": "object",
+        "required": [
+          "method",
+          "months"
+        ],
+        "properties": {
+          "method": {
+            "type": "string",
+            "description": "The method measured (`<name>-v<version>`)."
+          },
+          "months": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BacktestMonth"
+            }
+          }
+        }
+      },
+      "BacktestMonth": {
+        "type": "object",
+        "description": "One month: the method trained on everything before it, then asked about\nits transactions.",
+        "required": [
+          "month",
+          "suggester",
+          "trained_on",
+          "labels",
+          "accounts"
+        ],
+        "properties": {
+          "accounts": {
+            "$ref": "#/components/schemas/Score",
+            "description": "Each account's transactions in the month, as one statement asked its\naccount."
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabelScore"
+            },
+            "description": "The month's transactions, each asked its labels with its account\nknown."
+          },
+          "month": {
+            "type": "string"
+          },
+          "suggester": {
+            "type": "object",
+            "description": "What the trained suggester records as its details (e.g. its data's\nsnapshot)."
+          },
+          "trained_on": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Labeled transactions it learned from.",
+            "minimum": 0
+          }
+        }
+      },
       "BalanceCheck": {
         "type": "object",
         "required": [
@@ -4897,6 +5018,33 @@
           "migration",
           "file"
         ]
+      },
+      "Bin": {
+        "type": "object",
+        "description": "Guesses by confidence: those from `from` up to the next bin's `from`\n(the last bin includes 1000).",
+        "required": [
+          "from",
+          "guesses",
+          "right"
+        ],
+        "properties": {
+          "from": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Per mille.",
+            "minimum": 0
+          },
+          "guesses": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "right": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "BucketName": {
         "type": "string",
@@ -5653,6 +5801,24 @@
           "counterparty",
           "category",
           "purpose"
+        ]
+      },
+      "LabelScore": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Score"
+          },
+          {
+            "type": "object",
+            "required": [
+              "label"
+            ],
+            "properties": {
+              "label": {
+                "$ref": "#/components/schemas/Label"
+              }
+            }
+          }
         ]
       },
       "LabelSuggestion": {
@@ -7193,6 +7359,55 @@
           }
         },
         "additionalProperties": false
+      },
+      "Score": {
+        "type": "object",
+        "description": "Guesses against what the ledger says.",
+        "required": [
+          "asked",
+          "guessed",
+          "right",
+          "confident",
+          "confident_right",
+          "bins"
+        ],
+        "properties": {
+          "asked": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Rows (or statements) asked about.",
+            "minimum": 0
+          },
+          "bins": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Bin"
+            }
+          },
+          "confident": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Guesses at 900 or more, which commit would take.",
+            "minimum": 0
+          },
+          "confident_right": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "guessed": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Of them, those with a guess.",
+            "minimum": 0
+          },
+          "right": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Of them, those guessed right.",
+            "minimum": 0
+          }
+        }
       },
       "Settlement": {
         "type": "object",

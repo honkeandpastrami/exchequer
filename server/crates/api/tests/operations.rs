@@ -12,6 +12,7 @@ async fn get(pool: PgPool, path: &str) -> (StatusCode, serde_json::Value) {
         pool,
         bootstrap_token: None,
         zone: jiff::tz::TimeZone::get("America/New_York").unwrap(),
+        suggestions: api::Suggestions::default(),
     })
     .oneshot(Request::get(path).body(Body::empty()).unwrap())
     .await

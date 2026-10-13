@@ -5,9 +5,13 @@ from .account_balance import AccountBalance
 from .account_kind import AccountKind
 from .account_suggestion import AccountSuggestion
 from .account_update import AccountUpdate
+from .backtest import Backtest
+from .backtest_month import BacktestMonth
+from .backtest_month_suggester import BacktestMonthSuggester
 from .balance_check import BalanceCheck
 from .balances import Balances
 from .batch_kind import BatchKind
+from .bin_ import Bin
 from .bucket_name import BucketName
 from .candidate import Candidate
 from .candidate_reason import CandidateReason
@@ -40,6 +44,7 @@ from .in_transit import InTransit
 from .kind import Kind
 from .kind_name import KindName
 from .label import Label
+from .label_score import LabelScore
 from .label_suggestion import LabelSuggestion
 from .ledger_balance import LedgerBalance
 from .leg import Leg
@@ -94,6 +99,7 @@ from .row import Row
 from .row_counts import RowCounts
 from .row_status import RowStatus
 from .row_update import RowUpdate
+from .score import Score
 from .settlement import Settlement
 from .settlement_params import SettlementParams
 from .skipped_line import SkippedLine
@@ -121,9 +127,13 @@ __all__ = (
     "AccountKind",
     "AccountSuggestion",
     "AccountUpdate",
+    "Backtest",
+    "BacktestMonth",
+    "BacktestMonthSuggester",
     "BalanceCheck",
     "Balances",
     "BatchKind",
+    "Bin",
     "BucketName",
     "Candidate",
     "CandidateReason",
@@ -156,6 +166,7 @@ __all__ = (
     "Kind",
     "KindName",
     "Label",
+    "LabelScore",
     "LabelSuggestion",
     "LedgerBalance",
     "Leg",
@@ -210,6 +221,7 @@ __all__ = (
     "RowCounts",
     "RowStatus",
     "RowUpdate",
+    "Score",
     "Settlement",
     "SettlementParams",
     "SkippedLine",

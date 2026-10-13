@@ -24,8 +24,8 @@ Bills and tags are not suggested yet.
 Suggestions come from three levels, tried in order:
 
 1. **Rules** — a Rhai script you write. *Not built yet.*
-2. **Local AI** — similarity to your own labeled history, computed in the server. *Not
-   built yet.*
+2. **Local AI** — similarity to your own labeled history, computed in the server
+   (below).
 3. **Remote AI** — a decision model on Azure AI Foundry. Optional. *Not built yet.*
 
 A level runs while anything is still below the **confidence threshold, 0.9**. Labels
@@ -33,8 +33,82 @@ already settled — by an earlier level at 0.9 or more, or by you — are given 
 level as facts, so it proposes the rest consistently with them. If no level reaches 0.9
 for a label, the most confident suggestion any level made is kept, marked as unsure.
 
-Changing a statement's account suggests its rows' labels again. A label you set yourself
-is never overwritten.
+Suggestions are made when a file is uploaded: first the account of each statement that has
+none, then every row's labels. Changing a statement's account suggests its rows' labels
+again, with the new account as context. A label you set yourself is never overwritten: it's
+given to every level as a fact.
+
+Every level implements the same interface (`suggest::Suggester`): given rows, with the
+labels already settled as facts, it proposes the others, each with a confidence and a
+reason; given a statement's rows, it proposes an account. The stack only sees that
+interface, so a level can be replaced without touching the rest.
+
+## Local AI
+
+Local AI learns from the ledger itself: every transaction with one split between one of
+your accounts and the outside, which is what an imported row becomes. Adjustments, such as
+opening balances, are left out. It runs in the server, in pure Rust, with no model files
+and no training step to run: it's trained when needed, on the ledger as it is, and kept
+until the ledger changes.
+
+**Methods are interchangeable.** A local method is a `suggest::Method` in the
+`heuristics` crate: it trains from the history into a suggester. The server runs one,
+chosen by `EXCHEQUER_LOCAL_AI`:
+
+| Value | Method |
+|---|---|
+| `lexical-knn-v1` (default) | Lexical nearest neighbors, below |
+| `off` | No local AI |
+
+A new method (or a new version of one) gets its own ID. Switching is a configuration
+change, and its suggestions name it, so the two can be compared on what was committed
+(`suggestion_outcome`) and measured on the same past by the backtest.
+
+### `lexical-knn-v1`
+
+1. **Normalization.** Bank texts are compared without what varies between rows of the
+   same merchant: payment processors' prefixes (`SQ *`, `TST*`, …), card and reference
+   numbers, store numbers, dates, digits and punctuation.
+2. **Nearest neighbors.** The labeled transactions whose texts are most alike (character
+   trigrams and words, TF-IDF, cosine similarity) vote on **the whole combination** of
+   counterparty, category and purpose. Each vote is weighted by similarity and by context:
+   the same account (else one with the same owner), the same direction, the same or a
+   similar amount, and recency. A label's score is the weight agreeing with the winning
+   combination, out of all of it plus a prior, so one lone neighbor never scores high.
+3. **Alias memory.** Rows with exactly the same normalized text, on this account if it has
+   any: how many of the latest five, in a row, had the same value.
+4. **Facts.** Labels already settled for a row (by you, or by an earlier level) narrow the
+   neighbors to transactions that agree with them; with a settled counterparty, all of its
+   transactions are neighbors, however their text reads.
+5. **The account.** For a statement without one, each row's neighbors vote for the
+   accounts they're in (only accounts that aren't archived, and of the statement's kind
+   when the file says: a credit card statement for a credit card).
+6. **Calibration.** On training, the method suggests its latest 2,000 transactions again,
+   each from only the ones before it, and each of the latest account-months as a
+   statement, from the months before. Each score is then mapped to how often it was right
+   (isotonic regression, smoothed so that thin evidence stays unsure). A confidence of 0.9
+   means right about 9 times in 10 on this ledger's own data. With little history,
+   nothing reaches 0.9.
+
+Reasons read like *like 2026-03-12 “CORNER CAFE #” (6 of 7 similar)*, *the last 3 times
+as “corner cafe”*, or, for an account, *12 of 15 rows look like its past transactions*.
+The suggester's details record the data it learned from: a snapshot hash, the number of
+transactions and the latest date.
+
+### Backtest
+
+`GET /suggesters/backtest?from=YYYY-MM&to=YYYY-MM[&method=…]` measures a method on the
+ledger's own past. For each month, the method learns from everything before it, then
+suggests labels for the month's transactions (their account known, nothing settled) and
+an account for each account's transactions taken as one statement. Per label and for
+accounts it reports how many were asked, guessed, right, confident, and right when
+confident, plus guesses and right answers by confidence bin, which shows whether 0.9
+really means 9 in 10. It reads only; nothing is stored. Any method can be named, so a
+replacement can be compared with the current one before switching.
+
+For trying a method on a copy of a ledger's history outside the server, the `heuristics`
+crate has a dev tool reading the same history as a JSON file:
+`cargo run --release -p heuristics --example backtest -- history.json 2026-01 2026-08`.
 
 ## What a suggestion records
 

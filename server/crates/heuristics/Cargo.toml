@@ -1,0 +1,21 @@
+[package]
+name = "heuristics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Local AI (design §8): suggestion methods that learn from the ledger, in process"
+
+[lints]
+workspace = true
+
+[dependencies]
+rust_decimal = "1.43.0"
+serde_json = "1.0.154"
+suggest = { path = "../suggest" }
+time = "0.3.55"
+uuid = "1.28.0"
+
+[dev-dependencies]
+time = { version = "0.3.55", features = ["macros"] }
+uuid = { version = "1.28.0", features = ["v4"] }

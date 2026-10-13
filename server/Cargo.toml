@@ -10,7 +10,7 @@ license = "BSD-2-Clause"
 publish = false
 
 # Money is never floating point (docs/design.md §3.5). Only the future
-# `heuristics` crate may opt out of these lints.
+# `heuristics` crate (local AI) opts out of these lints as a whole.
 [workspace.lints.clippy]
 float_arithmetic = "deny"
 float_cmp = "deny"

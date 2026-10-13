@@ -74,6 +74,7 @@ dependencies = [
  "axum",
  "domain",
  "getrandom 0.4.3",
+ "heuristics",
  "http-body-util",
  "import",
  "jiff",
@@ -84,6 +85,7 @@ dependencies = [
  "sqlx",
  "store",
  "subtle",
+ "suggest",
  "thiserror",
  "time",
  "tokio",
@@ -806,6 +808,17 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
+name = "heuristics"
+version = "0.0.0"
+dependencies = [
+ "rust_decimal",
+ "serde_json",
+ "suggest",
+ "time",
+ "uuid",
+]
 
 [[package]]
 name = "hex"
@@ -1734,6 +1747,7 @@ dependencies = [
  "api",
  "axum",
  "clap",
+ "heuristics",
  "jiff",
  "serde_json",
  "sqlx",
@@ -2053,6 +2067,18 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "suggest"
+version = "0.0.0"
+dependencies = [
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "time",
+ "uuid",
+]
 
 [[package]]
 name = "syn"

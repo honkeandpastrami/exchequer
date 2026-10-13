@@ -43,6 +43,7 @@ async fn serves_the_build(pool: PgPool) {
             pool,
             bootstrap_token: None,
             zone: jiff::tz::TimeZone::get("America/New_York").unwrap(),
+            suggestions: api::Suggestions::default(),
         },
         &dir,
     );

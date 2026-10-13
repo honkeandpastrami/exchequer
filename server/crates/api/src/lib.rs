@@ -10,6 +10,7 @@ use axum::body::Body;
 use axum::extract::Request;
 use axum::http::Response;
 use sqlx::PgPool;
+pub use suggestions::Suggestions;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 use utoipa::OpenApi;
@@ -33,6 +34,8 @@ pub mod problem;
 mod query;
 mod reports;
 mod settlements;
+mod suggesters;
+mod suggestions;
 mod tags;
 mod tokens;
 mod transactions;
@@ -46,6 +49,8 @@ pub struct AppState {
     pub bootstrap_token: Option<Arc<str>>,
     /// The server's time zone: what "today" and a bank file's dates mean.
     pub zone: jiff::tz::TimeZone,
+    /// The suggestion stack (design §8).
+    pub suggestions: Suggestions,
 }
 
 impl AppState {
@@ -106,6 +111,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .merge(query::routes())
         .merge(reports::routes())
         .merge(balance_checks::routes())
+        .merge(suggesters::routes())
 }
 
 fn routes() -> OpenApiRouter<AppState> {

@@ -89,7 +89,7 @@ def sync_detailed(
     if_match: str,
 ) -> Response[Import | Problem]:
     """Set the account a statement is for; its rows' statuses are worked out
-    again.
+    again, and their labels suggested again (yours stay).
 
     Args:
         id (UUID):
@@ -128,7 +128,7 @@ def sync(
     if_match: str,
 ) -> Import | Problem | None:
     """Set the account a statement is for; its rows' statuses are worked out
-    again.
+    again, and their labels suggested again (yours stay).
 
     Args:
         id (UUID):
@@ -162,7 +162,7 @@ async def asyncio_detailed(
     if_match: str,
 ) -> Response[Import | Problem]:
     """Set the account a statement is for; its rows' statuses are worked out
-    again.
+    again, and their labels suggested again (yours stay).
 
     Args:
         id (UUID):
@@ -199,7 +199,7 @@ async def asyncio(
     if_match: str,
 ) -> Import | Problem | None:
     """Set the account a statement is for; its rows' statuses are worked out
-    again.
+    again, and their labels suggested again (yours stay).
 
     Args:
         id (UUID):
