@@ -227,8 +227,8 @@ data through side channels:
   identifiers: account numbers only as their last four, and descriptions normalized so
   runs of five or more digits (card, reference and trace numbers) are replaced. A request
   the service refuses (e.g. a content filter or PII guardrail its operator configured)
-  makes the remote level step aside for that row, recorded; the import never fails
-  because of it. Details in [`docs/ai.md`](ai.md).
+  makes the remote level step aside for that row, logged (the status and error code,
+  never the request); the import never fails because of it. Details in [`docs/ai.md`](ai.md).
 
 ## 4. Component: household ownership and monthly settlement
 
@@ -551,7 +551,11 @@ The levels:
    one per statement for the account. The context it's given is computed from the data
    on each request (similar past transactions, usage statistics of the account and of
    each option), never hand-written descriptions that would go stale. What may be sent is
-   in §3.6. The system works fully without it.
+   in §3.6. It's asked only about what the levels before it left unsure. The questions
+   are versioned (`q1`, …) and recorded with every suggestion, and the backtest can include
+   it (`remote=true`), so a new wording is measured before it's used. Configured by
+   `EXCHEQUER_REMOTE_AI_*` and a key secret (`docs/ai.md`). The system works fully
+   without it.
 
 ## 9. Component: bills and recurrences
 
@@ -683,14 +687,14 @@ secrets**, generated on the host once and handed to containers as files under
 |---|---|
 | `exchequer_db_password` | db (sets it), api (connects), backup (dumps) |
 | `exchequer_bootstrap_token` | api (first admin token, §10) |
-| `exchequer_llm_api_key` | api (optional: remote AI, §8) |
+| `exchequer_remote_ai_key` | api (optional: remote AI, §8) |
 | `exchequer_price_api_key` | api (§3.4) |
 | `exchequer_azure_backup_sas` | backup unit, offsite step (optional, §14.2) |
 
 ```bash
 openssl rand -base64 32 | tr -d '\n' | podman secret create exchequer_db_password -
 openssl rand -base64 32 | tr -d '\n' | podman secret create exchequer_bootstrap_token -
-podman secret create exchequer_llm_api_key -     # pasted once, reads stdin
+podman secret create exchequer_remote_ai_key -   # pasted once, reads stdin
 podman secret create exchequer_price_api_key -
 ```
 
@@ -759,7 +763,8 @@ boundary, so each side uses the language that suits it.
 | `heuristics` | Local AI methods (`lexical-knn`), text normalization, calibration; the only crate where float lints are allowed | `suggest` |
 | `rules` | Embedded Rhai engine: compile, validate, run the stored script as a `suggest::Suggester` (§8) | `rhai` (`no_float`, `only_i64`, `sync`), `suggest` |
 | `api` | HTTP handlers, auth middleware, OpenAPI generation | `axum`, `tokio`, `utoipa`, `utoipa-axum`, `serde`, `tracing` |
-| `outbound` | Price and LLM clients; the only place data leaves the server | `reqwest` |
+| `remote` | Remote AI: the decision model as a `suggest::Suggester`, its questions and what it's shown (§8) | `outbound`, `suggest`, `heuristics` (normalization) |
+| `outbound` | Outbound clients (the decision model; prices later); the only place data leaves the server | `ureq` (blocking, rustls with ring, bundled roots) |
 | `server` | The binary: configuration, wiring, startup migrations | — |
 
 - **OpenAPI:** `utoipa-axum` registers each route together with its spec entry. The spec is
@@ -854,9 +859,11 @@ exchequer/
 **BSD-2-Clause.** Consequently, **no GPL dependencies**: every planned dependency is MIT,
 Apache-2.0 or BSD, and CI checks licenses (`cargo-deny` for Rust, plus a check over the Python
 and npm lockfiles). GPL-licensed OFX libraries (e.g. Python's `ofxtools`) are never
-imported; `ofx-check` compares against the output of an external program instead. Two
-exceptions, each for one crate Rhai can't do without (`server/deny.toml`): `smartstring`
-(MPL-2.0, copyleft per file, used unmodified) and `tiny-keccak` (CC0-1.0).
+imported; `ofx-check` compares against the output of an external program instead. ISC
+(TLS: `ring`, `rustls-webpki`) is allowed alongside them. Three exceptions, each for one
+crate (`server/deny.toml`): two Rhai can't do without, `smartstring` (MPL-2.0, copyleft
+per file, used unmodified) and `tiny-keccak` (CC0-1.0); and `webpki-roots`
+(CDLA-Permissive-2.0, root certificates as data) for remote AI's TLS.
 
 ## 17. Build order
 

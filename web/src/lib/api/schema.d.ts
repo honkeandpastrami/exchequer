@@ -705,12 +705,14 @@ export interface paths {
 			cookie?: never;
 		};
 		/**
-		 * Measure a local AI method on the ledger's own past (docs/ai.md). For each
-		 *     month, the method learns from everything before it, then suggests labels
-		 *     for the month's transactions (between one of your accounts and the
-		 *     outside) as if they were being imported, and an account for each
-		 *     account's transactions; its guesses are compared with the ledger. Reads
-		 *     only; nothing is stored.
+		 * Measure a local AI method, alone or with remote AI after it, on the
+		 *     ledger's own past (docs/ai.md). For each month, the method learns from
+		 *     everything before it, then suggests labels for the month's transactions
+		 *     (between one of your accounts and the outside) as if they were being
+		 *     imported, and an account for each account's transactions; remote AI, if
+		 *     asked, is shown what's before the month and asked about what the method
+		 *     left unsure. The guesses are compared with the ledger. Reads only;
+		 *     nothing is stored.
 		 */
 		get: operations['suggesters_backtest'];
 		put?: never;
@@ -948,9 +950,25 @@ export interface components {
 			/** @description The method measured (`<name>-v<version>`). */
 			method: string;
 			months: components['schemas']['BacktestMonth'][];
+			/** @description Whether remote AI was asked too. */
+			remote: boolean;
 		};
 		/**
-		 * @description One month: the method trained on everything before it, then asked about
+		 * @description One level's share: of the rows (or statements), those whose final
+		 *     suggestion it made, and how right they were.
+		 */
+		BacktestLevel: {
+			accounts: components['schemas']['Score'];
+			/** @description What it records as its details (e.g. its data's snapshot). */
+			details: Record<string, never>;
+			/** @description `local` or `remote`. */
+			kind: string;
+			labels: components['schemas']['LabelScore'][];
+			name: string;
+			version: string;
+		};
+		/**
+		 * @description One month: the levels built from everything before it, then asked about
 		 *     its transactions.
 		 */
 		BacktestMonth: {
@@ -961,18 +979,15 @@ export interface components {
 			accounts: components['schemas']['Score'];
 			/**
 			 * @description The month's transactions, each asked its labels with its account
-			 *     known.
+			 *     known: the final suggestions, whichever level made them.
 			 */
 			labels: components['schemas']['LabelScore'][];
+			/** @description Per level, in order. */
+			levels: components['schemas']['BacktestLevel'][];
 			month: string;
 			/**
-			 * @description What the trained suggester records as its details (e.g. its data's
-			 *     snapshot).
-			 */
-			suggester: Record<string, never>;
-			/**
 			 * Format: int64
-			 * @description Labeled transactions it learned from.
+			 * @description Labeled transactions they learned from.
 			 */
 			trained_on: number;
 		};
@@ -4700,6 +4715,11 @@ export interface operations {
 				 *     server's own if omitted.
 				 */
 				method?: string;
+				/**
+				 * @description Also ask remote AI, as configured, about what the method leaves
+				 *     unsure (at most 3 months). Its requests are real ones, billed.
+				 */
+				remote?: boolean;
 			};
 			header?: never;
 			path?: never;

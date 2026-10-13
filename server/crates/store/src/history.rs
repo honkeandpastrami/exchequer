@@ -62,3 +62,75 @@ pub async fn accounts(db: impl PgExecutor<'_>) -> Result<Vec<AccountRow>, sqlx::
     .fetch_all(db)
     .await
 }
+
+/// What remote AI may name and describe (design §8): accounts with their
+/// owners and numbers, ordinary counterparties, categories and parties.
+#[derive(Debug, Clone, Default)]
+pub struct Catalog {
+    pub accounts: Vec<CatalogAccount>,
+    pub counterparties: Vec<(Uuid, String)>,
+    pub categories: Vec<(Uuid, String)>,
+    /// `(id, name, kind)`.
+    pub parties: Vec<(Uuid, String, String)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CatalogAccount {
+    pub id: Uuid,
+    pub name: String,
+    pub kind: String,
+    pub owner_id: Uuid,
+    pub archived: bool,
+    /// The numbers it's known by, whole: callers keep only the last four.
+    pub numbers: Vec<domain::AccountNumber>,
+}
+
+pub async fn catalog(db: &mut sqlx::PgConnection) -> Result<Catalog, sqlx::Error> {
+    let numbers = sqlx::query!("SELECT account_id, number FROM account_number ORDER BY number")
+        .fetch_all(&mut *db)
+        .await?;
+    let accounts = sqlx::query!(
+        "SELECT id, name, kind, owner_id, archived FROM account ORDER BY owner_id, name"
+    )
+    .fetch_all(&mut *db)
+    .await?
+    .into_iter()
+    .map(|a| CatalogAccount {
+        numbers: numbers
+            .iter()
+            .filter(|n| n.account_id == a.id)
+            .filter_map(|n| domain::AccountNumber::new(&n.number))
+            .collect(),
+        id: a.id,
+        name: a.name,
+        kind: a.kind,
+        owner_id: a.owner_id,
+        archived: a.archived,
+    })
+    .collect();
+    let counterparties =
+        sqlx::query!("SELECT id, name FROM counterparty WHERE system IS NULL ORDER BY name")
+            .fetch_all(&mut *db)
+            .await?
+            .into_iter()
+            .map(|r| (r.id, r.name))
+            .collect();
+    let categories = sqlx::query!("SELECT id, name FROM category ORDER BY name")
+        .fetch_all(&mut *db)
+        .await?
+        .into_iter()
+        .map(|r| (r.id, r.name))
+        .collect();
+    let parties = sqlx::query!("SELECT id, name, kind FROM party ORDER BY name")
+        .fetch_all(&mut *db)
+        .await?
+        .into_iter()
+        .map(|r| (r.id, r.name, r.kind))
+        .collect();
+    Ok(Catalog {
+        accounts,
+        counterparties,
+        categories,
+        parties,
+    })
+}

@@ -1,0 +1,681 @@
+//! What the decision model is shown (questions v1, docs/ai.md): computed
+//! from the ledger, never hand-written, so it doesn't go stale.
+
+use std::collections::{BTreeMap, HashMap};
+
+use heuristics::normalize;
+use outbound::decision::Question;
+use rust_decimal::Decimal;
+use serde_json::{Value as Json, json};
+use suggest::{Example, History, Label, Row, Statement, Value};
+use time::{Date, Duration};
+use uuid::Uuid;
+
+/// Similar past transactions shown per row.
+pub const SIMILAR: usize = 10;
+/// Counterparty candidates offered per row.
+const CANDIDATES: usize = 10;
+/// A statement's rows shown, spread over it.
+const STATEMENT_ROWS: usize = 8;
+/// What "usual" covers: the year before the ledger's latest transaction.
+const YEAR: Duration = Duration::days(365);
+/// An account's usage: its last six months.
+const HALF_YEAR: Duration = Duration::days(183);
+/// Bank texts' length shown.
+const TEXT: usize = 100;
+
+// Options standing for "none" (a value), or for no answer.
+const UNKNOWN: &str = "(unknown counterparty)";
+const NO_CATEGORY: &str = "(no category)";
+const OWNER: &str = "(the account's owner)";
+const NONE_OF_THESE: &str = "(none of these)";
+const CANNOT_TELL: &str = "(cannot tell)";
+
+/// One of your accounts, as remote AI may describe it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountInfo {
+    pub id: Uuid,
+    pub name: String,
+    /// `checking`, `credit_card`, …
+    pub kind: String,
+    pub owner: Uuid,
+    /// The last four of each number it's known by.
+    pub numbers: Vec<String>,
+    pub archived: bool,
+}
+
+/// A party: an account owner, or whom a transaction is for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartyInfo {
+    pub id: Uuid,
+    pub name: String,
+    /// `household`, `person` or `business`.
+    pub kind: String,
+}
+
+/// The ledger's names.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Catalog {
+    pub accounts: Vec<AccountInfo>,
+    /// Ordinary counterparties (not system ones such as opening balances).
+    pub counterparties: Vec<(Uuid, String)>,
+    pub categories: Vec<(Uuid, String)>,
+    pub parties: Vec<PartyInfo>,
+}
+
+/// A question and the value each option stands for; options standing for
+/// no answer ("cannot tell") have none.
+pub struct Options<T> {
+    pub question: Question,
+    pub values: Vec<(String, T)>,
+}
+
+/// How often each value occurred.
+#[derive(Default)]
+struct Tally(HashMap<Value, u32>);
+
+impl Tally {
+    fn add(&mut self, v: Value) {
+        *self.0.entry(v).or_default() += 1;
+    }
+
+    /// The most frequent first, with their percentage, at most `n`.
+    fn top(&self, n: usize) -> Vec<(Value, u32)> {
+        let total: u32 = self.0.values().sum();
+        let mut v: Vec<(Value, u32)> = self.0.iter().map(|(k, c)| (*k, *c)).collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        v.truncate(n);
+        v.into_iter()
+            .map(|(k, c)| (k, c * 100 / total.max(1)))
+            .collect()
+    }
+}
+
+/// A label value's use over the past year.
+#[derive(Default)]
+struct Usage {
+    count: u32,
+    counterparties: Tally,
+    categories: Tally,
+    purposes: Tally,
+    amounts: Vec<Decimal>,
+    /// The latest bank text.
+    latest: Option<(Date, String)>,
+}
+
+impl Usage {
+    fn add(&mut self, e: &Example) {
+        self.count += 1;
+        self.counterparties.add(e.labels.counterparty);
+        self.categories.add(e.labels.category);
+        self.purposes.add(e.labels.purpose);
+        self.amounts.push(e.amount.abs());
+        if self.latest.as_ref().is_none_or(|l| e.date >= l.0) {
+            self.latest = Some((e.date, text(&e.description)));
+        }
+    }
+
+    fn typical(&self) -> String {
+        let mut a = self.amounts.clone();
+        a.sort();
+        match (a.first(), a.get(a.len() / 2), a.last()) {
+            (Some(lo), Some(mid), Some(hi)) if lo == hi => money(*mid),
+            (Some(lo), Some(mid), Some(hi)) => {
+                format!("{} (from {} to {})", money(*mid), money(*lo), money(*hi))
+            }
+            _ => String::new(),
+        }
+    }
+}
+
+fn money(d: Decimal) -> String {
+    format!("{:.2}", d.abs())
+}
+
+/// A bank text as sent: normalized, so no long number is.
+fn text(s: &str) -> String {
+    normalize::description(s).chars().take(TEXT).collect()
+}
+
+fn direction(amount: Decimal) -> &'static str {
+    if amount.is_sign_negative() {
+        "out of the account"
+    } else {
+        "into the account"
+    }
+}
+
+/// A deterministic shuffle: options are ordered at random (order sways the
+/// model), but the same row is always asked the same way.
+fn shuffle<T>(items: &mut [T], seed: &str) {
+    let mut x: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in seed.bytes() {
+        x = (x ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+    }
+    for i in (1..items.len()).rev() {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        let j = usize::try_from(x % (i as u64 + 1)).unwrap_or(0);
+        items.swap(i, j);
+    }
+}
+
+/// Up to `n` of `items`, evenly spread.
+fn spread<T>(items: &[T], n: usize) -> Vec<&T> {
+    if items.len() <= n {
+        return items.iter().collect();
+    }
+    (0..n).map(|i| &items[i * items.len() / n]).collect()
+}
+
+/// The ledger, summarized for questions.
+pub struct Context {
+    catalog: Catalog,
+    examples: Vec<Example>,
+    by_transaction: HashMap<Uuid, usize>,
+    /// Examples by normalized text, oldest first.
+    by_key: HashMap<String, Vec<usize>>,
+    counterparties: HashMap<Uuid, Usage>,
+    categories: HashMap<Uuid, Usage>,
+    /// By party; `None` is the account's owner.
+    purposes: HashMap<Value, Usage>,
+    /// Each account's last six months.
+    accounts: HashMap<Uuid, Usage>,
+}
+
+impl Context {
+    pub fn new(history: &History, catalog: &Catalog) -> Self {
+        let mut examples = history.examples.clone();
+        examples.sort_by(|a, b| a.date.cmp(&b.date).then(a.transaction.cmp(&b.transaction)));
+        let latest = history.through().unwrap_or(Date::MIN);
+        let mut c = Self {
+            catalog: catalog.clone(),
+            by_transaction: HashMap::new(),
+            by_key: HashMap::new(),
+            counterparties: HashMap::new(),
+            categories: HashMap::new(),
+            purposes: HashMap::new(),
+            accounts: HashMap::new(),
+            examples: Vec::new(),
+        };
+        for (i, e) in examples.iter().enumerate() {
+            c.by_transaction.insert(e.transaction, i);
+            c.by_key
+                .entry(normalize::key(&e.description))
+                .or_default()
+                .push(i);
+            if e.date + YEAR >= latest {
+                if let Some(id) = e.labels.counterparty {
+                    c.counterparties.entry(id).or_default().add(e);
+                }
+                if let Some(id) = e.labels.category {
+                    c.categories.entry(id).or_default().add(e);
+                }
+                c.purposes.entry(e.labels.purpose).or_default().add(e);
+            }
+            if e.date + HALF_YEAR >= latest {
+                c.accounts.entry(e.account).or_default().add(e);
+            }
+        }
+        c.examples = examples;
+        c
+    }
+
+    fn counterparty(&self, v: Value) -> String {
+        self.name(v, &self.catalog.counterparties, UNKNOWN)
+    }
+
+    fn category(&self, v: Value) -> String {
+        self.name(v, &self.catalog.categories, NO_CATEGORY)
+    }
+
+    fn party(&self, v: Value) -> String {
+        match v {
+            None => OWNER.to_owned(),
+            Some(id) => self
+                .catalog
+                .parties
+                .iter()
+                .find(|p| p.id == id)
+                .map_or_else(|| id.to_string(), |p| p.name.clone()),
+        }
+    }
+
+    fn name(&self, v: Value, names: &[(Uuid, String)], none: &str) -> String {
+        match v {
+            None => none.to_owned(),
+            Some(id) => names
+                .iter()
+                .find(|n| n.0 == id)
+                .map_or_else(|| id.to_string(), |n| n.1.clone()),
+        }
+    }
+
+    fn account(&self, id: Uuid) -> Option<&AccountInfo> {
+        self.catalog.accounts.iter().find(|a| a.id == id)
+    }
+
+    fn owner(&self, a: &AccountInfo) -> Option<&PartyInfo> {
+        self.catalog.parties.iter().find(|p| p.id == a.owner)
+    }
+
+    /// `Owner · Name`: account names are unique per owner only.
+    fn account_name(&self, a: &AccountInfo) -> String {
+        match self.owner(a) {
+            Some(o) => format!("{} · {}", o.name, a.name),
+            None => a.name.clone(),
+        }
+    }
+
+    fn shares(&self, t: &Tally, n: usize, name: impl Fn(Value) -> String) -> Vec<String> {
+        t.top(n)
+            .into_iter()
+            .map(|(v, pct)| format!("{} {pct}%", name(v)))
+            .collect()
+    }
+
+    /// An account, and how it's been used.
+    fn account_json(&self, a: &AccountInfo) -> Json {
+        let owner = self.owner(a);
+        let mut j = json!({
+            "name": self.account_name(a),
+            "kind": a.kind,
+            "owner": owner.map(|o| &o.name),
+            "owner_kind": owner.map(|o| &o.kind),
+        });
+        if let Some(u) = self.accounts.get(&a.id) {
+            j["recent_purposes"] = json!(self.shares(&u.purposes, 4, |v| self.party(v)));
+            j["recent_categories"] = json!(self.shares(&u.categories, 6, |v| self.category(v)));
+        }
+        j
+    }
+
+    fn example_json(&self, e: &Example) -> Json {
+        json!({
+            "date": e.date.to_string(),
+            "description": text(&e.description),
+            "amount": money(e.amount),
+            "direction": direction(e.amount),
+            "account": self.account(e.account).map(|a| self.account_name(a)),
+            "counterparty": self.counterparty(e.labels.counterparty),
+            "category": self.category(e.labels.category),
+            "purpose": self.party(e.labels.purpose),
+        })
+    }
+
+    /// The bank's own fields that say what kind of transaction it is
+    /// (`Type`, `Category`, a merchant category code), normalized.
+    fn bank_fields(raw: &Json) -> Json {
+        let mut out = serde_json::Map::new();
+        if let Some(fields) = raw.as_object() {
+            for (k, v) in fields {
+                let lower = k.to_lowercase();
+                if !["type", "category", "mcc", "sic"]
+                    .iter()
+                    .any(|w| lower.contains(w))
+                {
+                    continue;
+                }
+                let v = match v {
+                    Json::String(s) => s.clone(),
+                    Json::Number(n) => n.to_string(),
+                    _ => continue,
+                };
+                if !v.trim().is_empty() && out.len() < 5 {
+                    out.insert(k.chars().take(40).collect(), json!(text(&v)));
+                }
+            }
+        }
+        Json::Object(out)
+    }
+
+    /// "The same amount, with the same text, in N of the last 6 months."
+    fn recurs(&self, row: &Row) -> Option<String> {
+        let same = self.by_key.get(&normalize::key(&row.description))?;
+        let mut months: Vec<(i32, u8)> = same
+            .iter()
+            .map(|i| &self.examples[*i])
+            .filter(|e| {
+                e.date < row.date
+                    && e.date + HALF_YEAR >= row.date
+                    && e.amount.abs() == row.amount.abs()
+                    && row.account.is_none_or(|a| a == e.account)
+            })
+            .map(|e| (e.date.year(), u8::from(e.date.month())))
+            .collect();
+        months.sort_unstable();
+        months.dedup();
+        (months.len() >= 2).then(|| {
+            format!(
+                "the same amount, with similar text, in {} of the last 6 months",
+                months.len()
+            )
+        })
+    }
+
+    fn counterparty_option(&self, id: Uuid) -> String {
+        let Some(u) = self.counterparties.get(&id) else {
+            return "no transactions in the past year".into();
+        };
+        let mut parts = Vec::new();
+        if let Some((_, t)) = &u.latest {
+            parts.push(format!("recent bank text “{t}”"));
+        }
+        parts.push(format!(
+            "usual category {}",
+            self.shares(&u.categories, 2, |v| self.category(v))
+                .join(", ")
+        ));
+        parts.push(format!(
+            "usually for {}",
+            self.shares(&u.purposes, 2, |v| self.party(v)).join(", ")
+        ));
+        parts.push(format!("usual amount {}", u.typical()));
+        parts.push(format!("{} times in the past year", u.count));
+        parts.join("; ")
+    }
+
+    fn category_option(&self, id: Uuid) -> String {
+        let Some(u) = self.categories.get(&id) else {
+            return "not used in the past year".into();
+        };
+        format!(
+            "usual counterparties {}; usual amount {}; usually for {}; {} times in the past year",
+            self.shares(&u.counterparties, 4, |v| self.counterparty(v))
+                .join(", "),
+            u.typical(),
+            self.shares(&u.purposes, 2, |v| self.party(v)).join(", "),
+            u.count
+        )
+    }
+
+    fn party_option(&self, v: Value) -> String {
+        let mut parts = Vec::new();
+        if let Some(p) = v.and_then(|id| self.catalog.parties.iter().find(|p| p.id == id)) {
+            parts.push(format!("a {}", p.kind));
+        } else {
+            parts.push("not charged to anyone else: the account's owner".into());
+        }
+        if let Some(u) = self.purposes.get(&v) {
+            parts.push(format!(
+                "usual categories {}",
+                self.shares(&u.categories, 4, |v| self.category(v))
+                    .join(", ")
+            ));
+            parts.push(format!(
+                "usual counterparties {}",
+                self.shares(&u.counterparties, 4, |v| self.counterparty(v))
+                    .join(", ")
+            ));
+            parts.push(format!("{} times in the past year", u.count));
+        } else {
+            parts.push("not used in the past year".into());
+        }
+        parts.join("; ")
+    }
+
+    /// A question over `options` (each a key, its value and its
+    /// description), plus `extra` options standing for no answer.
+    fn question<T>(
+        name: &str,
+        instructions: &str,
+        options: Vec<(String, T, String)>,
+        extra: &[(&str, &str)],
+        seed: &str,
+    ) -> Options<T> {
+        let mut criteria: Vec<(String, String)> = Vec::new();
+        let mut values = Vec::new();
+        for (k, v, d) in options {
+            if criteria.iter().any(|c| c.0 == k) {
+                continue;
+            }
+            criteria.push((k.clone(), d));
+            values.push((k, v));
+        }
+        for (k, d) in extra {
+            criteria.push(((*k).to_owned(), (*d).to_owned()));
+        }
+        shuffle(&mut criteria, &format!("{seed}|{name}"));
+        Options {
+            question: Question {
+                name: name.to_owned(),
+                instructions: instructions.to_owned(),
+                options: criteria,
+            },
+            values,
+        }
+    }
+
+    /// The state and the questions for a row's open labels.
+    pub fn row(&self, row: &Row, similar: &[Uuid]) -> (Json, Vec<(Label, Options<Value>)>) {
+        let similar: Vec<&Example> = similar
+            .iter()
+            .filter_map(|t| self.by_transaction.get(t).map(|i| &self.examples[*i]))
+            .collect();
+        let seed = format!("{}|{}|{}", row.date, row.amount, row.description);
+        let mut asked = Vec::new();
+        for label in Label::ALL {
+            if row.facts.get(label).is_some() {
+                continue;
+            }
+            let o = match label {
+                Label::Counterparty => self.counterparty_question(row, &similar, &seed),
+                Label::Category => self.category_question(&seed),
+                Label::Purpose => self.purpose_question(&seed),
+            };
+            if let Some(o) = o {
+                asked.push((label, o));
+            }
+        }
+
+        let mut r = json!({
+            "description": text(&row.description),
+            "date": row.date.to_string(),
+            "weekday": row.date.weekday().to_string(),
+            "amount": money(row.amount),
+            "direction": direction(row.amount),
+        });
+        let fields = Self::bank_fields(&row.raw);
+        if fields.as_object().is_some_and(|f| !f.is_empty()) {
+            r["bank_fields"] = fields;
+        }
+        if let Some(s) = self.recurs(row) {
+            r["recurs"] = json!(s);
+        }
+        let mut state = json!({ "transaction": r });
+        if let Some(a) = row.account.and_then(|a| self.account(a)) {
+            state["account"] = self.account_json(a);
+        }
+        let mut settled = BTreeMap::new();
+        for l in Label::ALL {
+            if let Some(v) = row.facts.get(l) {
+                let name = match l {
+                    Label::Counterparty => self.counterparty(v),
+                    Label::Category => self.category(v),
+                    Label::Purpose => self.party(v),
+                };
+                settled.insert(l.as_str(), name);
+            }
+        }
+        if !settled.is_empty() {
+            state["already_known"] = json!(settled);
+        }
+        if !similar.is_empty() {
+            state["similar_past_transactions"] =
+                similar.iter().map(|e| self.example_json(e)).collect();
+        }
+        (state, asked)
+    }
+
+    /// Candidates only: the counterparties of similar transactions and of
+    /// those with the same text; none, nothing to ask.
+    fn counterparty_question(
+        &self,
+        row: &Row,
+        similar: &[&Example],
+        seed: &str,
+    ) -> Option<Options<Value>> {
+        let same: Vec<&Example> = self
+            .by_key
+            .get(&normalize::key(&row.description))
+            .map(|v| v.iter().rev().map(|i| &self.examples[*i]).collect())
+            .unwrap_or_default();
+        let mut candidates: Vec<Value> = Vec::new();
+        for e in similar.iter().chain(&same) {
+            if candidates.len() < CANDIDATES && !candidates.contains(&e.labels.counterparty) {
+                candidates.push(e.labels.counterparty);
+            }
+        }
+        if candidates.iter().all(Option::is_none) {
+            return None;
+        }
+        let options = candidates
+            .into_iter()
+            .map(|v| {
+                let d = match v {
+                    Some(id) => self.counterparty_option(id),
+                    None => "unknown: some similar past transactions have no counterparty".into(),
+                };
+                (self.counterparty(v), v, d)
+            })
+            .collect();
+        Some(Self::question(
+            "counterparty",
+            "The state describes one bank transaction, the account it's on, and similar past \
+             transactions with how they were labeled. Who is this transaction's counterparty: \
+             the merchant, person or organization the money went to or came from?",
+            options,
+            &[
+                (NONE_OF_THESE, "none of the counterparties listed"),
+                (CANNOT_TELL, "can't tell from what's given"),
+            ],
+            seed,
+        ))
+    }
+
+    fn category_question(&self, seed: &str) -> Option<Options<Value>> {
+        let mut options: Vec<(String, Value, String)> = self
+            .catalog
+            .categories
+            .iter()
+            .map(|(id, name)| (name.clone(), Some(*id), self.category_option(*id)))
+            .collect();
+        options.push((NO_CATEGORY.into(), None, "no category".into()));
+        Some(Self::question(
+            "category",
+            "The state describes one bank transaction, the account it's on, and similar past \
+             transactions with how they were labeled. Which category does this transaction \
+             belong to?",
+            options,
+            &[(CANNOT_TELL, "can't tell from what's given")],
+            seed,
+        ))
+    }
+
+    fn purpose_question(&self, seed: &str) -> Option<Options<Value>> {
+        let mut options: Vec<(String, Value, String)> = self
+            .catalog
+            .parties
+            .iter()
+            .map(|p| (p.name.clone(), Some(p.id), self.party_option(Some(p.id))))
+            .collect();
+        options.push((OWNER.into(), None, self.party_option(None)));
+        Some(Self::question(
+            "purpose",
+            "The state describes one bank transaction, the account it's on, and similar past \
+             transactions with how they were labeled. Whom is this transaction for: which \
+             party is it charged to?",
+            options,
+            &[(CANNOT_TELL, "can't tell from what's given")],
+            seed,
+        ))
+    }
+
+    /// The state and the question for a statement's account: the accounts
+    /// it may be (not archived, of the file's kind).
+    pub fn statement(&self, s: &Statement) -> Option<(Json, Options<Uuid>)> {
+        let options: Vec<(String, Uuid, String)> = self
+            .catalog
+            .accounts
+            .iter()
+            .filter(|a| !a.archived && s.kind.is_none_or(|k| k.fits(&a.kind)))
+            .map(|a| {
+                let owner = self.owner(a);
+                let mut parts = vec![format!(
+                    "a {} account of {}",
+                    a.kind,
+                    owner.map_or("?", |o| &o.name)
+                )];
+                if !a.numbers.is_empty() {
+                    parts.push(format!("numbers ending {}", a.numbers.join(", ")));
+                }
+                if let Some(u) = self.accounts.get(&a.id) {
+                    let texts: Vec<String> = self
+                        .examples
+                        .iter()
+                        .rev()
+                        .filter(|e| e.account == a.id)
+                        .take(4)
+                        .map(|e| format!("“{}”", text(&e.description)))
+                        .collect();
+                    parts.push(format!("recent bank texts {}", texts.join(", ")));
+                    parts.push(format!("usual amount {}", u.typical()));
+                    if let Some((d, _)) = &u.latest {
+                        parts.push(format!("latest transaction {d}"));
+                    }
+                } else {
+                    parts.push("no transactions in the past six months".into());
+                }
+                (self.account_name(a), a.id, parts.join("; "))
+            })
+            .collect();
+        if options.is_empty() {
+            return None;
+        }
+        let rows: Vec<Json> = spread(&s.rows, STATEMENT_ROWS)
+            .into_iter()
+            .map(|r| {
+                json!({
+                    "date": r.date.to_string(),
+                    "description": text(&r.description),
+                    "amount": money(r.amount),
+                    "direction": direction(r.amount),
+                })
+            })
+            .collect();
+        let mut file = json!({
+            "rows": s.rows.len(),
+            "from": s.rows.iter().map(|r| r.date).min().map(|d| d.to_string()),
+            "to": s.rows.iter().map(|r| r.date).max().map(|d| d.to_string()),
+            "some_rows": rows,
+        });
+        if let Some(n) = &s.file_name {
+            file["file_name"] = json!(text(n));
+        }
+        if let Some(n) = &s.number {
+            file["account_number_ending"] = json!(n);
+        }
+        if let Some(k) = s.kind {
+            file["kind"] = json!(match k {
+                suggest::StatementKind::Bank => "bank account",
+                suggest::StatementKind::CreditCard => "credit card",
+            });
+        }
+        let seed = format!("{:?}|{}", s.file_name, s.rows.len());
+        Some((
+            json!({ "statement": file }),
+            Self::question(
+                "account",
+                "The state describes a bank statement file whose account is unknown. Which of \
+                 the household's accounts is it from?",
+                options,
+                &[
+                    (NONE_OF_THESE, "none of the accounts listed"),
+                    (CANNOT_TELL, "can't tell from what's given"),
+                ],
+                &seed,
+            ),
+        ))
+    }
+}

@@ -648,6 +648,19 @@ impl Suggester for Model {
             .collect()
     }
 
+    fn similar(&self, row: &Row, n: usize) -> Vec<Uuid> {
+        let key = normalize::key(&row.description);
+        let q = self.query(row, &key);
+        let mut near = self.neighbors(&q, |e| q.facts.admit(&e.labels));
+        if near.is_empty() {
+            near = self.neighbors(&q, |_| true);
+        }
+        near.into_iter()
+            .take(n)
+            .map(|(i, _)| self.ex[i as usize].transaction)
+            .collect()
+    }
+
     fn account(&self, statement: &Statement) -> Option<Guess<Uuid>> {
         let rows = spread(&statement.rows, STATEMENT_ROWS);
         let keys: Vec<String> = rows
@@ -799,6 +812,19 @@ mod tests {
     }
 
     #[test]
+    fn similar_transactions_are_evidence() {
+        let h = history();
+        let m = LexicalKnn.train(&h);
+        let near = m.similar(&row(Some(CARD), -463, "SQ *CORNER CAFE #0412"), 3);
+        assert_eq!(near.len(), 3);
+        for t in near {
+            let e = h.examples.iter().find(|e| e.transaction == t).unwrap();
+            assert_eq!(e.labels.counterparty, Some(CAFE));
+        }
+        assert!(m.similar(&row(None, -1, "UNHEARD OF"), 3).is_empty());
+    }
+
+    #[test]
     fn a_stranger_gets_nothing_confident() {
         let m = LexicalKnn.train(&history());
         let p = &m.labels(&[row(Some(CARD), -1999, "UNHEARD OF HARDWARE")])[0];
@@ -825,6 +851,7 @@ mod tests {
         let m = LexicalKnn.train(&history());
         let s = Statement {
             file_name: None,
+            number: None,
             kind: None,
             rows: vec![
                 row(None, -455, "SQ *CORNER CAFE #0401"),
@@ -853,6 +880,7 @@ mod tests {
         assert!(
             m.account(&Statement {
                 file_name: None,
+                number: None,
                 kind: None,
                 rows: vec![row(None, -100, "CAFE")]
             })

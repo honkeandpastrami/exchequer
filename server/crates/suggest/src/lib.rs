@@ -261,6 +261,9 @@ impl StatementKind {
 pub struct Statement {
     /// The bank file's name, if it was given.
     pub file_name: Option<String>,
+    /// The last four of the account number the file names, if any (no
+    /// account has it yet).
+    pub number: Option<String>,
     pub kind: Option<StatementKind>,
     pub rows: Vec<Row>,
 }
@@ -311,6 +314,13 @@ pub trait Suggester: Send + Sync {
 
     /// The account a statement is for, if it can tell.
     fn account(&self, statement: &Statement) -> Option<Guess<Uuid>>;
+
+    /// The labeled transactions most like a row (agreeing with its facts),
+    /// most alike first, at most `n`: evidence a later level can be shown.
+    /// None by default.
+    fn similar(&self, _row: &Row, _n: usize) -> Vec<Uuid> {
+        Vec::new()
+    }
 }
 
 /// A local method: learns from the ledger's history, in process.

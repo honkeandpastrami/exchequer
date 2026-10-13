@@ -15,6 +15,7 @@ def _get_kwargs(
     from_: str,
     to: str | Unset = UNSET,
     method: str | Unset = UNSET,
+    remote: bool | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -24,6 +25,8 @@ def _get_kwargs(
     params["to"] = to
 
     params["method"] = method
+
+    params["remote"] = remote
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -68,18 +71,22 @@ def sync_detailed(
     from_: str,
     to: str | Unset = UNSET,
     method: str | Unset = UNSET,
+    remote: bool | Unset = UNSET,
 ) -> Response[Backtest | Problem]:
-    """Measure a local AI method on the ledger's own past (docs/ai.md). For each
-    month, the method learns from everything before it, then suggests labels
-    for the month's transactions (between one of your accounts and the
-    outside) as if they were being imported, and an account for each
-    account's transactions; its guesses are compared with the ledger. Reads
-    only; nothing is stored.
+    """Measure a local AI method, alone or with remote AI after it, on the
+    ledger's own past (docs/ai.md). For each month, the method learns from
+    everything before it, then suggests labels for the month's transactions
+    (between one of your accounts and the outside) as if they were being
+    imported, and an account for each account's transactions; remote AI, if
+    asked, is shown what's before the month and asked about what the method
+    left unsure. The guesses are compared with the ledger. Reads only;
+    nothing is stored.
 
     Args:
         from_ (str):
         to (str | Unset):
         method (str | Unset):
+        remote (bool | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -93,6 +100,7 @@ def sync_detailed(
         from_=from_,
         to=to,
         method=method,
+        remote=remote,
     )
 
     response = client.get_httpx_client().request(
@@ -108,18 +116,22 @@ def sync(
     from_: str,
     to: str | Unset = UNSET,
     method: str | Unset = UNSET,
+    remote: bool | Unset = UNSET,
 ) -> Backtest | Problem | None:
-    """Measure a local AI method on the ledger's own past (docs/ai.md). For each
-    month, the method learns from everything before it, then suggests labels
-    for the month's transactions (between one of your accounts and the
-    outside) as if they were being imported, and an account for each
-    account's transactions; its guesses are compared with the ledger. Reads
-    only; nothing is stored.
+    """Measure a local AI method, alone or with remote AI after it, on the
+    ledger's own past (docs/ai.md). For each month, the method learns from
+    everything before it, then suggests labels for the month's transactions
+    (between one of your accounts and the outside) as if they were being
+    imported, and an account for each account's transactions; remote AI, if
+    asked, is shown what's before the month and asked about what the method
+    left unsure. The guesses are compared with the ledger. Reads only;
+    nothing is stored.
 
     Args:
         from_ (str):
         to (str | Unset):
         method (str | Unset):
+        remote (bool | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -134,6 +146,7 @@ def sync(
         from_=from_,
         to=to,
         method=method,
+        remote=remote,
     ).parsed
 
 
@@ -143,18 +156,22 @@ async def asyncio_detailed(
     from_: str,
     to: str | Unset = UNSET,
     method: str | Unset = UNSET,
+    remote: bool | Unset = UNSET,
 ) -> Response[Backtest | Problem]:
-    """Measure a local AI method on the ledger's own past (docs/ai.md). For each
-    month, the method learns from everything before it, then suggests labels
-    for the month's transactions (between one of your accounts and the
-    outside) as if they were being imported, and an account for each
-    account's transactions; its guesses are compared with the ledger. Reads
-    only; nothing is stored.
+    """Measure a local AI method, alone or with remote AI after it, on the
+    ledger's own past (docs/ai.md). For each month, the method learns from
+    everything before it, then suggests labels for the month's transactions
+    (between one of your accounts and the outside) as if they were being
+    imported, and an account for each account's transactions; remote AI, if
+    asked, is shown what's before the month and asked about what the method
+    left unsure. The guesses are compared with the ledger. Reads only;
+    nothing is stored.
 
     Args:
         from_ (str):
         to (str | Unset):
         method (str | Unset):
+        remote (bool | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -168,6 +185,7 @@ async def asyncio_detailed(
         from_=from_,
         to=to,
         method=method,
+        remote=remote,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -181,18 +199,22 @@ async def asyncio(
     from_: str,
     to: str | Unset = UNSET,
     method: str | Unset = UNSET,
+    remote: bool | Unset = UNSET,
 ) -> Backtest | Problem | None:
-    """Measure a local AI method on the ledger's own past (docs/ai.md). For each
-    month, the method learns from everything before it, then suggests labels
-    for the month's transactions (between one of your accounts and the
-    outside) as if they were being imported, and an account for each
-    account's transactions; its guesses are compared with the ledger. Reads
-    only; nothing is stored.
+    """Measure a local AI method, alone or with remote AI after it, on the
+    ledger's own past (docs/ai.md). For each month, the method learns from
+    everything before it, then suggests labels for the month's transactions
+    (between one of your accounts and the outside) as if they were being
+    imported, and an account for each account's transactions; remote AI, if
+    asked, is shown what's before the month and asked about what the method
+    left unsure. The guesses are compared with the ledger. Reads only;
+    nothing is stored.
 
     Args:
         from_ (str):
         to (str | Unset):
         method (str | Unset):
+        remote (bool | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -208,5 +230,6 @@ async def asyncio(
             from_=from_,
             to=to,
             method=method,
+            remote=remote,
         )
     ).parsed

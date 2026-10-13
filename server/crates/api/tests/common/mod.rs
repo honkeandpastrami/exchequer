@@ -36,6 +36,7 @@ pub struct Call<'a> {
     headers: Vec<(String, String)>,
     body: Option<Value>,
     bytes: Option<Vec<u8>>,
+    suggestions: Option<api::Suggestions>,
 }
 
 pub fn call<'a>(pool: &'a PgPool, method: &'a str, path: impl Into<String>) -> Call<'a> {
@@ -46,6 +47,7 @@ pub fn call<'a>(pool: &'a PgPool, method: &'a str, path: impl Into<String>) -> C
         headers: vec![],
         body: None,
         bytes: None,
+        suggestions: None,
     }
 }
 
@@ -70,6 +72,12 @@ impl Call<'_> {
         self
     }
 
+    /// Another suggestion stack than the default (e.g. with remote AI).
+    pub fn suggestions(mut self, s: api::Suggestions) -> Self {
+        self.suggestions = Some(s);
+        self
+    }
+
     /// A raw body, e.g. an uploaded file.
     pub fn bytes(mut self, body: impl Into<Vec<u8>>) -> Self {
         self.bytes = Some(body.into());
@@ -81,7 +89,7 @@ impl Call<'_> {
             pool: self.pool.clone(),
             bootstrap_token: Some(BOOTSTRAP.into()),
             zone: jiff::tz::TimeZone::get("America/New_York").unwrap(),
-            suggestions: api::Suggestions::default(),
+            suggestions: self.suggestions.unwrap_or_default(),
         });
         let mut req = Request::builder().method(self.method).uri(&self.path);
         for (k, v) in &self.headers {

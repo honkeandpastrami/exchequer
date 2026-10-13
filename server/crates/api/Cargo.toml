@@ -16,6 +16,7 @@ getrandom = "0.4.3"
 heuristics = { path = "../heuristics" }
 import = { path = "../import" }
 jiff = { version = "0.2", features = ["tzdb-bundle-always"] }
+remote = { path = "../remote" }
 rules = { path = "../rules" }
 rust_decimal = "1.43.0"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -36,5 +37,6 @@ uuid = { version = "1.28.0", features = ["serde"] }
 
 [dev-dependencies]
 http-body-util = "0.1.5"
+outbound = { path = "../outbound" }
 tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread"] }
 tower = { version = "0.5.3", features = ["util"] }

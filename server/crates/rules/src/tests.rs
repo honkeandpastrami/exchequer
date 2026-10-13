@@ -118,6 +118,7 @@ fn a_script_suggests_a_statements_account() {
     let s = Script::compile(1, SCRIPT, &names()).unwrap();
     let statement = |file_name: Option<&str>| Statement {
         file_name: file_name.map(str::to_owned),
+        number: None,
         kind: Some(StatementKind::CreditCard),
         rows: vec![row(None, "-1", "X")],
     };
@@ -134,6 +135,7 @@ fn an_empty_script_sets_nothing() {
     assert!(
         s.account(&Statement {
             file_name: None,
+            number: None,
             kind: None,
             rows: vec![]
         })

@@ -1,17 +1,19 @@
-//! Measures a local method on the ledger's own past (design §8): trained on
-//! everything before a period, it suggests the period's transactions as if
-//! they were being imported, and its guesses are compared with what the
-//! ledger says. Any method can be measured, so two can be compared on the
-//! same data before one replaces the other.
+//! Measures suggesters on the ledger's own past (design §8): built from
+//! everything before a period, they suggest the period's transactions as if
+//! they were being imported, and their guesses are compared with what the
+//! ledger says. Any local method can be measured, alone or with the levels
+//! after it (remote AI), so two can be compared on the same data before one
+//! replaces the other.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use time::Date;
 use uuid::Uuid;
 
 use crate::{
     CONFIDENT, Example, Facts, Guess, History, Identity, Label, Method, Row, Statement,
-    StatementKind, Value,
+    StatementKind, Suggester, Value, stack,
 };
 
 /// How many confidence bins: 0-99, 100-199, …, 900-1000 per mille.
@@ -50,20 +52,37 @@ impl Score {
     }
 }
 
+/// What one level's picks scored: of the rows (or statements) asked, those
+/// whose final suggestion it made.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Level {
+    pub suggester: Identity,
+    pub labels: BTreeMap<Label, Score>,
+    pub accounts: Score,
+}
+
 /// One period's results.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report {
     /// The period: `start <= date < end`.
     pub start: Date,
     pub end: Date,
-    /// The suggester trained on everything before `start`.
-    pub suggester: Identity,
-    /// How many labeled transactions it learned from.
+    /// How many labeled transactions the levels learned from.
     pub trained_on: usize,
+    /// The final suggestions, whichever level made them.
     pub labels: BTreeMap<Label, Score>,
     /// Each account's transactions in the period, as one statement without
     /// an account.
     pub accounts: Score,
+    /// Per level, in order.
+    pub levels: Vec<Level>,
+}
+
+fn scores() -> BTreeMap<Label, Score> {
+    Label::ALL
+        .into_iter()
+        .map(|l| (l, Score::default()))
+        .collect()
 }
 
 /// Trains `method` on `history` before `start`, then suggests labels for
@@ -71,8 +90,26 @@ pub struct Report {
 /// settled) and an account for each account's transactions in the period.
 #[must_use]
 pub fn run(method: &dyn Method, history: &History, start: Date, end: Date) -> Report {
+    run_stack(
+        &|past: &History| vec![Arc::from(method.train(past))],
+        history,
+        start,
+        end,
+    )
+}
+
+/// As [`run`], for a stack of levels `build` makes from the history before
+/// `start`; each later level is asked what the earlier ones left unsure.
+#[must_use]
+pub fn run_stack(
+    build: &dyn Fn(&History) -> Vec<Arc<dyn Suggester>>,
+    history: &History,
+    start: Date,
+    end: Date,
+) -> Report {
     let past = history.before(start);
-    let s = method.train(&past);
+    let levels = build(&past);
+    let refs: Vec<&dyn Suggester> = levels.iter().map(AsRef::as_ref).collect();
     let tests: Vec<&Example> = history
         .examples
         .iter()
@@ -89,15 +126,26 @@ pub fn run(method: &dyn Method, history: &History, start: Date, end: Date) -> Re
             facts: Facts::default(),
         })
         .collect();
-    let mut labels: BTreeMap<Label, Score> = Label::ALL
-        .into_iter()
-        .map(|l| (l, Score::default()))
+    let mut labels = scores();
+    let mut by_level: Vec<Level> = levels
+        .iter()
+        .map(|s| Level {
+            suggester: s.identity().clone(),
+            labels: scores(),
+            accounts: Score::default(),
+        })
         .collect();
-    for (e, p) in tests.iter().zip(s.labels(&rows)) {
+    for (e, p) in tests.iter().zip(stack::labels(&refs, &rows)) {
         for l in Label::ALL {
             let truth: Value = e.labels.get(l);
+            let pick = p.get(l);
             if let Some(score) = labels.get_mut(&l) {
-                score.add(p.get(l), &truth);
+                score.add(pick.map(|p| &p.guess), &truth);
+            }
+            for (i, level) in by_level.iter_mut().enumerate() {
+                if let Some(score) = level.labels.get_mut(&l) {
+                    score.add(pick.filter(|p| p.level == i).map(|p| &p.guess), &truth);
+                }
             }
         }
     }
@@ -118,21 +166,35 @@ pub fn run(method: &dyn Method, history: &History, start: Date, end: Date) -> Re
                 StatementKind::Bank
             }
         });
-        let guess = s.account(&Statement {
-            file_name: None,
-            kind,
-            rows,
-        });
-        accounts.add(guess.as_ref(), &account);
+        let pick = stack::account(
+            &refs,
+            &Statement {
+                file_name: None,
+                number: None,
+                kind,
+                rows,
+            },
+        );
+        accounts.add(pick.as_ref().map(|p| &p.guess), &account);
+        for (i, level) in by_level.iter_mut().enumerate() {
+            level.accounts.add(
+                pick.as_ref().filter(|p| p.level == i).map(|p| &p.guess),
+                &account,
+            );
+        }
     }
 
+    // A level's identity may be known only once it has answered.
+    for (level, s) in by_level.iter_mut().zip(&levels) {
+        level.suggester = s.identity().clone();
+    }
     Report {
         start,
         end,
-        suggester: s.identity().clone(),
         trained_on: past.examples.len(),
         labels,
         accounts,
+        levels: by_level,
     }
 }
 

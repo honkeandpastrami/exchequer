@@ -26,17 +26,23 @@ allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "BSD-3-Clause",
+    # ring, rustls-webpki, untrusted: TLS for remote AI (design §15).
+    "ISC",
     "MIT",
     "Unicode-3.0",
     "Zlib",
 ]
 confidence-threshold = 0.9
-# One crate each, pulled in by Rhai (design §16.4), and neither GPL.
+# One crate each (design §16.4), none GPL: two pulled in by Rhai, one by
+# the remote AI client.
 exceptions = [
     # MPL-2.0: copyleft per file, used unmodified from crates.io.
     { crate = "smartstring", allow = ["MPL-2.0"] },
     # CC0-1.0: a public-domain dedication (via ahash's compile-time seed).
     { crate = "tiny-keccak", allow = ["CC0-1.0"] },
+    # CDLA-Permissive-2.0: Mozilla's root certificates as data, via ureq
+    # (remote AI); the image has no system certificates.
+    { crate = "webpki-roots", allow = ["CDLA-Permissive-2.0"] },
 ]
 
 [licenses.private]

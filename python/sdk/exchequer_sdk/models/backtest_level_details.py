@@ -6,15 +6,12 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-T = TypeVar("T", bound="BacktestMonthSuggester")
+T = TypeVar("T", bound="BacktestLevelDetails")
 
 
 @_attrs_define
-class BacktestMonthSuggester:
-    """What the trained suggester records as its details (e.g. its data's
-    snapshot).
-
-    """
+class BacktestLevelDetails:
+    """What it records as its details (e.g. its data's snapshot)."""
 
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -28,10 +25,10 @@ class BacktestMonthSuggester:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        backtest_month_suggester = cls()
+        backtest_level_details = cls()
 
-        backtest_month_suggester.additional_properties = d
-        return backtest_month_suggester
+        backtest_level_details.additional_properties = d
+        return backtest_level_details
 
     @property
     def additional_keys(self) -> list[str]:

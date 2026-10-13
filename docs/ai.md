@@ -26,7 +26,7 @@ Suggestions come from three levels, tried in order:
 1. **Rules** — a Rhai script you write (below).
 2. **Local AI** — similarity to your own labeled history, computed in the server
    (below).
-3. **Remote AI** — a decision model on Azure AI Foundry. Optional. *Not built yet.*
+3. **Remote AI** — a decision model on Azure AI Foundry. Optional (below).
 
 A level runs while anything is still below the **confidence threshold, 0.9**. Labels
 already settled — by an earlier level at 0.9 or more, or by you — are given to the next
@@ -193,8 +193,8 @@ transactions and the latest date.
 
 ### Backtest
 
-`GET /suggesters/backtest?from=YYYY-MM&to=YYYY-MM[&method=…]` measures a method on the
-ledger's own past. For each month, the method learns from everything before it, then
+`GET /suggesters/backtest?from=YYYY-MM&to=YYYY-MM[&method=…][&remote=true]` measures a
+method on the ledger's own past. For each month, the method learns from everything before it, then
 suggests labels for the month's transactions (their account known, nothing settled) and
 an account for each account's transactions taken as one statement. Per label and for
 accounts it reports how many were asked, guessed, right, confident, and right when
@@ -202,10 +202,87 @@ confident, plus guesses and right answers by confidence bin, which shows whether
 really means 9 in 10. It reads only; nothing is stored. Any method can be named, so a
 replacement can be compared with the current one before switching.
 
+With `remote=true` (when remote AI is configured, and for at most 3 months), remote AI is
+asked too, as on upload: shown only what's before the month, about what the method left
+unsure. The scores are then the final suggestions', and `levels` says, per level, how
+many of them it made and how right they were. Its requests are real ones, and billed.
+
 For trying a method on a copy of a ledger's history outside the server, the `heuristics`
 crate has a dev tool reading the same history as a JSON file:
 `cargo run --release -p heuristics --example backtest -- history.json 2026-01 2026-08`
 (`BACKTEST_DUMP=out.json` also writes each row's guesses).
+
+## Remote AI
+
+Optional: a **decision model** deployed on Azure AI Foundry, such as Microsoft-Decision-1.
+A decision model generates no text: it's given a `state` (JSON) and named multiple-choice
+questions, and answers each with one of the options and a probability for every option.
+That fits the problem: pick a label among the ledger's own values, with a confidence the
+0.9 threshold can use directly.
+
+It's the last level: asked only about what rules and local AI left unsure, with what they
+settled as facts. Without it configured, or when the service fails, everything else works
+as before.
+
+**The questions** (version `q1`). One request per row, with a question per open label,
+sharing one state; one request per statement without an account.
+
+| Question | Options |
+|---|---|
+| `counterparty` | The counterparties of the row's similar past transactions and of those with the same text, at most 10 — never the whole list — plus *none of these* and *cannot tell* |
+| `category` | Every category, plus *no category* and *cannot tell* |
+| `purpose` | Every party, plus *the account's owner* and *cannot tell* |
+| `account` | Every account that isn't archived and fits the file's kind, plus *none of these* and *cannot tell* |
+
+Each option is a name and a description computed from the data on each request (a
+counterparty's recent bank text, usual category, purpose and amount, and how often it
+appears; a category's usual counterparties, amounts and purposes; a party's kind and usual
+categories; an account's kind, owner, last four digits, recent bank texts and latest
+transaction), so nothing goes stale. Options are shuffled (order sways the model), the same
+way for the same row. *Cannot tell* and *none of these* give no suggestion, so the model is
+never forced to choose; a new counterparty is never suggested, since it can't be offered.
+An answer that isn't one of the options is dropped.
+
+**What it's shown,** per row:
+
+- the transaction: its bank text normalized, date and weekday, amount and direction, the
+  bank's own fields saying what kind of transaction it is (a `Type` or `Category` column,
+  a merchant category code), and whether the same amount recurred in recent months;
+- its account: name, kind, owner, and its purposes and top categories over six months;
+- the labels already settled, as facts;
+- the 10 most similar past transactions, from local AI, with their labels.
+
+For a statement: its file name, the last four digits of the number it names, its kind,
+dates and a few rows.
+
+**Never an identifier.** Bank texts and file names are normalized, so runs of five or more
+digits (card, reference and trace numbers) are replaced with `#`; account numbers go only
+as their last four digits; no other bank field is sent. A request the service refuses (`400`/`422`, e.g. a
+content filter) makes remote AI step aside for that row: it's logged (the status and the
+service's error code, never the request), and the import goes on. Any other failure (a bad
+key, a wrong endpoint, the service unreachable, still busy after retries) stops remote AI
+for the rest of that upload, logged once.
+
+**Suggestions** name the model as the service reports it and the questions' version
+(`microsoft-decision-1 q1`); the details record the provider and deployment. The reason is
+the model and its probability (*microsoft-decision-1: 0.94*). A new wording is a new
+version: measure it with the backtest before using it.
+
+**Configuration** (all three, or none):
+
+| Setting | |
+|---|---|
+| `EXCHEQUER_REMOTE_AI_ENDPOINT` | The Foundry resource's endpoint, `https://<resource>.services.ai.azure.com` |
+| `EXCHEQUER_REMOTE_AI_DEPLOYMENT` | The model's deployment name |
+| `REMOTE_AI_KEY_FILE` | A file holding the resource's key: a podman secret (`exchequer_remote_ai_key`) |
+| `EXCHEQUER_REMOTE_AI_CONCURRENCY` | Requests at once, default 4 (1–32) |
+
+Requests go to `<endpoint>/providers/microsoft/v1/systemone` over HTTPS, with the key in
+the `api-key` header, 30 seconds each at most; a busy service (`429`, `5xx`) is retried
+twice, after what `Retry-After` says (at most 10 seconds). Remote AI runs while a file is uploaded (or a statement's
+account is changed), so a large statement takes a while: one request per unsure row. A
+deployment type that keeps inference within a data zone, rather than a global one, keeps
+the data in that zone.
 
 ## What a suggestion records
 

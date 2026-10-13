@@ -89,13 +89,38 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         Some(method) => tracing::info!(method, "local AI"),
         None => tracing::info!("local AI off"),
     }
+    let remote = match &config.remote_ai {
+        Some(r) => {
+            let client = outbound::decision::Client::new(
+                &r.endpoint,
+                &r.deployment,
+                r.key.expose(),
+                std::time::Duration::from_secs(30),
+            )
+            .map_err(|e| format!("remote AI: {e}"))?;
+            tracing::info!(
+                deployment = r.deployment,
+                concurrency = r.concurrency,
+                "remote AI"
+            );
+            Some(std::sync::Arc::new(remote::Remote::new(
+                std::sync::Arc::new(client),
+                r.concurrency,
+            )))
+        }
+        None => {
+            tracing::info!("remote AI off");
+            None
+        }
+    };
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(bind = %config.bind, "listening");
     let state = api::AppState {
         pool,
         bootstrap_token: config.bootstrap_token.map(|s| s.expose().into()),
         zone: config.zone,
-        suggestions: api::Suggestions::new(config.local_ai.as_deref().and_then(heuristics::method)),
+        suggestions: api::Suggestions::new(config.local_ai.as_deref().and_then(heuristics::method))
+            .with_remote(remote),
     };
     let app = match &config.web_dir {
         Some(dir) => api::app_with_web(state, dir),

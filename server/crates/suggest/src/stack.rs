@@ -262,6 +262,7 @@ mod tests {
     fn an_account_from_the_first_confident_level() {
         let s = Statement {
             file_name: None,
+            number: None,
             kind: None,
             rows: vec![row(Facts::default())],
         };

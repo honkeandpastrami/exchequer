@@ -1,7 +1,8 @@
 //! Running the suggestion stack on staged imports (design §8, docs/ai.md).
 //! The levels are suggesters ([`suggest::Suggester`]), in order: the active
 //! rules script, then the configured local method, trained on the ledger as
-//! it is and kept until the ledger changes.
+//! it is and kept until the ledger changes, then remote AI if configured,
+//! shown the local method's evidence.
 
 use std::sync::{Arc, Mutex};
 
@@ -22,6 +23,7 @@ pub struct Suggestions {
     local: Option<&'static dyn Method>,
     /// The local method trained on a snapshot of the history.
     trained: Arc<Mutex<Trained>>,
+    remote: Option<Arc<remote::Remote>>,
 }
 
 impl Default for Suggestions {
@@ -38,11 +40,22 @@ impl Suggestions {
         Self {
             local,
             trained: Arc::default(),
+            remote: None,
         }
+    }
+
+    /// With remote AI, asked after the local method.
+    #[must_use]
+    pub fn with_remote(self, remote: Option<Arc<remote::Remote>>) -> Self {
+        Self { remote, ..self }
     }
 
     pub(crate) fn local(&self) -> Option<&'static dyn Method> {
         self.local
+    }
+
+    pub(crate) fn remote(&self) -> Option<&Arc<remote::Remote>> {
+        self.remote.as_ref()
     }
 
     /// The levels, in order, trained on the ledger as it is now.
@@ -65,28 +78,40 @@ impl Suggestions {
                 ),
             }
         }
-        let Some(method) = self.local else {
+        if self.local.is_none() && self.remote.is_none() {
             return Ok(levels);
-        };
-        let history = history(db).await?;
-        let trained = self.trained.clone();
-        let model = tokio::task::spawn_blocking(move || {
-            let key = format!("{}/{}", method.id(), history.snapshot());
-            if let Ok(t) = trained.lock()
-                && let Some((k, m)) = t.as_ref()
-                && *k == key
-            {
-                return m.clone();
-            }
-            let m: Arc<dyn Suggester> = Arc::from(method.train(&history));
-            if let Ok(mut t) = trained.lock() {
-                *t = Some((key, m.clone()));
-            }
-            m
-        })
-        .await
-        .map_err(|_| Problem::internal())?;
-        levels.push(model);
+        }
+        let history = Arc::new(history(db).await?);
+        let mut local: Option<Arc<dyn Suggester>> = None;
+        if let Some(method) = self.local {
+            let trained = self.trained.clone();
+            let history = history.clone();
+            let model = tokio::task::spawn_blocking(move || {
+                let key = format!("{}/{}", method.id(), history.snapshot());
+                if let Ok(t) = trained.lock()
+                    && let Some((k, m)) = t.as_ref()
+                    && *k == key
+                {
+                    return m.clone();
+                }
+                let m: Arc<dyn Suggester> = Arc::from(method.train(&history));
+                if let Ok(mut t) = trained.lock() {
+                    *t = Some((key, m.clone()));
+                }
+                m
+            })
+            .await
+            .map_err(|_| Problem::internal())?;
+            levels.push(model.clone());
+            local = Some(model);
+        }
+        if let Some(r) = self.remote.clone() {
+            let catalog = catalog(db).await?;
+            let level = tokio::task::spawn_blocking(move || r.level(&history, &catalog, local))
+                .await
+                .map_err(|_| Problem::internal())?;
+            levels.push(Arc::new(level));
+        }
         Ok(levels)
     }
 }
@@ -120,6 +145,32 @@ pub(crate) async fn history(db: &mut PgConnection) -> Result<History, Problem> {
         })
         .collect();
     Ok(History { accounts, examples })
+}
+
+/// What remote AI may name: account numbers as their last four only.
+pub(crate) async fn catalog(db: &mut PgConnection) -> Result<remote::Catalog, Problem> {
+    let c = store::history::catalog(db).await?;
+    Ok(remote::Catalog {
+        accounts: c
+            .accounts
+            .into_iter()
+            .map(|a| remote::AccountInfo {
+                id: a.id,
+                name: a.name,
+                kind: a.kind,
+                owner: a.owner_id,
+                numbers: a.numbers.iter().map(|n| n.last4().to_owned()).collect(),
+                archived: a.archived,
+            })
+            .collect(),
+        counterparties: c.counterparties,
+        categories: c.categories,
+        parties: c
+            .parties
+            .into_iter()
+            .map(|(id, name, kind)| remote::PartyInfo { id, name, kind })
+            .collect(),
+    })
 }
 
 /// Every name a rules script may use.
@@ -190,6 +241,7 @@ pub(crate) async fn account(
         store::imports::rows(&mut *db, import_id, Some(s.position), None, None, i64::MAX).await?;
     let statement = Statement {
         file_name: file_name.map(str::to_owned),
+        number: s.account_number.as_ref().map(|n| n.last4().to_owned()),
         kind: s.kind.as_deref().map(|k| {
             if k == "credit_card" {
                 StatementKind::CreditCard

@@ -36,6 +36,14 @@ Run these as the (non-root) user that will own the service, from a clone of this
    openssl rand -base64 32 | tr -d '\n' | podman secret create exchequer_bootstrap_token -
    ```
 
+   Optionally, for remote AI ([`docs/ai.md`](../docs/ai.md#remote-ai)), the Azure AI
+   Foundry resource's key, pasted on stdin; then uncomment the remote AI lines in
+   `exchequer-api.container`:
+
+   ```sh
+   podman secret create exchequer_remote_ai_key -
+   ```
+
 3. Pull the server and backup images of the newest release:
 
    ```sh

@@ -22,6 +22,12 @@ Environment=TZ=America/New_York
 Environment=DB_HOST=exchequer-db DB_USER=exchequer DB_NAME=exchequer
 Environment=DB_PASSWORD_FILE=/run/secrets/exchequer_db_password
 Environment=BOOTSTRAP_TOKEN_FILE=/run/secrets/exchequer_bootstrap_token
+# Optional: remote AI (docs/ai.md), a decision model on Azure AI Foundry. All
+# three or none; the key is a podman secret.
+#Secret=exchequer_remote_ai_key
+#Environment=EXCHEQUER_REMOTE_AI_ENDPOINT=https://<resource>.services.ai.azure.com
+#Environment=EXCHEQUER_REMOTE_AI_DEPLOYMENT=<deployment name>
+#Environment=REMOTE_AI_KEY_FILE=/run/secrets/exchequer_remote_ai_key
 
 [Install]
 WantedBy=default.target

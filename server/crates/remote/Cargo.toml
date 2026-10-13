@@ -1,0 +1,23 @@
+[package]
+name = "remote"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Remote AI (design §8): a decision model as a suggester, asked about what's still unsure"
+
+[lints]
+workspace = true
+
+[dependencies]
+heuristics = { path = "../heuristics" }
+outbound = { path = "../outbound" }
+rust_decimal = "1.43.0"
+serde_json = "1.0.154"
+suggest = { path = "../suggest" }
+time = "0.3.55"
+tracing = "0.1.44"
+uuid = "1.28.0"
+
+[dev-dependencies]
+time = { version = "0.3.55", features = ["macros"] }

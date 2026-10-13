@@ -15,7 +15,7 @@ use sqlx::postgres::PgConnectOptions;
 const SECRETS: [&str; 4] = [
     "DB_PASSWORD",
     "BOOTSTRAP_TOKEN",
-    "LLM_API_KEY",
+    "REMOTE_AI_KEY",
     "PRICE_API_KEY",
 ];
 
@@ -72,6 +72,23 @@ pub struct Config {
     /// `EXCHEQUER_LOCAL_AI`: the local AI method (design §8), by its ID,
     /// default the newest (`lexical-knn-v1`); `off` for none.
     pub local_ai: Option<String>,
+    /// Remote AI (design §8), when its endpoint, deployment and key are all
+    /// given; none of them, no remote AI.
+    pub remote_ai: Option<RemoteAi>,
+}
+
+/// A decision model on Azure AI Foundry.
+#[derive(Debug)]
+pub struct RemoteAi {
+    /// `EXCHEQUER_REMOTE_AI_ENDPOINT`: the Foundry resource's endpoint,
+    /// `https://<resource>.services.ai.azure.com`.
+    pub endpoint: String,
+    /// `EXCHEQUER_REMOTE_AI_DEPLOYMENT`: the model's deployment name.
+    pub deployment: String,
+    /// `REMOTE_AI_KEY_FILE`: the resource's key.
+    pub key: Secret,
+    /// `EXCHEQUER_REMOTE_AI_CONCURRENCY`: requests at once, default 4.
+    pub concurrency: usize,
 }
 
 #[derive(Debug)]
@@ -137,6 +154,39 @@ impl Config {
             )))
         };
 
+        let remote_ai = match (
+            env("EXCHEQUER_REMOTE_AI_ENDPOINT"),
+            env("EXCHEQUER_REMOTE_AI_DEPLOYMENT"),
+            secret("REMOTE_AI_KEY")?,
+        ) {
+            (None, None, None) => None,
+            (Some(endpoint), Some(deployment), Some(key)) => {
+                if !endpoint.starts_with("https://") {
+                    return Err(ConfigError::Invalid {
+                        name: "EXCHEQUER_REMOTE_AI_ENDPOINT",
+                        value: endpoint,
+                    });
+                }
+                let concurrency = parsed("EXCHEQUER_REMOTE_AI_CONCURRENCY", "4")?;
+                Some(RemoteAi {
+                    endpoint,
+                    deployment,
+                    key,
+                    concurrency: match concurrency.parse() {
+                        Ok(n @ 1..=32) => n,
+                        _ => {
+                            return Err(ConfigError::Invalid {
+                                name: "EXCHEQUER_REMOTE_AI_CONCURRENCY",
+                                value: concurrency,
+                            });
+                        }
+                    },
+                })
+            }
+            (None, _, _) => return Err(ConfigError::Missing("EXCHEQUER_REMOTE_AI_ENDPOINT")),
+            (_, None, _) => return Err(ConfigError::Missing("EXCHEQUER_REMOTE_AI_DEPLOYMENT")),
+            (_, _, None) => return Err(ConfigError::Missing("REMOTE_AI_KEY_FILE")),
+        };
         let bind = parsed("EXCHEQUER_BIND", "127.0.0.1:7438")?;
         let port = parsed("DB_PORT", "5432")?;
         Ok(Self {
@@ -186,6 +236,7 @@ impl Config {
                 },
                 None => heuristics::METHODS.first().map(|m| m.id()),
             },
+            remote_ai,
         })
     }
 }
@@ -218,6 +269,51 @@ mod tests {
         assert!(c.db.password.is_none());
         assert!(c.web_dir.is_none());
         assert_eq!(c.local_ai.as_deref(), Some("lexical-knn-v1"));
+        assert!(c.remote_ai.is_none());
+    }
+
+    #[test]
+    fn remote_ai_needs_all_three() {
+        let dir = std::env::temp_dir().join(format!("exchequer-remote-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("key");
+        std::fs::write(&file, "k3y-value\n").unwrap();
+        let path = file.to_str().unwrap().to_owned();
+        let mut vars = DB.to_vec();
+        vars.push((
+            "EXCHEQUER_REMOTE_AI_ENDPOINT",
+            "https://x.services.ai.azure.com",
+        ));
+        assert!(matches!(
+            config(&vars),
+            Err(ConfigError::Missing("EXCHEQUER_REMOTE_AI_DEPLOYMENT"))
+        ));
+        vars.push(("EXCHEQUER_REMOTE_AI_DEPLOYMENT", "decision"));
+        assert!(matches!(
+            config(&vars),
+            Err(ConfigError::Missing("REMOTE_AI_KEY_FILE"))
+        ));
+        vars.push(("REMOTE_AI_KEY_FILE", &path));
+        let c = config(&vars).unwrap();
+        let r = c.remote_ai.as_ref().unwrap();
+        assert_eq!(
+            (r.deployment.as_str(), r.key.expose(), r.concurrency),
+            ("decision", "k3y-value", 4)
+        );
+        assert!(!format!("{c:?}").contains("k3y"));
+        vars[3] = (
+            "EXCHEQUER_REMOTE_AI_ENDPOINT",
+            "http://x.services.ai.azure.com",
+        );
+        let plain = config(&vars);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(matches!(
+            plain,
+            Err(ConfigError::Invalid {
+                name: "EXCHEQUER_REMOTE_AI_ENDPOINT",
+                ..
+            })
+        ));
     }
 
     #[test]

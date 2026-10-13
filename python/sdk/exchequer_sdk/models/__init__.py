@@ -6,8 +6,9 @@ from .account_kind import AccountKind
 from .account_suggestion import AccountSuggestion
 from .account_update import AccountUpdate
 from .backtest import Backtest
+from .backtest_level import BacktestLevel
+from .backtest_level_details import BacktestLevelDetails
 from .backtest_month import BacktestMonth
-from .backtest_month_suggester import BacktestMonthSuggester
 from .balance_check import BalanceCheck
 from .balances import Balances
 from .batch_kind import BatchKind
@@ -138,8 +139,9 @@ __all__ = (
     "AccountSuggestion",
     "AccountUpdate",
     "Backtest",
+    "BacktestLevel",
+    "BacktestLevelDetails",
     "BacktestMonth",
-    "BacktestMonthSuggester",
     "BalanceCheck",
     "Balances",
     "BatchKind",

@@ -7,7 +7,7 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 if TYPE_CHECKING:
-    from ..models.backtest_month_suggester import BacktestMonthSuggester
+    from ..models.backtest_level import BacktestLevel
     from ..models.label_score import LabelScore
     from ..models.score import Score
 
@@ -17,23 +17,22 @@ T = TypeVar("T", bound="BacktestMonth")
 
 @_attrs_define
 class BacktestMonth:
-    """One month: the method trained on everything before it, then asked about
+    """One month: the levels built from everything before it, then asked about
     its transactions.
 
         Attributes:
             accounts (Score): Guesses against what the ledger says.
             labels (list[LabelScore]): The month's transactions, each asked its labels with its account
-                known.
+                known: the final suggestions, whichever level made them.
+            levels (list[BacktestLevel]): Per level, in order.
             month (str):
-            suggester (BacktestMonthSuggester): What the trained suggester records as its details (e.g. its data's
-                snapshot).
-            trained_on (int): Labeled transactions it learned from.
+            trained_on (int): Labeled transactions they learned from.
     """
 
     accounts: Score
     labels: list[LabelScore]
+    levels: list[BacktestLevel]
     month: str
-    suggester: BacktestMonthSuggester
     trained_on: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -45,9 +44,12 @@ class BacktestMonth:
             labels_item = labels_item_data.to_dict()
             labels.append(labels_item)
 
-        month = self.month
+        levels = []
+        for levels_item_data in self.levels:
+            levels_item = levels_item_data.to_dict()
+            levels.append(levels_item)
 
-        suggester = self.suggester.to_dict()
+        month = self.month
 
         trained_on = self.trained_on
 
@@ -57,8 +59,8 @@ class BacktestMonth:
             {
                 "accounts": accounts,
                 "labels": labels,
+                "levels": levels,
                 "month": month,
-                "suggester": suggester,
                 "trained_on": trained_on,
             }
         )
@@ -67,7 +69,7 @@ class BacktestMonth:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.backtest_month_suggester import BacktestMonthSuggester  # noqa: PLC0415
+        from ..models.backtest_level import BacktestLevel  # noqa: PLC0415
         from ..models.label_score import LabelScore  # noqa: PLC0415
         from ..models.score import Score  # noqa: PLC0415
 
@@ -81,17 +83,22 @@ class BacktestMonth:
 
             labels.append(labels_item)
 
-        month = d.pop("month")
+        levels = []
+        _levels = d.pop("levels")
+        for levels_item_data in _levels:
+            levels_item = BacktestLevel.from_dict(levels_item_data)
 
-        suggester = BacktestMonthSuggester.from_dict(d.pop("suggester"))
+            levels.append(levels_item)
+
+        month = d.pop("month")
 
         trained_on = d.pop("trained_on")
 
         backtest_month = cls(
             accounts=accounts,
             labels=labels,
+            levels=levels,
             month=month,
-            suggester=suggester,
             trained_on=trained_on,
         )
 

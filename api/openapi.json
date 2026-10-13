@@ -3862,7 +3862,7 @@
         "tags": [
           "suggesters"
         ],
-        "summary": "Measure a local AI method on the ledger's own past (docs/ai.md). For each\nmonth, the method learns from everything before it, then suggests labels\nfor the month's transactions (between one of your accounts and the\noutside) as if they were being imported, and an account for each\naccount's transactions; its guesses are compared with the ledger. Reads\nonly; nothing is stored.",
+        "summary": "Measure a local AI method, alone or with remote AI after it, on the\nledger's own past (docs/ai.md). For each month, the method learns from\neverything before it, then suggests labels for the month's transactions\n(between one of your accounts and the outside) as if they were being\nimported, and an account for each account's transactions; remote AI, if\nasked, is shown what's before the month and asked about what the method\nleft unsure. The guesses are compared with the ledger. Reads only;\nnothing is stored.",
         "operationId": "suggesters_backtest",
         "parameters": [
           {
@@ -3890,6 +3890,15 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "remote",
+            "in": "query",
+            "description": "Also ask remote AI, as configured, about what the method leaves\nunsure (at most 3 months). Its requests are real ones, billed.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -5120,6 +5129,7 @@
         "type": "object",
         "required": [
           "method",
+          "remote",
           "months"
         ],
         "properties": {
@@ -5132,18 +5142,59 @@
             "items": {
               "$ref": "#/components/schemas/BacktestMonth"
             }
+          },
+          "remote": {
+            "type": "boolean",
+            "description": "Whether remote AI was asked too."
+          }
+        }
+      },
+      "BacktestLevel": {
+        "type": "object",
+        "description": "One level's share: of the rows (or statements), those whose final\nsuggestion it made, and how right they were.",
+        "required": [
+          "kind",
+          "name",
+          "version",
+          "details",
+          "labels",
+          "accounts"
+        ],
+        "properties": {
+          "accounts": {
+            "$ref": "#/components/schemas/Score"
+          },
+          "details": {
+            "type": "object",
+            "description": "What it records as its details (e.g. its data's snapshot)."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`local` or `remote`."
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabelScore"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
           }
         }
       },
       "BacktestMonth": {
         "type": "object",
-        "description": "One month: the method trained on everything before it, then asked about\nits transactions.",
+        "description": "One month: the levels built from everything before it, then asked about\nits transactions.",
         "required": [
           "month",
-          "suggester",
           "trained_on",
           "labels",
-          "accounts"
+          "accounts",
+          "levels"
         ],
         "properties": {
           "accounts": {
@@ -5155,19 +5206,22 @@
             "items": {
               "$ref": "#/components/schemas/LabelScore"
             },
-            "description": "The month's transactions, each asked its labels with its account\nknown."
+            "description": "The month's transactions, each asked its labels with its account\nknown: the final suggestions, whichever level made them."
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BacktestLevel"
+            },
+            "description": "Per level, in order."
           },
           "month": {
             "type": "string"
           },
-          "suggester": {
-            "type": "object",
-            "description": "What the trained suggester records as its details (e.g. its data's\nsnapshot)."
-          },
           "trained_on": {
             "type": "integer",
             "format": "int64",
-            "description": "Labeled transactions it learned from.",
+            "description": "Labeled transactions they learned from.",
             "minimum": 0
           }
         }
