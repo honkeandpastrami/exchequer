@@ -7,6 +7,9 @@
 //! cargo run --release -p heuristics --example backtest -- history.json 2026-01 2026-08 [method]
 //! ```
 //!
+//! With `BACKTEST_DUMP=out.json`, each row's guesses are written too, for
+//! looking into what the method gets wrong.
+//!
 //! The file: `{"accounts": [{"id", "kind", "owner", "archived"}], "examples":
 //! [{"transaction", "account", "date", "amount", "description",
 //! "counterparty", "category", "purpose"}]}`, IDs as UUID strings, the
@@ -106,6 +109,7 @@ fn main() {
     println!("{}: {} examples", method.id(), history.examples.len());
     let (mut month, last) = (date(from), date(to));
     let mut totals: Vec<Score> = vec![Score::default(); 4];
+    let mut dump: Vec<Value> = Vec::new();
     while month <= last {
         let next = date(&format!(
             "{}-{}",
@@ -114,6 +118,9 @@ fn main() {
         ));
         let started = Instant::now();
         let r = suggest::backtest::run(method, &history, month, next);
+        if std::env::var_os("BACKTEST_DUMP").is_some() {
+            dump.extend(guesses(method, &history, month, next));
+        }
         println!(
             "{} (trained on {}, {:.1}s)",
             &month.to_string()[..7],
@@ -133,6 +140,9 @@ fn main() {
         line(l.as_str(), &totals[i]);
     }
     line("account", &totals[3]);
+    if let Some(path) = std::env::var_os("BACKTEST_DUMP") {
+        std::fs::write(path, serde_json::to_string(&dump).expect("JSON")).expect("writable");
+    }
     println!("calibration (all labels): confidence bin, guesses, right");
     for b in 0..BINS {
         let (g, r) = totals[..3]
@@ -145,6 +155,49 @@ fn main() {
             pct(r, g)
         );
     }
+}
+
+/// Each transaction in `[start, end)` with the method's guesses, trained on
+/// what came before.
+fn guesses(method: &dyn suggest::Method, history: &History, start: Date, end: Date) -> Vec<Value> {
+    let s = method.train(&history.before(start));
+    let tests: Vec<&Example> = history
+        .examples
+        .iter()
+        .filter(|e| e.date >= start && e.date < end)
+        .collect();
+    let rows: Vec<suggest::Row> = tests
+        .iter()
+        .map(|e| suggest::Row {
+            account: Some(e.account),
+            date: e.date,
+            amount: e.amount,
+            description: e.description.clone(),
+            raw: Value::Null,
+            facts: suggest::Facts::default(),
+        })
+        .collect();
+    tests
+        .iter()
+        .zip(s.labels(&rows))
+        .map(|(e, p)| {
+            let mut out = serde_json::Map::new();
+            out.insert("transaction".into(), e.transaction.to_string().into());
+            for l in Label::ALL {
+                out.insert(
+                    l.as_str().into(),
+                    p.get(l).map_or(Value::Null, |g| {
+                        serde_json::json!({
+                            "value": g.value.map(|v| v.to_string()),
+                            "confidence": g.confidence,
+                            "reason": g.reason,
+                        })
+                    }),
+                );
+            }
+            Value::Object(out)
+        })
+        .collect()
 }
 
 fn add(total: &mut Score, s: &Score) {

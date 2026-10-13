@@ -204,7 +204,8 @@ replacement can be compared with the current one before switching.
 
 For trying a method on a copy of a ledger's history outside the server, the `heuristics`
 crate has a dev tool reading the same history as a JSON file:
-`cargo run --release -p heuristics --example backtest -- history.json 2026-01 2026-08`.
+`cargo run --release -p heuristics --example backtest -- history.json 2026-01 2026-08`
+(`BACKTEST_DUMP=out.json` also writes each row's guesses).
 
 ## What a suggestion records
 
