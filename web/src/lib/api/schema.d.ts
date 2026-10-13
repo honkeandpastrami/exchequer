@@ -937,6 +937,11 @@ export interface components {
 			 * @description Rows recorded as already in the ledger (duplicates, near-duplicates).
 			 */
 			matched: number;
+			/**
+			 * Format: int64
+			 * @description Existing transactions replaced by their rows.
+			 */
+			replaced: number;
 			/** Format: int64 */
 			skipped: number;
 			/**
@@ -994,7 +999,7 @@ export interface components {
 		 * @description What committing does with a row.
 		 * @enum {string}
 		 */
-		Decision: 'match' | 'new' | 'skip';
+		Decision: 'match' | 'new' | 'skip' | 'replace';
 		/**
 		 * @description One edge of the settlement tree (a child and its parent) for one month.
 		 *     Positive amounts go from the child to the parent.

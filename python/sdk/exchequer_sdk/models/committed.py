@@ -25,6 +25,7 @@ class Committed:
             the ledger's.
         created (int): New transactions.
         matched (int): Rows recorded as already in the ledger (duplicates, near-duplicates).
+        replaced (int): Existing transactions replaced by their rows.
         skipped (int):
         transfers (int): Existing transactions made transfers.
         import_batch_id (None | Unset | UUID): The batch the new transactions are in; absent if there were none.
@@ -33,6 +34,7 @@ class Committed:
     balance_checks: list[BalanceCheck]
     created: int
     matched: int
+    replaced: int
     skipped: int
     transfers: int
     import_batch_id: None | Unset | UUID = UNSET
@@ -47,6 +49,8 @@ class Committed:
         created = self.created
 
         matched = self.matched
+
+        replaced = self.replaced
 
         skipped = self.skipped
 
@@ -67,6 +71,7 @@ class Committed:
                 "balance_checks": balance_checks,
                 "created": created,
                 "matched": matched,
+                "replaced": replaced,
                 "skipped": skipped,
                 "transfers": transfers,
             }
@@ -91,6 +96,8 @@ class Committed:
         created = d.pop("created")
 
         matched = d.pop("matched")
+
+        replaced = d.pop("replaced")
 
         skipped = d.pop("skipped")
 
@@ -117,6 +124,7 @@ class Committed:
             balance_checks=balance_checks,
             created=created,
             matched=matched,
+            replaced=replaced,
             skipped=skipped,
             transfers=transfers,
             import_batch_id=import_batch_id,

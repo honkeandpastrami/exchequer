@@ -824,10 +824,109 @@ pub(crate) async fn into_transfer(
     split.purpose_id = None;
     split.category_id = None;
     split.settles = None;
+    let (date, description) = (full.transaction.date, full.transaction.description.clone());
+    rewrite(db, principal, full, date, description, split).await
+}
+
+/// Labels a replaced transaction gets; `None` keeps its own.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Relabel {
+    pub counterparty: Option<Option<Uuid>>,
+    pub category: Option<Option<Uuid>>,
+    pub purpose: Option<Option<Uuid>>,
+}
+
+/// Checks that a bank row of `account_id` in `commodity_id` can replace the
+/// transaction: one split, between that account and the outside, in that
+/// commodity. Returns it.
+pub(crate) async fn replaceable(
+    db: &mut PgConnection,
+    id: Uuid,
+    account_id: Uuid,
+    commodity_id: Uuid,
+) -> Result<Full, Problem> {
+    let full = store::transactions::get(&mut *db, id, true)
+        .await?
+        .ok_or_else(|| Problem::conflict(format!("transaction {id} no longer exists")))?;
+    let fits = match &full.splits[..] {
+        [r] => {
+            let mine = |a: Option<Uuid>| a == Some(account_id);
+            ((mine(r.from_account_id) && r.to_account_id.is_none())
+                || (mine(r.to_account_id) && r.from_account_id.is_none()))
+                && r.from_commodity_id == commodity_id
+                && r.to_commodity_id == commodity_id
+        }
+        _ => false,
+    };
+    if !fits {
+        return Err(Problem::conflict(format!(
+            "transaction {id} can't be replaced by a bank row: it must have one split, \
+             between this account and the outside, in the statement's currency"
+        )));
+    }
+    Ok(full)
+}
+
+/// Replaces a transaction with a bank row (design §6.7): it keeps its ID,
+/// notes, tags, references and batch, and takes the row's date, signed
+/// amount (negative leaves the account) and description, and the labels in
+/// `labels`.
+#[expect(clippy::too_many_arguments, reason = "one bank row's fields")]
+pub(crate) async fn replace_with_row(
+    db: &mut PgConnection,
+    principal: Principal,
+    id: Uuid,
+    account_id: Uuid,
+    commodity_id: Uuid,
+    date: Date,
+    description: String,
+    amount: Amount,
+    labels: Relabel,
+) -> Result<(), Problem> {
+    let full = replaceable(&mut *db, id, account_id, commodity_id).await?;
+    check_open(&mut *db, &[full.transaction.date]).await?;
+    let row = full.splits.first().ok_or_else(Problem::internal)?;
+    let outside = labels.counterparty.unwrap_or(
+        row.from_counterparty_id
+            .filter(|_| row.from_account_id.is_none())
+            .or(row
+                .to_counterparty_id
+                .filter(|_| row.to_account_id.is_none())),
+    );
+    let quantity = Amount::from_decimal(amount.as_decimal().abs());
+    let mine = Leg::new(Some(account_id), None, commodity_id, quantity);
+    let theirs = Leg::new(None, outside, commodity_id, quantity);
+    let (from, to) = if amount.as_decimal().is_sign_negative() {
+        (mine, theirs)
+    } else {
+        (theirs, mine)
+    };
+    let split = NewSplit {
+        from,
+        to,
+        purpose_id: labels.purpose.unwrap_or(row.purpose_id),
+        category_id: labels.category.unwrap_or(row.category_id),
+        description: row.description.clone(),
+        settles: None,
+    };
+    rewrite(db, principal, full, date, description, split).await
+}
+
+/// Rewrites a transaction as one split with this date and description,
+/// keeping everything else, with every check a `PUT` makes; records it.
+async fn rewrite(
+    db: &mut PgConnection,
+    principal: Principal,
+    full: Full,
+    date: Date,
+    description: String,
+    split: NewSplit,
+) -> Result<(), Problem> {
+    let id = full.transaction.id;
     let t = &full.transaction;
-    let req = NewTransaction {
-        date: t.date,
-        description: t.description.clone(),
+    let req = normalize(NewTransaction {
+        date,
+        description,
         notes: t.notes.clone(),
         tags: full.tags.clone(),
         external_refs: full
@@ -840,7 +939,8 @@ pub(crate) async fn into_transfer(
             .collect(),
         import_batch_id: None,
         splits: vec![split],
-    };
+    })?;
+    check_open(&mut *db, &[req.date]).await?;
     let batch = t.import_batch_id;
     let before = from_one(&mut *db, full).await?;
     let classified = classify(&mut *db, &req.splits).await?;

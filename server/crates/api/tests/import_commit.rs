@@ -499,3 +499,118 @@ async fn commit_rechecks_and_is_all_or_nothing(pool: PgPool) {
         rows.body
     );
 }
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn a_row_can_replace_the_transaction_it_matches(pool: PgPool) {
+    let h = H::new(&pool).await;
+    // The pay, typed by hand two days off, with notes and a tag.
+    let salary = h
+        .send(
+            &pool,
+            "POST",
+            "/api/v1/transactions",
+            Some(
+                json!({ "date": "2026-03-01", "description": "Salary", "notes": "March",
+                        "tags": ["work"], "splits": [{
+            "from": h.leg(("counterparty_id", &h.store), "1500.00"),
+            "to": h.leg(h.acct(&h.alex_checking), "1500.00") }] }),
+            ),
+        )
+        .await
+        .id();
+    // A coffee typed as two splits can't be replaced by one bank row.
+    h.send(
+        &pool,
+        "POST",
+        "/api/v1/transactions",
+        Some(
+            json!({ "date": "2026-03-01", "description": "Coffees", "splits": [
+            { "from": h.leg(h.acct(&h.alex_checking), "4.50"),
+              "to": h.leg(("counterparty_id", &h.store), "4.50") },
+            { "from": h.leg(h.acct(&h.alex_checking), "4.50"),
+              "to": h.leg(("counterparty_id", &h.store), "4.50") }] }),
+        ),
+    )
+    .await;
+    let r = upload(&pool, &h, &format!("?account_id={}", h.alex_checking), CSV).await;
+    let id = r.id();
+    let all = rows(&pool, &h, &id).await;
+    let statuses: Vec<_> = all.iter().map(|r| r["status"].clone()).collect();
+    assert_eq!(
+        statuses,
+        [
+            json!("near_duplicate"),
+            json!("new"),
+            json!("near_duplicate")
+        ]
+    );
+
+    let r = set_row(&pool, &h, &id, 0, json!({ "decision": "replace" })).await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
+    assert!(r.body["detail"].as_str().unwrap().contains("one split"));
+    // A new row has nothing to replace.
+    let r = set_row(&pool, &h, &id, 1, json!({ "decision": "replace" })).await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY);
+    let wages = common::household::create(
+        &pool,
+        &h.t,
+        "/api/v1/categories",
+        json!({ "name": "Wages" }),
+    )
+    .await;
+    let r = set_row(
+        &pool,
+        &h,
+        &id,
+        2,
+        json!({ "decision": "replace", "category_id": wages }),
+    )
+    .await;
+    assert_eq!(
+        (&r.body["decision"], &r.body["missing"]),
+        (&json!("replace"), &json!([])),
+        "{}",
+        r.body
+    );
+    label_none(&pool, &h, &id).await;
+    let r = commit(&pool, &h, &id, &read(&pool, &h, &id).await.etag()).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(
+        (&r.body["replaced"], &r.body["matched"], &r.body["created"]),
+        (&json!(1), &json!(1), &json!(1))
+    );
+    // Same transaction: the bank's date and text, its own counterparty,
+    // notes and tags, the category chosen in review.
+    let t = h
+        .send(
+            &pool,
+            "GET",
+            &format!("/api/v1/transactions/{salary}"),
+            None,
+        )
+        .await;
+    let s = &t.body["splits"][0];
+    assert_eq!(
+        (
+            &t.body["date"],
+            &t.body["description"],
+            &t.body["notes"],
+            &t.body["tags"],
+            &s["from"]["counterparty_id"],
+            &s["category_id"],
+            &s["to"]["quantity"]
+        ),
+        (
+            &json!("2026-03-03"),
+            &json!("PAYROLL"),
+            &json!("March"),
+            &json!(["work"]),
+            &json!(h.store),
+            &json!(wages),
+            &json!("1500.00")
+        )
+    );
+    // And the row is recorded with it: next time it's a duplicate.
+    let r = upload(&pool, &h, &format!("?account_id={}", h.alex_checking), CSV).await;
+    assert_eq!(r.body["statements"][0]["counts"]["duplicate"], json!(3));
+}

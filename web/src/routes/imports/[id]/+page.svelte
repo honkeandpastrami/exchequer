@@ -228,7 +228,7 @@
 	<section class="card ok">
 		<p>
 			{result.created} new · {result.transfers} made transfers · {result.matched} already there ·
-			{result.skipped} skipped
+			{result.replaced} replaced · {result.skipped} skipped
 		</p>
 		{#if result.import_batch_id}
 			<p>
@@ -325,7 +325,8 @@
 
 	<div class="actions">
 		<button disabled={busy || missingAccount || blocked.length > 0} onclick={commit}>
-			Commit: {planned.new} new, {planned.match} already there or transfers, {planned.skip} skipped
+			Commit: {planned.new} new, {planned.match} already there or transfers, {planned.replace}
+			replacing, {planned.skip} skipped
 		</button>
 		<button class="quiet" onclick={discard}>Discard</button>
 		{#if missingAccount}<span class="muted small">Every statement needs an account first.</span
@@ -376,16 +377,18 @@
 							{row.set_description ?? row.description}
 							{#if row.set_description}<span class="muted small">(bank: {row.description})</span
 								>{/if}
-							{#if row.decision === 'new'}
+							{#if row.decision === 'new' || row.decision === 'replace'}
 								<div class="chips small">
 									{#each labels as label (label)}
 										{@const st = labelState(row, label)}
+										{@const kept =
+											row.decision === 'replace' && st.kind !== 'yours' && st.kind !== 'confident'}
 										<span
 											class="chip"
-											class:missing={st.kind === 'missing' || st.kind === 'unsure'}
+											class:missing={!kept && (st.kind === 'missing' || st.kind === 'unsure')}
 										>
 											<span class="muted">{labelNames[label]}:</span>
-											{nameOf(r, label, valueOf(row, label))}
+											{kept ? 'as it is' : nameOf(r, label, valueOf(row, label))}
 											{#if st.kind === 'confident' || st.kind === 'unsure'}<SuggestionBadge
 													suggestion={st.suggestion}
 												/>{/if}
@@ -428,7 +431,13 @@
 					{#if open === key}
 						<tr class="details">
 							<td colspan="5">
-								{#if row.decision === 'new'}
+								{#if row.decision === 'replace'}
+									<p class="small muted">
+										The transaction already there takes this row's date, amount and description, and
+										the labels set here; labels left open stay as they are.
+									</p>
+								{/if}
+								{#if row.decision === 'new' || row.decision === 'replace'}
 									<div class="labels">
 										<label class="field grow">
 											<span>Description</span>
@@ -501,6 +510,8 @@
 															onclick={() => setLabel(row, label, st.suggestion.value ?? null)}
 															>Accept</button
 														>
+													{:else if row.decision === 'replace'}
+														Stays as it is.
 													{:else}
 														<span class="warn">Needed.</span>
 													{/if}

@@ -32,7 +32,9 @@ use crate::auth::Principal;
 use crate::common::{audit, nullable, write_error};
 use crate::conventions::{IfMatch, Page, PageParams, etag};
 use crate::problem::{Json, Path, Problem, Query};
-use crate::transactions::{Leg, NewTransaction, create_in, into_transfer};
+use crate::transactions::{
+    Leg, NewTransaction, Relabel, create_in, into_transfer, replace_with_row, replaceable,
+};
 
 /// Bank files bigger than this are refused.
 const MAX_FILE: usize = 10 * 1024 * 1024;
@@ -342,6 +344,11 @@ pub enum Decision {
     New,
     /// Leave the row out.
     Skip,
+    /// For a duplicate or near-duplicate: the matched transaction takes the
+    /// row's date, amount and description, and the labels set here (yours,
+    /// or confident suggestions); its other labels, notes, tags and batch
+    /// stay. It must be one split between this account and the outside.
+    Replace,
 }
 
 impl Decision {
@@ -350,6 +357,7 @@ impl Decision {
             Self::Match => "match",
             Self::New => "new",
             Self::Skip => "skip",
+            Self::Replace => "replace",
         }
     }
 
@@ -358,6 +366,7 @@ impl Decision {
             "match" => Ok(Self::Match),
             "new" => Ok(Self::New),
             "skip" => Ok(Self::Skip),
+            "replace" => Ok(Self::Replace),
             _ => Err(Problem::internal()),
         }
     }
@@ -381,6 +390,7 @@ impl Decision {
             ),
             Self::New => !matches!(status, RowStatus::Duplicate),
             Self::Skip => true,
+            Self::Replace => matches!(status, RowStatus::Duplicate | RowStatus::NearDuplicate),
         }
     }
 }
@@ -423,6 +433,8 @@ pub struct Committed {
     transfers: u64,
     /// Rows recorded as already in the ledger (duplicates, near-duplicates).
     matched: u64,
+    /// Existing transactions replaced by their rows.
+    replaced: u64,
     skipped: u64,
     /// One per statement with a ledger balance: the bank's balance against
     /// the ledger's.
@@ -1272,6 +1284,19 @@ async fn set_row(
                 d.as_str()
             )));
         }
+        if d == Some(Decision::Replace) {
+            let (_, s) = store::imports::statements(&mut *tx, &[id])
+                .await?
+                .into_iter()
+                .find(|(_, s)| s.position == statement)
+                .ok_or_else(Problem::internal)?;
+            let (Some(t), Some(account)) = (row.match_transaction_id, s.effective_account()) else {
+                return Err(Problem::internal());
+            };
+            replaceable(&mut tx, t, account, s.commodity_id)
+                .await
+                .map_err(|p| Problem::invalid(p.detail.unwrap_or(p.title)))?;
+        }
         row.decision = d.map(|d| d.as_str().to_owned());
     }
     if let Some(d) = req.set_description {
@@ -1423,6 +1448,7 @@ async fn commit(
         created: 0,
         transfers: 0,
         matched: 0,
+        replaced: 0,
         skipped: 0,
         balance_checks: Vec::new(),
     };
@@ -1499,6 +1525,37 @@ async fn commit(
                     });
                 }
                 t.id()
+            }
+            Decision::Replace => {
+                let t = r.match_transaction_id.ok_or_else(Problem::internal)?;
+                // Labels from review replace the transaction's; with neither
+                // yours nor a confident suggestion, its own stay.
+                let l = labels(r, &suggestions);
+                let set =
+                    |label: Label, v: Option<Uuid>| (!l.missing.contains(&label)).then_some(v);
+                let description = r
+                    .set_description
+                    .clone()
+                    .unwrap_or_else(|| r.description.chars().take(500).collect());
+                replace_with_row(
+                    &mut tx,
+                    principal,
+                    t,
+                    account,
+                    s.commodity_id,
+                    r.date,
+                    description,
+                    Amount::from_decimal(r.amount),
+                    Relabel {
+                        counterparty: set(Label::Counterparty, l.counterparty),
+                        category: set(Label::Category, l.category),
+                        purpose: set(Label::Purpose, l.purpose),
+                    },
+                )
+                .await
+                .map_err(at_row(r))?;
+                out.replaced += 1;
+                t
             }
             Decision::Match => {
                 let t = r.match_transaction_id.ok_or_else(Problem::internal)?;
@@ -1578,6 +1635,7 @@ async fn commit(
         Some(
             &json!({ "import_batch_id": out.import_batch_id, "created": out.created,
                       "transfers": out.transfers, "matched": out.matched,
+                      "replaced": out.replaced,
                       "skipped": out.skipped }),
         ),
     )

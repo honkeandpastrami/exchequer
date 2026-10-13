@@ -82,6 +82,8 @@ def test_a_row_and_what_it_can_become():
     assert decisions_for(RowStatus.DUPLICATE)[0] == Decision.MATCH
     assert Decision.NEW not in decisions_for(RowStatus.DUPLICATE)
     assert decisions_for(RowStatus.TRANSFER_MATCH)[0] == Decision.MATCH
+    assert Decision.REPLACE in decisions_for(RowStatus.NEAR_DUPLICATE)
+    assert Decision.REPLACE not in decisions_for(RowStatus.TRANSFER_MATCH)
 
 
 def test_accounts_are_found_by_full_or_short_name():

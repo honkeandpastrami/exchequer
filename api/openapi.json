@@ -4998,6 +4998,7 @@
           "created",
           "transfers",
           "matched",
+          "replaced",
           "skipped",
           "balance_checks"
         ],
@@ -5027,6 +5028,12 @@
             "type": "integer",
             "format": "int64",
             "description": "Rows recorded as already in the ledger (duplicates, near-duplicates).",
+            "minimum": 0
+          },
+          "replaced": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Existing transactions replaced by their rows.",
             "minimum": 0
           },
           "skipped": {
@@ -5181,7 +5188,8 @@
         "enum": [
           "match",
           "new",
-          "skip"
+          "skip",
+          "replace"
         ]
       },
       "Edge": {

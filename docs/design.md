@@ -422,7 +422,10 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
 7. **Commit** is all or nothing. Each row has a decision (`PATCH
    /imports/{id}/rows/{statement}/{position}`): `match` (the default for duplicates,
    near-duplicates and transfer matches), `new` (the default for new rows; never for a
-   duplicate) or `skip`, plus optional labels for the new transaction (description,
+   duplicate), `replace` (a duplicate or near-duplicate whose bank row should win: the
+   matched transaction keeps its ID, notes, tags and batch and takes the row's date,
+   amount and description, and the labels set in review; it must be one split between
+   the statement's account and the outside) or `skip`, plus optional labels for the new transaction (description,
    counterparty, category, purpose). `POST /imports/{id}/commit` first works every status
    out again; if one changed, nothing is committed and the client reviews again (409). Then:
    `new` rows become one-split transactions in one `file` import batch (the outside side is

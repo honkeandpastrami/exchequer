@@ -60,8 +60,8 @@ const suggestion = (label: Schemas['Label'], confidence: number): Schemas['Label
 describe('import review', () => {
 	it('offers what the server allows, the default first', () => {
 		expect(decisionsFor('new')).toEqual(['new', 'skip']);
-		expect(decisionsFor('duplicate')).toEqual(['match', 'skip']);
-		expect(decisionsFor('near_duplicate')).toEqual(['match', 'new', 'skip']);
+		expect(decisionsFor('duplicate')).toEqual(['match', 'replace', 'skip']);
+		expect(decisionsFor('near_duplicate')).toEqual(['match', 'replace', 'new', 'skip']);
 		expect(decisionsFor('transfer_match')).toEqual(['match', 'new', 'skip']);
 		expect(decisionsFor('needs_account')).toEqual([]);
 	});
@@ -88,6 +88,7 @@ describe('import review', () => {
 		expect(plan([row('new'), row('new'), row('skip'), row(null)])).toEqual({
 			new: 2,
 			match: 0,
+			replace: 0,
 			skip: 1
 		});
 	});

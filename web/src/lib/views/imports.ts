@@ -18,6 +18,7 @@ export const statuses: Record<Status, string> = {
 export const decisions: Record<Decision, string> = {
 	new: 'Add as new',
 	match: 'Already there',
+	replace: 'Replace it',
 	skip: 'Skip'
 };
 
@@ -27,7 +28,9 @@ export function decisionsFor(status: Status): Decision[] {
 		case 'new':
 			return ['new', 'skip'];
 		case 'duplicate':
-			return ['match', 'skip'];
+			return ['match', 'replace', 'skip'];
+		case 'near_duplicate':
+			return ['match', 'replace', 'new', 'skip'];
 		case 'needs_account':
 			return [];
 		default:
@@ -67,7 +70,7 @@ export function totals(statements: Schemas['StagedStatement'][]): Schemas['RowCo
 
 /** What committing would do now, by decision. */
 export function plan(rows: Schemas['StagedRow'][]): Record<Decision, number> {
-	const out: Record<Decision, number> = { new: 0, match: 0, skip: 0 };
+	const out: Record<Decision, number> = { new: 0, match: 0, replace: 0, skip: 0 };
 	for (const r of rows) if (r.decision) out[r.decision] += 1;
 	return out;
 }

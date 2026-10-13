@@ -46,8 +46,13 @@ STATUS = {
     RowStatus.NEEDS_ACCOUNT: "needs account",
 }
 # The letter that picks each decision in a prompt.
-KEYS = {Decision.MATCH: "m", Decision.NEW: "n", Decision.SKIP: "s"}
-LABELS = {Decision.MATCH: "match", Decision.NEW: "new", Decision.SKIP: "skip"}
+KEYS = {Decision.MATCH: "m", Decision.NEW: "n", Decision.REPLACE: "r", Decision.SKIP: "s"}
+LABELS = {
+    Decision.MATCH: "match",
+    Decision.NEW: "new",
+    Decision.REPLACE: "replace",
+    Decision.SKIP: "skip",
+}
 
 
 class ApiError(RuntimeError):
@@ -151,14 +156,16 @@ def decisions_for(status: RowStatus) -> list[Decision]:
     if status == RowStatus.NEW:
         return [Decision.NEW, Decision.SKIP]
     if status == RowStatus.DUPLICATE:
-        return [Decision.MATCH, Decision.SKIP]
+        return [Decision.MATCH, Decision.REPLACE, Decision.SKIP]
+    if status == RowStatus.NEAR_DUPLICATE:
+        return [Decision.MATCH, Decision.REPLACE, Decision.NEW, Decision.SKIP]
     return [Decision.MATCH, Decision.NEW, Decision.SKIP]
 
 
 def committed_lines(c: Committed, names: Names) -> list[str]:
     out = [
         f"  {c.created} new, {c.transfers} made transfers, {c.matched} already there, "
-        f"{c.skipped} skipped"
+        f"{c.replaced} replaced, {c.skipped} skipped"
     ]
     for b in c.balance_checks:
         account = names.accounts.get(b.account_id, "?")
@@ -311,14 +318,20 @@ class Importer:
             picked = self.ui.key(prompt, "".join(KEYS[d] for d in options), KEYS[current])
             decision = next(d for d in options if KEYS[d] == picked)
             if decision != current:
-                ok(
-                    imports_set_row.sync_detailed(
-                        id,
-                        r.statement,
-                        r.position,
-                        client=self.client,
-                        body=RowUpdate(decision=decision),
-                        if_match=self.read(id)[1],
-                    ),
-                    "set a row's decision",
-                )
+                try:
+                    ok(
+                        imports_set_row.sync_detailed(
+                            id,
+                            r.statement,
+                            r.position,
+                            client=self.client,
+                            body=RowUpdate(decision=decision),
+                            if_match=self.read(id)[1],
+                        ),
+                        "set a row's decision",
+                    )
+                except ApiError as e:
+                    # E.g. a transaction a bank row can't replace.
+                    if e.status != 422:
+                        raise
+                    self.ui.say(f"    kept {LABELS[current]}: {e}")
