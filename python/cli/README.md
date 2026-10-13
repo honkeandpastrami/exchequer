@@ -6,6 +6,9 @@ Exchequer's command line.
 cd python
 uv run exchequer import FILE...            # upload, review, commit bank files
 uv run exchequer import FILE... --yes      # take every default, no questions
+uv run exchequer rules edit -m "why"       # edit the rules script in $EDITOR, upload on save
+uv run exchequer rules log                 # its versions; also show, upload, diff, rollback
+uv run exchequer rules dry-run --month 2026-09 [--file candidate.rhai]
 ```
 
 It reads the server and token from `EXCHEQUER_URL` and `EXCHEQUER_TOKEN_FILE`, else from

@@ -33,6 +33,7 @@ mod parties;
 pub mod problem;
 mod query;
 mod reports;
+mod rules;
 mod settlements;
 mod suggesters;
 mod suggestions;
@@ -112,6 +113,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .merge(reports::routes())
         .merge(balance_checks::routes())
         .merge(suggesters::routes())
+        .merge(rules::routes())
 }
 
 fn routes() -> OpenApiRouter<AppState> {

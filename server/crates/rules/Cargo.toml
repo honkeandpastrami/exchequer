@@ -1,0 +1,23 @@
+[package]
+name = "rules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Rules (design §8): the household's Rhai script, compiled, validated and run as a suggester"
+
+[lints]
+workspace = true
+
+[dependencies]
+# No floating point inside scripts (design §3.5); `sync` to share a compiled
+# script between requests; `internals` to walk the AST when validating names.
+rhai = { version = "1.26.1", features = ["no_float", "only_i64", "sync", "internals"] }
+rust_decimal = "1.43.0"
+serde_json = "1.0.154"
+suggest = { path = "../suggest" }
+time = "0.3.55"
+uuid = "1.28.0"
+
+[dev-dependencies]
+time = { version = "0.3.55", features = ["macros"] }

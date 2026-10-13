@@ -510,10 +510,10 @@ The levels:
    ```rust
    fn classify(row, s) {
        let d = row.description.to_upper();
-       if d.starts_with("ACME CORP PAYROLL") && row.amount > amount("0") {
-           s.counterparty("ACME Corp"); s.category("Salary"); s.purpose(HOUSEHOLD);
-       } else if d.contains("CITY WATER") {
-           s.counterparty("City Water"); s.category("Utilities"); s.purpose(HOUSEHOLD);
+       if d.starts_with("ACME CORP PAYROLL") && row.amount > 0 {
+           s.counterparty("ACME Corp"); s.category("Salary"); s.purpose("Household");
+       } else if d.contains("CITY WATER") && row.account == "Household · Joint Checking" {
+           s.counterparty("City Water"); s.category("Utilities"); s.purpose(());
        }
    }
    ```
@@ -524,15 +524,17 @@ The levels:
    local AI is measurably wrong in a way a rule fixes (typically a purpose that depends on
    the account, amount or date), not carried over from another tool.
 
-   **Editing and versioning:**
-   - `PUT /rules` uploads a new version. The server compiles it and checks every referenced
-     name (categories, accounts, parties) against the DB. **An invalid script is rejected
-     with line-numbered errors and never becomes active.** A valid one is active
-     immediately, without a restart.
-   - `POST /rules/dry-run?from=&to=` reports what a candidate script *would* change.
-   - Every version is kept: list, diff, and rollback (re-uploading an old version as a new
-     one). Each version records its author and an optional note.
-   - CLI: `exchequer rules edit | log | diff | rollback | dry-run`.
+   **Editing and versioning** (details in `docs/ai.md`):
+   - `PUT /rules` uploads a new version. The server compiles it and checks every name it
+     uses (counterparties, categories, parties, accounts) against the DB. **An invalid
+     script is rejected with line-numbered errors (`rules-invalid`) and never becomes
+     active.** A valid one is active immediately, without a restart. A script a later
+     deletion made invalid is skipped (rules sit out) until it's fixed.
+   - `POST /rules/dry-run?from=&to=` reports what the active or a candidate script *would*
+     change in the ledger's past, without storing anything.
+   - Every version is kept (`GET /rules/versions`): list, diff, and rollback (re-uploading
+     an old version as a new one). Each version records its author and an optional note.
+   - CLI: `exchequer rules show | edit | upload | log | diff | rollback | dry-run`.
 2. **Local AI, lexical,** in-process and pure Rust: descriptions normalized (card and
    reference digits, dates, processor prefixes stripped), an alias memory (this text was
    counterparty X the last N times), and nearest labeled transactions by trigram/TF-IDF
@@ -632,8 +634,8 @@ until the output is right, and migrates **one calendar year at a time**.
     settlement payments linked to their month; transfers out of investment accounts become
     liquidations; transfers to a business are funding.
   - **Categories, tags and bills** carry over. **Not migrated:** budgets, piggy banks, and
-    categories that only restate a transfer. Firefly rules are translated once into a Rhai
-    script and uploaded as rule version 1.
+    categories that only restate a transfer. Firefly rules are not carried over: the rules
+    script starts empty (§8).
   - **Float-damaged amounts** are rounded to the commodity's precision and **listed in the
     report** for confirmation, never fixed silently (§3.5).
   - **Split transactions** keep their split structure.
@@ -652,7 +654,7 @@ A thin client built on the generated SDK; it never imports server code.
 - `import <files…>`: upload, then a TUI review screen for the staged batch, then commit.
 - `month review <M>`, `month close <M>` (asks for stipends and funders, shows the statement,
   prints the transfers to make), `month reopen <M>`, `settle status`.
-- `rules edit | log | diff | rollback | dry-run` (§8), `bills review` (§9.1).
+- `rules show | edit | upload | log | diff | rollback | dry-run` (§8), `bills review` (§9.1).
 - `balance check`, `prices refresh`, `recur materialize`, `report <name>`.
 - `token create | revoke`, `login` (device code, tier 2).
 
@@ -755,7 +757,7 @@ boundary, so each side uses the language that suits it.
 | `import` | Parsers, dedup, transfer matching, staging (§6) | `ofx-rs`, `csv`, `strsim` |
 | `suggest` | The suggestion interface every level implements (`Suggester`, local `Method`), the stack that combines the levels, the backtest (§8) | — |
 | `heuristics` | Local AI methods (`lexical-knn`), text normalization, calibration; the only crate where float lints are allowed | `suggest` |
-| `rules` | Embedded Rhai engine: compile, validate, run the stored script (§8) | `rhai` (`no_float`, `sync`) |
+| `rules` | Embedded Rhai engine: compile, validate, run the stored script as a `suggest::Suggester` (§8) | `rhai` (`no_float`, `only_i64`, `sync`), `suggest` |
 | `api` | HTTP handlers, auth middleware, OpenAPI generation | `axum`, `tokio`, `utoipa`, `utoipa-axum`, `serde`, `tracing` |
 | `outbound` | Price and LLM clients; the only place data leaves the server | `reqwest` |
 | `server` | The binary: configuration, wiring, startup migrations | — |
@@ -852,7 +854,9 @@ exchequer/
 **BSD-2-Clause.** Consequently, **no GPL dependencies**: every planned dependency is MIT,
 Apache-2.0 or BSD, and CI checks licenses (`cargo-deny` for Rust, plus a check over the Python
 and npm lockfiles). GPL-licensed OFX libraries (e.g. Python's `ofxtools`) are never
-imported; `ofx-check` compares against the output of an external program instead.
+imported; `ofx-check` compares against the output of an external program instead. Two
+exceptions, each for one crate Rhai can't do without (`server/deny.toml`): `smartstring`
+(MPL-2.0, copyleft per file, used unmodified) and `tiny-keccak` (CC0-1.0).
 
 ## 17. Build order
 

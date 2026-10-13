@@ -23,7 +23,7 @@ Bills and tags are not suggested yet.
 
 Suggestions come from three levels, tried in order:
 
-1. **Rules** — a Rhai script you write. *Not built yet.*
+1. **Rules** — a Rhai script you write (below).
 2. **Local AI** — similarity to your own labeled history, computed in the server
    (below).
 3. **Remote AI** — a decision model on Azure AI Foundry. Optional. *Not built yet.*
@@ -42,6 +42,102 @@ Every level implements the same interface (`suggest::Suggester`): given rows, wi
 labels already settled as facts, it proposes the others, each with a confidence and a
 reason; given a statement's rows, it proposes an account. The stack only sees that
 interface, so a level can be replaced without touching the rest.
+
+## Rules
+
+Rules are one [Rhai](https://rhai.rs) script, stored in the database. Rhai is a small
+scripting language for embedding in Rust, with Rust-like syntax. If/else is the rule
+language: there's no rule table and no trigger/action DSL. The script starts empty. Write
+rules where local AI is measurably wrong in a way a rule fixes, typically a purpose that
+depends on the account, the amount or the date. The backtest and the dry run show where.
+
+```rust
+// Coffee on the household card is the household's, whoever buys it.
+fn classify(row, s) {
+    let d = row.description.to_upper();
+    if d.contains("CORNER CAFE") && row.account == "Household · Joint Card" {
+        s.counterparty("Corner Cafe");
+        s.category("Dining");
+        s.purpose("Household");
+    } else if d.starts_with("ACME PAYROLL") && row.amount > amount("1000") {
+        s.counterparty("Acme");
+        s.category("Salary");
+        s.purpose(());              // none: the account's owner
+    }
+}
+
+// Files from the card's site are named card-2026-03.csv.
+fn account(file, s) {
+    if file.name != () && file.name.starts_with("card-") {
+        s.account("Household · Joint Card");
+    }
+}
+```
+
+**Entry points,** both optional:
+
+- `fn classify(row, s)` runs for each bank row being imported.
+- `fn account(file, s)` runs for each statement whose file doesn't say which account it is
+  for.
+
+**What a row has:**
+
+| Field | |
+|---|---|
+| `description` | The bank's text, as is |
+| `amount` | An amount: positive into the account. Compare it with `amount("12.50")` or a whole number (`row.amount < 0`); `abs()`, `+` and `-` work. There are no floats. |
+| `date`, `year`, `month`, `day`, `weekday` | `"2026-03-02"`; numbers; weekday 1 (Monday) to 7 |
+| `account`, `account_name`, `owner` | `"Owner · Name"`, the name alone, the owner's name; `()` when the statement has no account yet |
+| `raw` | The bank file's own fields, by name, as text (e.g. `row.raw.Memo`) |
+
+A `file` has `name` (or `()`), `kind` (`"bank"`, `"credit_card"` or `()`) and `rows`.
+
+**What `s` sets:** `s.counterparty("…")`, `s.category("…")` and `s.purpose("…")` (a
+party), each by name or `()` for none, and `s.account("Owner · Name")`. The name alone is
+enough for an account no other shares. If a setter is called twice, the last call wins.
+Whatever is set is a suggestion at full confidence, by the rules level: its reason is
+`rule v<version>:<line>`. Labels left unset go to local AI as usual, with the set ones as
+facts.
+
+**Validation.** `PUT /rules` refuses a script with each error and its line (`422`,
+`rules-invalid`, `errors: [{line, column, message}]`), and it never becomes active:
+
+- syntax errors, undefined variables, an entry point with other parameters;
+- **every name it uses:** in setters, and in comparisons of `row.account`,
+  `row.account_name` or `row.owner` with text. Setters take names written out
+  (`s.category("Dining")`, not a variable), so they can all be checked.
+
+A valid script is active at once. If a name it uses is deleted later, the script stops
+validating, and rules sit out (local AI still suggests) until it's fixed.
+
+**Sandboxed.** A script can't reach files, the network or other processes, and has no
+`eval`. A call that runs too long (a loop) is stopped: that row simply gets no rule
+suggestions.
+
+**Versions.** Every upload is a new version, and none is ever edited or deleted. Each
+records who uploaded it, when, and an optional note. The newest is active.
+
+- `GET /rules`: the active script (version 0, empty, when there's none). Its ETag goes in
+  `If-Match` for the next `PUT /rules` (`{ "source", "note" }`), so two edits can't
+  overwrite each other.
+- `GET /rules/versions`, `GET /rules/versions/{n}`.
+- `POST /rules/dry-run?from=&to=` with `{}` (the active script) or `{ "source": … }` (a
+  candidate) runs `classify` over the ledger's transactions in the range, those between
+  one of your accounts and the outside. It lists each one it would label differently from
+  the ledger, or fails on. It stores nothing. In a dry run `row.raw` is empty, and
+  `account` doesn't run.
+
+On the command line:
+
+```sh
+exchequer rules edit -m "why"     # $EDITOR on the active script; a refused one reopens at its error
+exchequer rules upload FILE -m "why"
+exchequer rules show [N]          # a version's script
+exchequer rules log               # versions, newest first
+exchequer rules diff 3 [4]        # what changed (against the active one by default)
+exchequer rules rollback 3        # v3's script, as a new version
+exchequer rules dry-run --month 2026-09 [--file candidate.rhai]
+```
 
 ## Local AI
 

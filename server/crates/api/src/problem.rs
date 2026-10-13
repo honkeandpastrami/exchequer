@@ -16,6 +16,19 @@ pub struct Problem {
     pub status: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// Each problem found, where it is (e.g. a rules script's errors).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<ProblemItem>,
+}
+
+/// One problem in a document, such as a line of a script.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ProblemItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>,
+    pub message: String,
 }
 
 impl Problem {
@@ -25,12 +38,19 @@ impl Problem {
             title: title.to_owned(),
             status: status.as_u16(),
             detail: None,
+            errors: Vec::new(),
         }
     }
 
     #[must_use]
     pub fn detail(mut self, detail: impl Into<String>) -> Self {
         self.detail = Some(detail.into());
+        self
+    }
+
+    #[must_use]
+    pub fn errors(mut self, errors: Vec<ProblemItem>) -> Self {
+        self.errors = errors;
         self
     }
 

@@ -85,6 +85,7 @@ pub fn run(method: &dyn Method, history: &History, start: Date, end: Date) -> Re
             date: e.date,
             amount: e.amount,
             description: e.description.clone(),
+            raw: serde_json::Value::Null,
             facts: Facts::default(),
         })
         .collect();
@@ -117,7 +118,11 @@ pub fn run(method: &dyn Method, history: &History, start: Date, end: Date) -> Re
                 StatementKind::Bank
             }
         });
-        let guess = s.account(&Statement { kind, rows });
+        let guess = s.account(&Statement {
+            file_name: None,
+            kind,
+            rows,
+        });
         accounts.add(guess.as_ref(), &account);
     }
 

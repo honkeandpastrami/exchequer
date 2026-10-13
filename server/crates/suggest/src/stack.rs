@@ -198,6 +198,7 @@ mod tests {
             date: date!(2026 - 03 - 01),
             amount: Decimal::ONE,
             description: "COFFEE".into(),
+            raw: serde_json::Value::Null,
             facts,
         }
     }
@@ -260,6 +261,7 @@ mod tests {
     #[test]
     fn an_account_from_the_first_confident_level() {
         let s = Statement {
+            file_name: None,
             kind: None,
             rows: vec![row(Facts::default())],
         };

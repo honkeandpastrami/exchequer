@@ -235,6 +235,9 @@ pub struct Row {
     /// Signed: positive into the account.
     pub amount: Decimal,
     pub description: String,
+    /// What the bank file said about it, field by field (a JSON object), if
+    /// it came from one.
+    pub raw: serde_json::Value,
     pub facts: Facts,
 }
 
@@ -256,6 +259,8 @@ impl StatementKind {
 /// A statement without an account, to suggest one for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Statement {
+    /// The bank file's name, if it was given.
+    pub file_name: Option<String>,
     pub kind: Option<StatementKind>,
     pub rows: Vec<Row>,
 }

@@ -1,7 +1,7 @@
 //! Running the suggestion stack on staged imports (design §8, docs/ai.md).
-//! The levels are suggesters ([`suggest::Suggester`]); today the stack has
-//! one, the configured local method, trained on the ledger as it is and
-//! kept until the ledger changes.
+//! The levels are suggesters ([`suggest::Suggester`]), in order: the active
+//! rules script, then the configured local method, trained on the ledger as
+//! it is and kept until the ledger changes.
 
 use std::sync::{Arc, Mutex};
 
@@ -50,8 +50,23 @@ impl Suggestions {
         &self,
         db: &mut PgConnection,
     ) -> Result<Vec<Arc<dyn Suggester>>, Problem> {
+        let mut levels: Vec<Arc<dyn Suggester>> = Vec::new();
+        if let Some(r) = store::rules::active(&mut *db).await?
+            && !r.source.trim().is_empty()
+        {
+            // Validated when uploaded; a name deleted since makes it invalid
+            // until it's fixed, and rules sit out meanwhile.
+            match rules::Script::compile(r.version, &r.source, &names(db).await?) {
+                Ok(s) => levels.push(Arc::new(s)),
+                Err(e) => tracing::warn!(
+                    version = r.version,
+                    errors = e.len(),
+                    "the rules script no longer validates; rules are skipped"
+                ),
+            }
+        }
         let Some(method) = self.local else {
-            return Ok(Vec::new());
+            return Ok(levels);
         };
         let history = history(db).await?;
         let trained = self.trained.clone();
@@ -71,7 +86,8 @@ impl Suggestions {
         })
         .await
         .map_err(|_| Problem::internal())?;
-        Ok(vec![model])
+        levels.push(model);
+        Ok(levels)
     }
 }
 
@@ -106,6 +122,21 @@ pub(crate) async fn history(db: &mut PgConnection) -> Result<History, Problem> {
     Ok(History { accounts, examples })
 }
 
+/// Every name a rules script may use.
+pub(crate) async fn names(db: &mut PgConnection) -> Result<rules::Names, Problem> {
+    let n = store::rules::names(db).await?;
+    Ok(rules::Names {
+        accounts: n
+            .accounts
+            .into_iter()
+            .map(|(id, name, owner)| rules::AccountName { id, name, owner })
+            .collect(),
+        counterparties: n.counterparties,
+        categories: n.categories,
+        parties: n.parties,
+    })
+}
+
 /// The suggester's ID, recorded the first time it's seen.
 async fn suggester_id(db: &mut PgConnection, s: &dyn Suggester) -> Result<Uuid, Problem> {
     let i = s.identity();
@@ -134,6 +165,7 @@ fn row(r: &RowRow, account: Option<Uuid>) -> Row {
         date: r.date,
         amount: r.amount,
         description: r.description.clone(),
+        raw: r.raw.clone(),
         facts: facts(r),
     }
 }
@@ -148,6 +180,7 @@ pub(crate) async fn account(
     db: &mut PgConnection,
     levels: &[Arc<dyn Suggester>],
     import_id: Uuid,
+    file_name: Option<&str>,
     s: &StatementRow,
 ) -> Result<(), Problem> {
     if s.account_id.is_some() {
@@ -156,6 +189,7 @@ pub(crate) async fn account(
     let rows =
         store::imports::rows(&mut *db, import_id, Some(s.position), None, None, i64::MAX).await?;
     let statement = Statement {
+        file_name: file_name.map(str::to_owned),
         kind: s.kind.as_deref().map(|k| {
             if k == "credit_card" {
                 StatementKind::CreditCard

@@ -515,6 +515,89 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v1/rules': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * The active rules script (the newest version); version 0, empty, when
+		 *     there's none.
+		 */
+		get: operations['rules_get'];
+		/**
+		 * Upload a new version of the rules script. It's compiled and every name
+		 *     it uses is checked against the ledger; an invalid script is refused with
+		 *     its errors, by line (`rules-invalid`), and never becomes active. A valid
+		 *     one is active at once, for the next file uploaded.
+		 */
+		put: operations['rules_put'];
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/rules/dry-run': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * What a script would set for the ledger's transactions in a date range
+		 *     (those between one of your accounts and the outside, as an imported row
+		 *     becomes), compared with what they have. Runs the active script, or a
+		 *     candidate given in the body (validated first); stores nothing. The
+		 *     bank's own fields (`row.raw`) are empty here, and `fn account` isn't run.
+		 */
+		post: operations['rules_dry_run'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/rules/versions': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Every version of the rules script, newest first. */
+		get: operations['rules_versions'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/rules/versions/{version}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** One version of the rules script. */
+		get: operations['rules_version'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/settlements': {
 		parameters: {
 			query?: never;
@@ -1073,6 +1156,72 @@ export interface components {
 		 * @enum {string}
 		 */
 		Decision: 'match' | 'new' | 'skip' | 'replace';
+		DryRun: {
+			/**
+			 * Format: int32
+			 * @description Those it would label differently from the ledger.
+			 */
+			changed: number;
+			/**
+			 * Format: int32
+			 * @description Those it failed on.
+			 */
+			failed: number;
+			/** @description Changed and failed rows, by date (at most 500). */
+			items: components['schemas']['DryRunRow'][];
+			/**
+			 * Format: int32
+			 * @description Of them, those it set any label for.
+			 */
+			labeled: number;
+			/**
+			 * Format: int32
+			 * @description Transactions it ran on: those between one of your accounts and the
+			 *     outside, dated in the range.
+			 */
+			rows: number;
+			truncated: boolean;
+			/**
+			 * Format: int32
+			 * @description The script's version; absent for a candidate.
+			 */
+			version?: number | null;
+		};
+		/** @description A label the script would set differently from the ledger. */
+		DryRunChange: {
+			/**
+			 * Format: uuid
+			 * @description What the ledger has; `null` for none.
+			 */
+			current?: string | null;
+			label: components['schemas']['Label'];
+			/**
+			 * Format: int32
+			 * @description The line that sets it.
+			 */
+			line: number;
+			/**
+			 * Format: uuid
+			 * @description What the script sets; `null` for none.
+			 */
+			proposed?: string | null;
+		};
+		DryRunRequest: {
+			/** @description A candidate script; the active one if omitted (`{}`). */
+			source?: string | null;
+		};
+		/** @description A transaction the script would label differently, or fails on. */
+		DryRunRow: {
+			/** Format: uuid */
+			account_id: string;
+			changes: components['schemas']['DryRunChange'][];
+			/** Format: date */
+			date: string;
+			description: string;
+			error?: string | null;
+			/** Format: uuid */
+			transaction_id: string;
+		};
 		/**
 		 * @description One edge of the settlement tree (a child and its parent) for one month.
 		 *     Positive amounts go from the child to the parent.
@@ -1588,6 +1737,21 @@ export interface components {
 			next_cursor?: string | null;
 		};
 		/** @description One page of results. */
+		Page_RuleVersion: {
+			items: {
+				author?: string | null;
+				/** Format: date-time */
+				created_at: string;
+				/** Format: int32 */
+				lines: number;
+				note?: string | null;
+				/** Format: int32 */
+				version: number;
+			}[];
+			/** @description Pass as `cursor` to get the next page; absent on the last page. */
+			next_cursor?: string | null;
+		};
+		/** @description One page of results. */
 		Page_StagedRow: {
 			items: {
 				/**
@@ -1695,11 +1859,21 @@ export interface components {
 		/** @description An error response (`application/problem+json`). */
 		Problem: {
 			detail?: string | null;
+			/** @description Each problem found, where it is (e.g. a rules script's errors). */
+			errors?: components['schemas']['ProblemItem'][];
 			/** Format: int32 */
 			status: number;
 			title: string;
 			/** @description `urn:exchequer:problem:<slug>`; stable, for clients to match on. */
 			type: string;
+		};
+		/** @description One problem in a document, such as a line of a script. */
+		ProblemItem: {
+			/** Format: int32 */
+			column?: number | null;
+			/** Format: int32 */
+			line?: number | null;
+			message: string;
 		};
 		/** @description Filters combine with AND; the values inside one filter with OR. */
 		QueryRequest: {
@@ -1798,6 +1972,37 @@ export interface components {
 			 */
 			revert?: components['schemas']['Label'][];
 			set_description?: string | null;
+		};
+		/** @description A version of the rules script. */
+		RuleScript: {
+			/** @description The name of the token that uploaded it. */
+			author?: string | null;
+			/** Format: date-time */
+			created_at?: string | null;
+			note?: string | null;
+			source: string;
+			/**
+			 * Format: int32
+			 * @description 0 when there's none yet: no rules.
+			 */
+			version: number;
+		};
+		RuleUpload: {
+			/** @description Why, like a commit message (at most 500 characters). */
+			note?: string | null;
+			/** @description The whole script; empty for no rules. */
+			source: string;
+		};
+		/** @description A version, without its source. */
+		RuleVersion: {
+			author?: string | null;
+			/** Format: date-time */
+			created_at: string;
+			/** Format: int32 */
+			lines: number;
+			note?: string | null;
+			/** Format: int32 */
+			version: number;
 		};
 		/** @description Guesses against what the ledger says. */
 		Score: {
@@ -4021,6 +4226,167 @@ export interface operations {
 			};
 			/** @description Unprocessable Entity */
 			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	rules_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					ETag?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['RuleScript'];
+				};
+			};
+		};
+	};
+	rules_put: {
+		parameters: {
+			query?: never;
+			header: {
+				/** @description The active version's ETag */
+				'If-Match': string;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['RuleUpload'];
+			};
+		};
+		responses: {
+			/** @description Created */
+			201: {
+				headers: {
+					ETag?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['RuleScript'];
+				};
+			};
+			/** @description Precondition Failed */
+			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Invalid, with `errors` by line */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	rules_dry_run: {
+		parameters: {
+			query: {
+				/** @description First day. */
+				from: string;
+				/** @description Last day (at most about three years after `from`). */
+				to: string;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['DryRunRequest'];
+			};
+		};
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DryRun'];
+				};
+			};
+			/** @description An invalid range or candidate */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	rules_versions: {
+		parameters: {
+			query?: {
+				/** @description Items per page (default 100, max 500). */
+				limit?: number;
+				/** @description `next_cursor` from the previous page. Opaque. */
+				cursor?: string;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Page_RuleVersion'];
+				};
+			};
+		};
+	};
+	rules_version: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				version: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['RuleScript'];
+				};
+			};
+			/** @description Not Found */
+			404: {
 				headers: {
 					[name: string]: unknown;
 				};

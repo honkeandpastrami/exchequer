@@ -775,6 +775,7 @@ mod tests {
             date: date!(2026 - 01 - 10),
             amount: Decimal::new(amount, 2),
             description: description.into(),
+            raw: serde_json::Value::Null,
             facts: Facts::default(),
         }
     }
@@ -823,6 +824,7 @@ mod tests {
     fn a_statement_is_matched_to_its_account() {
         let m = LexicalKnn.train(&history());
         let s = Statement {
+            file_name: None,
             kind: None,
             rows: vec![
                 row(None, -455, "SQ *CORNER CAFE #0401"),
@@ -850,6 +852,7 @@ mod tests {
         );
         assert!(
             m.account(&Statement {
+                file_name: None,
                 kind: None,
                 rows: vec![row(None, -100, "CAFE")]
             })

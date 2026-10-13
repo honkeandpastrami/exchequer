@@ -1046,7 +1046,7 @@ async fn upload(
         if !rows.is_empty() {
             store::imports::insert_rows(&mut *tx, id, &rows).await?;
         }
-        suggestions::account(&mut tx, &levels, id, &statement).await?;
+        suggestions::account(&mut tx, &levels, id, file_name, &statement).await?;
         restatus(&mut tx, id, position).await?;
         suggestions::labels(&mut tx, &levels, id, position).await?;
     }

@@ -3145,6 +3145,274 @@
         ]
       }
     },
+    "/api/v1/rules": {
+      "get": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "The active rules script (the newest version); version 0, empty, when\nthere's none.",
+        "operationId": "rules_get",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleScript"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "Upload a new version of the rules script. It's compiled and every name\nit uses is checked against the ledger; an invalid script is refused with\nits errors, by line (`rules-invalid`), and never becomes active. A valid\none is active at once, for the next file uploaded.",
+        "operationId": "rules_put",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "The active version's ETag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleUpload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleScript"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid, with `errors` by line",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rules/dry-run": {
+      "post": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "What a script would set for the ledger's transactions in a date range\n(those between one of your accounts and the outside, as an imported row\nbecomes), compared with what they have. Runs the active script, or a\ncandidate given in the body (validated first); stores nothing. The\nbank's own fields (`row.raw`) are empty here, and `fn account` isn't run.",
+        "operationId": "rules_dry_run",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "First day.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Last day (at most about three years after `from`).",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DryRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DryRun"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "An invalid range or candidate",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rules/versions": {
+      "get": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "Every version of the rules script, newest first.",
+        "operationId": "rules_versions",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Items per page (default 100, max 500).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "`next_cursor` from the previous page. Opaque.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RuleVersion"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rules/versions/{version}": {
+      "get": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "One version of the rules script.",
+        "operationId": "rules_version",
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleScript"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/settlements": {
       "get": {
         "tags": [
@@ -5340,6 +5608,149 @@
           "replace"
         ]
       },
+      "DryRun": {
+        "type": "object",
+        "required": [
+          "rows",
+          "labeled",
+          "changed",
+          "failed",
+          "items",
+          "truncated"
+        ],
+        "properties": {
+          "changed": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Those it would label differently from the ledger.",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Those it failed on.",
+            "minimum": 0
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DryRunRow"
+            },
+            "description": "Changed and failed rows, by date (at most 500)."
+          },
+          "labeled": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Of them, those it set any label for.",
+            "minimum": 0
+          },
+          "rows": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Transactions it ran on: those between one of your accounts and the\noutside, dated in the range.",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The script's version; absent for a candidate."
+          }
+        }
+      },
+      "DryRunChange": {
+        "type": "object",
+        "description": "A label the script would set differently from the ledger.",
+        "required": [
+          "label",
+          "line"
+        ],
+        "properties": {
+          "current": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "What the ledger has; `null` for none."
+          },
+          "label": {
+            "$ref": "#/components/schemas/Label"
+          },
+          "line": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The line that sets it.",
+            "minimum": 0
+          },
+          "proposed": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "What the script sets; `null` for none."
+          }
+        }
+      },
+      "DryRunRequest": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A candidate script; the active one if omitted (`{}`)."
+          }
+        },
+        "additionalProperties": false
+      },
+      "DryRunRow": {
+        "type": "object",
+        "description": "A transaction the script would label differently, or fails on.",
+        "required": [
+          "transaction_id",
+          "date",
+          "description",
+          "account_id",
+          "changes"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DryRunChange"
+            }
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "description": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "transaction_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "Edge": {
         "type": "object",
         "description": "One edge of the settlement tree (a child and its parent) for one month.\nPositive amounts go from the child to the parent.",
@@ -6732,6 +7143,61 @@
           }
         }
       },
+      "Page_RuleVersion": {
+        "type": "object",
+        "description": "One page of results.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A version, without its source.",
+              "required": [
+                "version",
+                "created_at",
+                "lines"
+              ],
+              "properties": {
+                "author": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "lines": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` to get the next page; absent on the last page."
+          }
+        }
+      },
       "Page_StagedRow": {
         "type": "object",
         "description": "One page of results.",
@@ -7056,6 +7522,13 @@
               "null"
             ]
           },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProblemItem"
+            },
+            "description": "Each problem found, where it is (e.g. a rules script's errors)."
+          },
           "status": {
             "type": "integer",
             "format": "int32",
@@ -7067,6 +7540,34 @@
           "type": {
             "type": "string",
             "description": "`urn:exchequer:problem:<slug>`; stable, for clients to match on."
+          }
+        }
+      },
+      "ProblemItem": {
+        "type": "object",
+        "description": "One problem in a document, such as a line of a script.",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "column": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "line": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "message": {
+            "type": "string"
           }
         }
       },
@@ -7359,6 +7860,100 @@
           }
         },
         "additionalProperties": false
+      },
+      "RuleScript": {
+        "type": "object",
+        "description": "A version of the rules script.",
+        "required": [
+          "version",
+          "source"
+        ],
+        "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name of the token that uploaded it."
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "0 when there's none yet: no rules."
+          }
+        }
+      },
+      "RuleUpload": {
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "properties": {
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why, like a commit message (at most 500 characters)."
+          },
+          "source": {
+            "type": "string",
+            "description": "The whole script; empty for no rules."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuleVersion": {
+        "type": "object",
+        "description": "A version, without its source.",
+        "required": [
+          "version",
+          "created_at",
+          "lines"
+        ],
+        "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lines": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
       },
       "Score": {
         "type": "object",

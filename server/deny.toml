@@ -14,6 +14,9 @@ ignore = [
     { id = "RUSTSEC-2026-0194", reason = "ofx-rs doesn't iterate attributes" },
     # Same crate; only `NsReader` is affected, and ofx-rs uses the plain `Reader`.
     { id = "RUSTSEC-2026-0195", reason = "ofx-rs doesn't use NsReader" },
+    # smartstring via Rhai (the rules engine, design §8): unmaintained, not
+    # vulnerable, and Rhai can't do without it. Revisit when Rhai drops it.
+    { id = "RUSTSEC-2026-0249", reason = "unmaintained only; required by rhai" },
 ]
 
 [licenses]
@@ -28,6 +31,13 @@ allow = [
     "Zlib",
 ]
 confidence-threshold = 0.9
+# One crate each, pulled in by Rhai (design §16.4), and neither GPL.
+exceptions = [
+    # MPL-2.0: copyleft per file, used unmodified from crates.io.
+    { crate = "smartstring", allow = ["MPL-2.0"] },
+    # CC0-1.0: a public-domain dedication (via ahash's compile-time seed).
+    { crate = "tiny-keccak", allow = ["CC0-1.0"] },
+]
 
 [licenses.private]
 # Our own crates aren't published; their license is the repo's.
