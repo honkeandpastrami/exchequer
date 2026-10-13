@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     CONFIDENT, Example, Facts, Guess, History, Identity, Label, Method, Row, Statement,
-    StatementKind, Suggester, Value, stack,
+    StatementKind, Suggester, Value, labeled, stack,
 };
 
 /// How many confidence bins: 0-99, 100-199, …, 900-1000 per mille.
@@ -124,6 +124,8 @@ pub fn run_stack(
             description: e.description.clone(),
             raw: serde_json::Value::Null,
             facts: Facts::default(),
+            // As if each period's rows were staged together.
+            transfer_candidates: history.transfer_candidates(e),
         })
         .collect();
     let mut labels = scores();
@@ -135,8 +137,21 @@ pub fn run_stack(
             accounts: Score::default(),
         })
         .collect();
-    for (e, p) in tests.iter().zip(stack::labels(&refs, &rows)) {
+    for (e, p) in tests
+        .iter()
+        .zip(stack::labels(&refs, &rows, &history.accounts))
+    {
+        // A transfer's category and purpose don't apply: not asked.
+        let transfer = !labeled(
+            &history.accounts,
+            Some(e.account),
+            e.amount,
+            e.labels.counterparty,
+        );
         for l in Label::ALL {
+            if transfer && l != Label::Counterparty {
+                continue;
+            }
             let truth: Value = e.labels.get(l);
             let pick = p.get(l);
             if let Some(score) = labels.get_mut(&l) {
@@ -152,10 +167,11 @@ pub fn run_stack(
 
     let mut by_account: BTreeMap<Uuid, Vec<Row>> = BTreeMap::new();
     for (e, r) in tests.iter().zip(rows) {
-        by_account
-            .entry(e.account)
-            .or_default()
-            .push(Row { account: None, ..r });
+        by_account.entry(e.account).or_default().push(Row {
+            account: None,
+            transfer_candidates: Vec::new(),
+            ..r
+        });
     }
     let mut accounts = Score::default();
     for (account, rows) in by_account {

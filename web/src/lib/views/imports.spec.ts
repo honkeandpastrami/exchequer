@@ -3,6 +3,7 @@ import type { Schemas } from '../api/client';
 import {
 	counted,
 	decisionLabel,
+	sideOf,
 	decisionsFor,
 	labelState,
 	percent,
@@ -17,6 +18,7 @@ const counts = (c: Partial<Schemas['RowCounts']>): Schemas['RowCounts'] => ({
 	duplicate: 0,
 	near_duplicate: 0,
 	transfer_match: 0,
+	transfer_duplicate: 0,
 	needs_account: 0,
 	...c
 });
@@ -45,7 +47,8 @@ const row = (decision: Schemas['Decision'] | null): Schemas['StagedRow'] => ({
 	raw: {},
 	chosen: [],
 	suggestions: [],
-	missing: []
+	missing: [],
+	not_applicable: []
 });
 
 const suggestion = (label: Schemas['Label'], confidence: number): Schemas['LabelSuggestion'] => ({
@@ -63,11 +66,14 @@ describe('import review', () => {
 		expect(decisionsFor('duplicate')).toEqual(['match', 'replace', 'skip']);
 		expect(decisionsFor('near_duplicate')).toEqual(['match', 'replace', 'new', 'skip']);
 		expect(decisionsFor('transfer_match')).toEqual(['match', 'new', 'skip']);
+		expect(decisionsFor('transfer_duplicate')).toEqual(['match', 'new', 'skip']);
 		expect(decisionsFor('needs_account')).toEqual([]);
 	});
 
-	it('calls a transfer match a transfer', () => {
-		expect(decisionLabel('transfer_match', 'match')).toBe('Make it a transfer');
+	it('calls a transfer match one transfer, and splitting it not the same', () => {
+		expect(decisionLabel('transfer_match', 'match')).toBe('One transfer with its match');
+		expect(decisionLabel('transfer_match', 'new')).toBe('Not the same transfer');
+		expect(decisionLabel('transfer_duplicate', 'match')).toBe('Already there');
 		expect(decisionLabel('near_duplicate', 'match')).toBe('Already there');
 	});
 
@@ -106,5 +112,30 @@ describe('import review', () => {
 		expect(labelState({ ...r, suggestions: [] }, 'counterparty').kind).toBe('missing');
 		expect(unlabeled([r, row('new')])).toEqual([r]);
 		expect(percent(926)).toBe('93%');
+	});
+});
+
+describe('the other side', () => {
+	it('is an account for a transfer, else a counterparty, yours or suggested', () => {
+		const r = row('new');
+		expect(sideOf(r)).toBeUndefined();
+		expect(sideOf({ ...r, transfer_account_id: 'card' })).toEqual({ account: 'card' });
+		expect(sideOf({ ...r, chosen: ['counterparty'] })).toEqual({ counterparty: null });
+		const suggested = (s: Partial<Schemas['LabelSuggestion']>) =>
+			sideOf({
+				...r,
+				suggestions: [
+					{
+						label: 'counterparty',
+						confidence: 950,
+						confident: true,
+						reason: 'x',
+						suggester: { id: 's', kind: 'rule', name: 'rules', version: '1', details: {} },
+						...s
+					}
+				]
+			});
+		expect(suggested({ value: 'store' })).toEqual({ counterparty: 'store' });
+		expect(suggested({ transfer_account_id: 'card' })).toEqual({ account: 'card' });
 	});
 });

@@ -367,7 +367,7 @@ adjustment, or a past mistake: one that the old system made and that is now carr
 
 ```
 upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerprint/dedup
-     ─▶ transfer matching ─▶ suggest (rules → local AI → remote AI) ─▶ STAGED batch
+     ─▶ suggest (rules → local AI → remote AI) ─▶ transfer matching ─▶ STAGED batch
      ─▶ client review (accept / edit / reject per row) ─▶ COMMIT (atomic)
 ```
 
@@ -399,47 +399,65 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      so a low score doesn't clear a row. Near-duplicates are **flagged in staging**, not
      prompted mid-run.
    - Re-uploading a file, or overlapping date ranges, is a no-op.
-4. **Transfer matching.** A card payment appears in both the checking and the card file.
-   Incoming rows are matched to existing opposite-signed splits on your other accounts, so a
-   transfer isn't recorded as an expense plus an income. A row is a `transfer_match` when a
-   one-split transaction moved the same amount of the commodity the other way between
-   another of your accounts and the outside, dated within 5 days (matched one-to-one,
-   closest dates first, after exact and near duplicates). Staged rows aren't matched to
-   each other: statuses are worked out again on commit (§6.7), so the second of two files
-   staged together finds what the first one committed. Transfers between a person and the
-   Household are also matched against open settlements (§4.3).
+4. **Transfers.** A card payment appears in both the checking and the card file; it's one
+   transfer, never an expense plus an income.
+   - *The other side* of a row is a counterparty or, for a transfer, one of your accounts:
+     chosen in review, or suggested (§8). A transfer has no category or purpose, unless
+     it's a liquidation (§3.2, §4.1).
+   - *Potential transfer matches:* each row's rows in your other accounts, in any staged
+     import (this file's other statements, other files), with the opposite amount in the
+     same commodity, dated within 5 days. Every suggestion level sees them
+     (`row.transfer_candidates` in rules).
+   - *Transfer match* (`transfer_match`): two staged rows that are the two sides of one
+     transfer: one settled as a transfer to the other's account (chosen, or a confident
+     suggestion), the other open or settled as the transfer back, a potential transfer
+     match of each other. Matched one-to-one (`import::matching`): agreeing pairs first,
+     then the closest dates. A chosen counterparty, or a decision made on a row, rules it
+     out. Worked out again across all staged imports whenever one changes (upload, a
+     statement's account, a row, discard, commit).
+   - *Transfer duplicate* (`transfer_duplicate`): the transfer is already in the ledger,
+     from the other account: a one-split transfer between the account and another of
+     yours, the same amount the same way, within 5 days, holding no bank row of this
+     account yet. Matched after exact duplicates and before near ones.
+   - A transfer whose first side is committed before the other is staged is recorded as a
+     transfer then; one-sided transactions in the ledger are never turned into transfers
+     afterwards. Transfers between a person and the Household are also matched against
+     open settlements (§4.3).
 5. **Suggestions** (§8): the statement's account when unknown, then each row's
    counterparty, purpose and category, each with a confidence, a reason and the exact
    suggester.
 6. **Staging and review.** The batch lives on the server, so a review started in one client
-   can finish in another. Rows are `new`, `duplicate`, `near-duplicate`, `transfer-match` or
-   `needs-account`. `POST /imports` takes the file's bytes (at most 10 MiB; optional
-   `account_id`) and stages one statement per account in it; `GET
+   can finish in another. Rows are `new`, `duplicate`, `near-duplicate`, `transfer-match`,
+   `transfer-duplicate` or `needs-account`. `POST /imports` takes the file's bytes (at most
+   10 MiB; optional `account_id`) and stages one statement per account in it; `GET
    /imports/{id}` shows each statement's account, ledger balance, skipped lines and row
    counts by status, `GET /imports/{id}/rows` the rows; `PATCH
    /imports/{id}/statements/{n}` sets a statement's account (optionally remembering the
    file's number for it) and works its rows' statuses out again; `DELETE` discards it.
 7. **Commit** is all or nothing. Each row has a decision (`PATCH
    /imports/{id}/rows/{statement}/{position}`): `match` (the default for duplicates,
-   near-duplicates and transfer matches), `new` (the default for new rows; never for a
-   duplicate), `replace` (a duplicate or near-duplicate whose bank row should win: the
+   near-duplicates, transfer matches and transfer duplicates), `new` (the default for new
+   rows; never for a duplicate; for a transfer match, it splits the pair), `replace` (a
+   duplicate or near-duplicate whose bank row should win: the
    matched transaction keeps its ID, notes, tags and batch and takes the row's date,
    amount and description, and the labels set in review; it must be one split between
-   the statement's account and the outside) or `skip`, plus optional labels for the new transaction (description,
-   counterparty, category, purpose). `POST /imports/{id}/commit` first works every status
-   out again; if one changed, nothing is committed and the client reviews again (409). Then:
-   `new` rows become one-split transactions in one `file` import batch (the outside side is
-   the chosen counterparty, or unknown); a transfer match puts the statement's account on
-   the matched transaction's outside side, making it a transfer (purpose and category go);
-   every row now in the ledger is recorded in `import_fingerprint`. **A row that matches a
-   transaction already in the ledger (a duplicate or near-duplicate) never creates
-   anything: what it says is added to that transaction.** Each row is kept as each file had
+   the statement's account and the outside) or `skip`, plus optional labels for the new
+   transaction (description, the other side, category, purpose). `POST
+   /imports/{id}/commit` first works every status and transfer match out again; if one
+   changed, nothing is committed and the client reviews again (409). Then: `new` rows
+   become one-split transactions in one `file` import batch (the other side is the chosen
+   counterparty, unknown, or one of your accounts for a transfer); a transfer match
+   becomes one transfer, dated and described as the side the money left, and both rows
+   are recorded with it, so the other file's row is a duplicate of it from then on; every
+   row now in the ledger is recorded in `import_fingerprint`. **A row that matches a
+   transaction already in the ledger (a duplicate, near-duplicate or transfer duplicate)
+   never creates anything: what it says is added to that transaction.** Other staged
+   imports are then worked out again, since the ledger changed. Each row is kept as each file had
    it (`imported_row`: raw fields, when), the transaction's provenance; a file is identified
    by its bytes' SHA-256, so a copy under another name adds nothing (`GET
    /transactions/{id}/imported-rows`). A closed month or a broken ledger rule refuses the whole commit,
    naming the row. Each transaction keeps its `import_batch_id`, so undoing a batch is one
-   call; it deletes the new transactions and their recorded rows, but a transaction made a
-   transfer stays one (it belongs to its own batch). Every transaction has a batch and
+   call; it deletes the new transactions and their recorded rows. Every transaction has a batch and
    edits never change it: a migration is a batch, and a transaction entered by hand is a
    batch of its own. Uploaded files aren't kept; only each row's parsed raw form is.
 8. **Balance check.** An OFX `LEDGERBAL` is recorded on commit as a balance check (source
@@ -485,6 +503,12 @@ takes, the API) is in [`docs/ai.md`](ai.md).
   confident one counts as the account and the rows are worked out against it. Bills and
   tags come later (#8); near-duplicate detection moves onto the same stack afterwards
   (#9).
+- **Transfers are suggested like anything else:** the counterparty label is the row's
+  *other side*, a counterparty or one of your accounts. Once it's settled as an account,
+  the row's category and purpose are settled as none (unless it's a liquidation). Every
+  level sees each row's potential transfer matches in other staged files (§6.4), and
+  local AI learns from past transfers. Pairing two staged rows into one transfer is then a
+  rule, not a suggestion (§6.4).
 - **A stack of three levels,** tried in order: rules → local AI → remote AI. A level runs
   while a label is still below **0.9 confidence**; labels already settled (by an earlier
   level at ≥ 0.9, or by you) are given to the next level as facts. Below 0.9 everywhere,
@@ -758,7 +782,7 @@ boundary, so each side uses the language that suits it.
 |---|---|---|
 | `domain` | Commodities, accounts, splits, invariants, derived kinds, settlement math (§3, §4), `AccountNumber` (§3.6). Pure logic: no I/O, no async | `rust_decimal`, `bigdecimal`, `time` |
 | `store` | Postgres access, compile-time-checked queries, migrations | `sqlx` |
-| `import` | Parsers, dedup, transfer matching, staging (§6) | `ofx-rs`, `csv`, `strsim` |
+| `import` | Parsers, dedup and transfer matching (`matching`), staging (§6) | `ofx-rs`, `csv`, `strsim`, `suggest` |
 | `suggest` | The suggestion interface every level implements (`Suggester`, local `Method`), the stack that combines the levels, the backtest (§8) | — |
 | `heuristics` | Local AI methods (`lexical-knn`), text normalization, calibration; the only crate where float lints are allowed | `suggest` |
 | `rules` | Embedded Rhai engine: compile, validate, run the stored script as a `suggest::Suggester` (§8) | `rhai` (`no_float`, `only_i64`, `sync`), `suggest` |

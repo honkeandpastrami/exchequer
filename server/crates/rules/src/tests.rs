@@ -1,4 +1,4 @@
-use suggest::{CONFIDENT, Facts, StatementKind};
+use suggest::{CONFIDENT, Candidate, Facts, StatementKind};
 use time::macros::date;
 
 use super::*;
@@ -41,6 +41,7 @@ fn row(account: Option<Uuid>, amount: &str, description: &str) -> Row {
         description: description.into(),
         raw: serde_json::json!({ "Memo": "via app" }),
         facts: Facts::default(),
+        transfer_candidates: Vec::new(),
     }
 }
 
@@ -78,9 +79,9 @@ fn a_script_sets_labels_with_its_lines() {
     assert_eq!(
         (set.counterparty, set.category, set.purpose),
         (
-            Some((Some(CAFE), 5)),
-            Some((Some(DINING), 6)),
-            Some((Some(HOUSEHOLD), 8))
+            Some((Value::Id(CAFE), 5)),
+            Some((Value::Id(DINING), 6)),
+            Some((Value::Id(HOUSEHOLD), 8))
         )
     );
     // Not over 20 on the card: no purpose.
@@ -92,12 +93,12 @@ fn a_script_sets_labels_with_its_lines() {
     let set = s
         .classify(&row(Some(CHECKING), "2500", "ACME PAYROLL"))
         .unwrap();
-    assert_eq!(set.purpose, Some((None, 13)));
+    assert_eq!(set.purpose, Some((Value::None, 13)));
     // Bank fields, and the owner.
     let set = s
         .classify(&row(Some(STUDIO_CHECKING), "-1", "SOMETHING"))
         .unwrap();
-    assert_eq!(set.category, Some((None, 15)));
+    assert_eq!(set.category, Some((Value::None, 15)));
     assert_eq!(
         s.classify(&row(None, "-1", "SOMETHING")).unwrap(),
         Set::default()
@@ -107,10 +108,39 @@ fn a_script_sets_labels_with_its_lines() {
     let g = p.counterparty.as_ref().unwrap();
     assert_eq!(
         (g.value, g.confidence, g.reason.as_str()),
-        (Some(CAFE), 1000, "rule v3:5")
+        (Value::Id(CAFE), 1000, "rule v3:5")
     );
     assert!(g.confidence >= CONFIDENT);
     assert_eq!(s.identity().kind, Kind::Rule);
+}
+
+#[test]
+fn a_transfer_is_set_from_its_potential_matches() {
+    let script = r#"
+fn classify(row, s) {
+    for c in row.transfer_candidates {
+        if c.account == "Alex · Credit" && c.days <= 2 && row.description.contains("AUTOPAY") {
+            s.transfer("Alex · Credit");
+        }
+    }
+}
+"#;
+    let s = Script::compile(2, script, &names()).unwrap();
+    let mut r = row(Some(CHECKING), "-300", "CARD AUTOPAY");
+    assert_eq!(s.classify(&r).unwrap().counterparty, None);
+    r.transfer_candidates = vec![Candidate {
+        account: CARD,
+        date: date!(2026 - 03 - 01),
+    }];
+    assert_eq!(
+        s.classify(&r).unwrap().counterparty,
+        Some((Value::Account(CARD), 5))
+    );
+    // Names are checked, and a transfer needs one.
+    assert!(
+        errors("fn classify(row, s) { s.transfer(\"Alex · Nope\"); }")[0].contains("no account")
+    );
+    assert!(errors("fn classify(row, s) { s.transfer(()); }")[0].contains("written out"));
 }
 
 #[test]

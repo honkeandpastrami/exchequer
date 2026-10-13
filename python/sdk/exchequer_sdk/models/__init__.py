@@ -129,6 +129,7 @@ from .suggester_kind import SuggesterKind
 from .tag import Tag
 from .token import Token
 from .transaction import Transaction
+from .transfer_match import TransferMatch
 from .unpriced import Unpriced
 from .version import Version
 
@@ -262,6 +263,7 @@ __all__ = (
     "Tag",
     "Token",
     "Transaction",
+    "TransferMatch",
     "Unpriced",
     "Version",
 )

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,\n                status, match_transaction_id, decision, set_description, counterparty_id,\n                category_id, purpose_id, chosen\n         FROM staged_row\n         WHERE import_id = $1\n           AND ($2::int2 IS NULL OR statement = $2)\n           AND ($3::text IS NULL OR status = $3)\n           AND ($4::int2 IS NULL OR (statement, position) > ($4, $5::int4))\n         ORDER BY statement, position LIMIT $6",
+  "query": "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,\n                status, match_transaction_id, decision, set_description, counterparty_id,\n                transfer_account_id, category_id, purpose_id, chosen, pair_import_id,\n                pair_statement, pair_position\n         FROM staged_row\n         WHERE import_id = $1\n           AND ($2::int2 IS NULL OR statement = $2)\n           AND ($3::text IS NULL OR status = $3)\n           AND ($4::int2 IS NULL OR (statement, position) > ($4, $5::int4))\n         ORDER BY statement, position LIMIT $6",
   "describe": {
     "columns": [
       {
@@ -148,6 +148,17 @@
       },
       {
         "ordinal": 13,
+        "name": "transfer_account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "transfer_account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
         "name": "category_id",
         "type_info": "Uuid",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "purpose_id",
         "type_info": "Uuid",
         "origin": {
@@ -169,13 +180,46 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "chosen",
         "type_info": "TextArray",
         "origin": {
           "Table": {
             "table": "staged_row",
             "name": "chosen"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "pair_import_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "pair_import_id"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "pair_statement",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "pair_statement"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "pair_position",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "pair_position"
           }
         }
       }
@@ -206,8 +250,12 @@
       true,
       true,
       true,
-      false
+      true,
+      false,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "d248640acd131fba319b9d1d91e56ce210ecf5b82ba2fb685275f9732eda3ab7"
+  "hash": "f3311be6f64381aefee160c0ed0cf5e00eb1fdb3dc94e29935bcb9b7442650e7"
 }

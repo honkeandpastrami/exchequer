@@ -7,7 +7,7 @@ use heuristics::normalize;
 use outbound::decision::Question;
 use rust_decimal::Decimal;
 use serde_json::{Value as Json, json};
-use suggest::{Example, History, Label, Row, Statement, Value};
+use suggest::{Candidate, Example, History, Label, Row, Statement, Value};
 use time::{Date, Duration};
 use uuid::Uuid;
 
@@ -27,6 +27,8 @@ const TEXT: usize = 100;
 // Options standing for "none" (a value), or for no answer.
 const UNKNOWN: &str = "(unknown counterparty)";
 const NO_CATEGORY: &str = "(no category)";
+/// Before an account's name, for a transfer to or from it.
+const TRANSFER: &str = "(your account) ";
 const OWNER: &str = "(the account's owner)";
 const NONE_OF_THESE: &str = "(none of these)";
 const CANNOT_TELL: &str = "(cannot tell)";
@@ -176,7 +178,8 @@ pub struct Context {
     by_transaction: HashMap<Uuid, usize>,
     /// Examples by normalized text, oldest first.
     by_key: HashMap<String, Vec<usize>>,
-    counterparties: HashMap<Uuid, Usage>,
+    /// By counterparty, or transfer account.
+    counterparties: HashMap<Value, Usage>,
     categories: HashMap<Uuid, Usage>,
     /// By party; `None` is the account's owner.
     purposes: HashMap<Value, Usage>,
@@ -205,16 +208,24 @@ impl Context {
                 .entry(normalize::key(&e.description))
                 .or_default()
                 .push(i);
+            // A transfer has no category or purpose: it says nothing about
+            // them, nor about how an account's spending is labeled.
+            let transfer = matches!(e.labels.counterparty, Value::Account(_));
             if e.date + YEAR >= latest {
-                if let Some(id) = e.labels.counterparty {
-                    c.counterparties.entry(id).or_default().add(e);
+                if e.labels.counterparty != Value::None {
+                    c.counterparties
+                        .entry(e.labels.counterparty)
+                        .or_default()
+                        .add(e);
                 }
-                if let Some(id) = e.labels.category {
+                if let Some(id) = e.labels.category.id() {
                     c.categories.entry(id).or_default().add(e);
                 }
-                c.purposes.entry(e.labels.purpose).or_default().add(e);
+                if !transfer {
+                    c.purposes.entry(e.labels.purpose).or_default().add(e);
+                }
             }
-            if e.date + HALF_YEAR >= latest {
+            if e.date + HALF_YEAR >= latest && !transfer {
                 c.accounts.entry(e.account).or_default().add(e);
             }
         }
@@ -223,7 +234,14 @@ impl Context {
     }
 
     fn counterparty(&self, v: Value) -> String {
-        self.name(v, &self.catalog.counterparties, UNKNOWN)
+        match v {
+            Value::Account(id) => format!(
+                "{TRANSFER}{}",
+                self.account(id)
+                    .map_or_else(|| id.to_string(), |a| self.account_name(a))
+            ),
+            v => self.name(v, &self.catalog.counterparties, UNKNOWN),
+        }
     }
 
     fn category(&self, v: Value) -> String {
@@ -232,8 +250,8 @@ impl Context {
 
     fn party(&self, v: Value) -> String {
         match v {
-            None => OWNER.to_owned(),
-            Some(id) => self
+            Value::None => OWNER.to_owned(),
+            Value::Id(id) | Value::Account(id) => self
                 .catalog
                 .parties
                 .iter()
@@ -244,8 +262,8 @@ impl Context {
 
     fn name(&self, v: Value, names: &[(Uuid, String)], none: &str) -> String {
         match v {
-            None => none.to_owned(),
-            Some(id) => names
+            Value::None => none.to_owned(),
+            Value::Id(id) | Value::Account(id) => names
                 .iter()
                 .find(|n| n.0 == id)
                 .map_or_else(|| id.to_string(), |n| n.1.clone()),
@@ -354,13 +372,34 @@ impl Context {
         })
     }
 
-    fn counterparty_option(&self, id: Uuid) -> String {
-        let Some(u) = self.counterparties.get(&id) else {
-            return "no transactions in the past year".into();
-        };
+    /// A counterparty, or one of your accounts (`row`'s potential transfer
+    /// match there, if any).
+    fn counterparty_option(&self, v: Value, staged: Option<&Candidate>) -> String {
         let mut parts = Vec::new();
+        if let Value::Account(id) = v {
+            parts.push(format!(
+                "one of your accounts{}: a transfer between your accounts, not spending or income",
+                self.account(id)
+                    .map(|a| format!(" (a {})", a.kind))
+                    .unwrap_or_default()
+            ));
+            if let Some(c) = staged {
+                parts.push(format!(
+                    "a bank row of the same amount the other way is in that account on {}",
+                    c.date
+                ));
+            }
+        }
+        let Some(u) = self.counterparties.get(&v) else {
+            parts.push("no transactions in the past year".into());
+            return parts.join("; ");
+        };
         if let Some((_, t)) = &u.latest {
             parts.push(format!("recent bank text “{t}”"));
+        }
+        if let Value::Account(_) = v {
+            parts.push(format!("{} times in the past year", u.count));
+            return parts.join("; ");
         }
         parts.push(format!(
             "usual category {}",
@@ -392,7 +431,10 @@ impl Context {
 
     fn party_option(&self, v: Value) -> String {
         let mut parts = Vec::new();
-        if let Some(p) = v.and_then(|id| self.catalog.parties.iter().find(|p| p.id == id)) {
+        if let Some(p) = v
+            .id()
+            .and_then(|id| self.catalog.parties.iter().find(|p| p.id == id))
+        {
             parts.push(format!("a {}", p.kind));
         } else {
             parts.push("not charged to anyone else: the account's owner".into());
@@ -483,6 +525,17 @@ impl Context {
         if let Some(s) = self.recurs(row) {
             r["recurs"] = json!(s);
         }
+        let staged: Vec<Json> = row
+            .transfer_candidates
+            .iter()
+            .filter_map(|c| {
+                let a = self.account(c.account)?;
+                Some(json!({ "account": self.account_name(a), "date": c.date.to_string() }))
+            })
+            .collect();
+        if !staged.is_empty() {
+            r["same_amount_the_other_way_in"] = json!(staged);
+        }
         let mut state = json!({ "transaction": r });
         if let Some(a) = row.account.and_then(|a| self.account(a)) {
             state["account"] = self.account_json(a);
@@ -521,21 +574,33 @@ impl Context {
             .get(&normalize::key(&row.description))
             .map(|v| v.iter().rev().map(|i| &self.examples[*i]).collect())
             .unwrap_or_default();
+        // The accounts of its potential transfer matches first, then what
+        // similar rows were.
         let mut candidates: Vec<Value> = Vec::new();
-        for e in similar.iter().chain(&same) {
-            if candidates.len() < CANDIDATES && !candidates.contains(&e.labels.counterparty) {
-                candidates.push(e.labels.counterparty);
+        let staged = row
+            .transfer_candidates
+            .iter()
+            .map(|c| Value::Account(c.account));
+        for v in staged.chain(similar.iter().chain(&same).map(|e| e.labels.counterparty)) {
+            if candidates.len() < CANDIDATES && !candidates.contains(&v) {
+                candidates.push(v);
             }
         }
-        if candidates.iter().all(Option::is_none) {
+        if candidates.iter().all(|v| *v == Value::None) {
             return None;
         }
         let options = candidates
             .into_iter()
             .map(|v| {
                 let d = match v {
-                    Some(id) => self.counterparty_option(id),
-                    None => "unknown: some similar past transactions have no counterparty".into(),
+                    Value::None => {
+                        "unknown: some similar past transactions have no counterparty".into()
+                    }
+                    v => self.counterparty_option(
+                        v,
+                        v.account()
+                            .and_then(|a| row.transfer_candidates.iter().find(|c| c.account == a)),
+                    ),
                 };
                 (self.counterparty(v), v, d)
             })
@@ -543,8 +608,9 @@ impl Context {
         Some(Self::question(
             "counterparty",
             "The state describes one bank transaction, the account it's on, and similar past \
-             transactions with how they were labeled. Who is this transaction's counterparty: \
-             the merchant, person or organization the money went to or came from?",
+             transactions with how they were labeled. What is on the other side of this \
+             transaction: the merchant, person or organization the money went to or came \
+             from, or another of the household's own accounts (a transfer)?",
             options,
             &[
                 (NONE_OF_THESE, "none of the counterparties listed"),
@@ -559,9 +625,9 @@ impl Context {
             .catalog
             .categories
             .iter()
-            .map(|(id, name)| (name.clone(), Some(*id), self.category_option(*id)))
+            .map(|(id, name)| (name.clone(), Value::Id(*id), self.category_option(*id)))
             .collect();
-        options.push((NO_CATEGORY.into(), None, "no category".into()));
+        options.push((NO_CATEGORY.into(), Value::None, "no category".into()));
         Some(Self::question(
             "category",
             "The state describes one bank transaction, the account it's on, and similar past \
@@ -578,9 +644,15 @@ impl Context {
             .catalog
             .parties
             .iter()
-            .map(|p| (p.name.clone(), Some(p.id), self.party_option(Some(p.id))))
+            .map(|p| {
+                (
+                    p.name.clone(),
+                    Value::Id(p.id),
+                    self.party_option(Value::Id(p.id)),
+                )
+            })
             .collect();
-        options.push((OWNER.into(), None, self.party_option(None)));
+        options.push((OWNER.into(), Value::None, self.party_option(Value::None)));
         Some(Self::question(
             "purpose",
             "The state describes one bank transaction, the account it's on, and similar past \

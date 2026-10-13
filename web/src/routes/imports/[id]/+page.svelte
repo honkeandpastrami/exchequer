@@ -20,10 +20,13 @@
 		noneNames,
 		plan,
 		rowKey,
+		sideOf,
 		statementName,
 		statuses,
+		suggestedSide,
 		totals,
-		unlabeled
+		unlabeled,
+		type Side
 	} from '#lib/views/imports.ts';
 
 	type Row = Schemas['StagedRow'];
@@ -133,6 +136,24 @@
 		return st.suggestion.value ?? null;
 	}
 
+	/** The other side's name: an account (a transfer), a counterparty, or none. */
+	function sideName(r: Reference, side: Side): string {
+		if (!side) return '?';
+		if ('account' in side) {
+			const a = r.accounts.get(side.account);
+			return a ? `${accountLabel(a, r)} (transfer)` : '?';
+		}
+		return side.counterparty
+			? (r.counterparties.get(side.counterparty)?.name ?? '?')
+			: noneNames.counterparty;
+	}
+
+	/** Accounts a row's other side can be: not archived, not its own. */
+	function transferAccounts(r: Reference, row: Row): Schemas['Account'][] {
+		const own = imp?.statements.find((s) => s.position === row.statement)?.account_id;
+		return accountsByOwner(r).filter((a) => !a.archived && a.id !== own);
+	}
+
 	function nameOf(r: Reference, label: Label, value: string | null | undefined): string {
 		if (value === undefined) return '?';
 		if (value === null) return noneNames[label];
@@ -151,12 +172,19 @@
 		return v === undefined || labelState(row, label).kind === 'unsure' ? '' : (v ?? NONE);
 	}
 
-	/** A typed counterparty: an existing one by name, else a new one. */
+	/**
+	 * A typed other side: one of your accounts by its label (a transfer),
+	 * else an existing counterparty by name, else a new one.
+	 */
 	async function counterparty(row: Row, name: string) {
 		const r = ref;
 		if (!r) return;
 		const wanted = name.trim();
 		if (!wanted) return;
+		const account = transferAccounts(r, row).find(
+			(a) => accountLabel(a, r).toLowerCase() === wanted.toLowerCase()
+		);
+		if (account) return setRow(row, { transfer_account_id: account.id });
 		let c = [...r.counterparties.values()].find(
 			(c) => c.name.toLowerCase() === wanted.toLowerCase()
 		);
@@ -227,8 +255,8 @@
 	<h1>Committed</h1>
 	<section class="card ok">
 		<p>
-			{result.created} new · {result.transfers} made transfers · {result.matched} already there ·
-			{result.replaced} replaced · {result.skipped} skipped
+			{result.created} new ({result.transfers} transfers with their match) · {result.matched} already
+			there · {result.replaced} replaced · {result.skipped} skipped
 		</p>
 		{#if result.import_batch_id}
 			<p>
@@ -325,7 +353,7 @@
 
 	<div class="actions">
 		<button disabled={busy || missingAccount || blocked.length > 0} onclick={commit}>
-			Commit: {planned.new} new, {planned.match} already there or transfers, {planned.replace}
+			Commit: {planned.new} new, {planned.match} already there or transfer matches, {planned.replace}
 			replacing, {planned.skip} skipped
 		</button>
 		<button class="quiet" onclick={discard}>Discard</button>
@@ -383,16 +411,22 @@
 										{@const st = labelState(row, label)}
 										{@const kept =
 											row.decision === 'replace' && st.kind !== 'yours' && st.kind !== 'confident'}
-										<span
-											class="chip"
-											class:missing={!kept && (st.kind === 'missing' || st.kind === 'unsure')}
-										>
-											<span class="muted">{labelNames[label]}:</span>
-											{kept ? 'as it is' : nameOf(r, label, valueOf(row, label))}
-											{#if st.kind === 'confident' || st.kind === 'unsure'}<SuggestionBadge
-													suggestion={st.suggestion}
-												/>{/if}
-										</span>
+										{#if !row.not_applicable.includes(label)}
+											<span
+												class="chip"
+												class:missing={!kept && (st.kind === 'missing' || st.kind === 'unsure')}
+											>
+												<span class="muted">{labelNames[label]}:</span>
+												{kept
+													? 'as it is'
+													: label === 'counterparty'
+														? sideName(r, sideOf(row))
+														: nameOf(r, label, valueOf(row, label))}
+												{#if st.kind === 'confident' || st.kind === 'unsure'}<SuggestionBadge
+														suggestion={st.suggestion}
+													/>{/if}
+											</span>
+										{/if}
 									{/each}
 								</div>
 							{/if}
@@ -400,6 +434,18 @@
 						<td class="num"><Amount value={row.amount} {code} /></td>
 						<td>
 							{statuses[row.status]}
+							{#if row.transfer_match}
+								{@const m = row.transfer_match}
+								{@const a = r.accounts.get(m.account_id)}
+								<div class="small">
+									with {a ? accountLabel(a, r) : '?'}: {m.date}
+									{m.description}
+									{#if m.import_id !== i.id}
+										(in <a href={resolve('/imports/[id]', { id: m.import_id })}
+											>{m.file_name ?? 'another import'}</a
+										>){/if}
+								</div>
+							{/if}
 							{#if row.match_transaction_id}
 								<div class="small">
 									of <a href={resolve('/transactions/[id]', { id: row.match_transaction_id })}
@@ -454,20 +500,34 @@
 											{@const st = labelState(row, label)}
 											<div class="field">
 												<label for="{key}-{label}">{labelNames[label]}</label>
-												{#if label === 'counterparty'}
+												{#if row.not_applicable.includes(label)}
+													<span class="muted">Not for a transfer</span>
+												{:else if label === 'counterparty'}
+													{@const side = sideOf(row)}
+													{@const to =
+														side && 'account' in side ? r.accounts.get(side.account) : undefined}
 													<input
 														id="{key}-{label}"
-														list="counterparties"
+														list="{key}-sides"
 														value={st.kind === 'yours' || st.kind === 'confident'
-															? row.counterparty_id
-																? (r.counterparties.get(row.counterparty_id)?.name ?? '')
-																: ''
+															? to
+																? accountLabel(to, r)
+																: row.counterparty_id
+																	? (r.counterparties.get(row.counterparty_id)?.name ?? '')
+																	: ''
 															: ''}
 														placeholder={st.kind === 'yours' || st.kind === 'confident'
 															? noneNames.counterparty
-															: 'Type a name'}
+															: 'A name, or one of your accounts'}
 														onchange={(e) => counterparty(row, e.currentTarget.value)}
 													/>
+													<datalist id="{key}-sides">
+														{#each transferAccounts(r, row) as a (a.id)}<option
+																value={accountLabel(a, r)}>Transfer</option
+															>{/each}
+														{#each sorted(r.counterparties) as c (c.id)}<option value={c.name}
+															></option>{/each}
+													</datalist>
 												{:else}
 													<select
 														id="{key}-{label}"
@@ -503,19 +563,24 @@
 														<SuggestionBadge suggestion={st.suggestion} />
 														{st.suggestion.reason}
 													{:else if st.kind === 'unsure'}
-														<SuggestionBadge suggestion={st.suggestion} />
-														{nameOf(r, label, st.suggestion.value)}? {st.suggestion.reason}
+														{@const sg = st.suggestion}
+														<SuggestionBadge suggestion={sg} />
+														{label === 'counterparty'
+															? sideName(r, suggestedSide(sg))
+															: nameOf(r, label, sg.value)}? {sg.reason}
 														<button
 															class="link"
-															onclick={() => setLabel(row, label, st.suggestion.value ?? null)}
-															>Accept</button
+															onclick={() =>
+																sg.transfer_account_id
+																	? setRow(row, { transfer_account_id: sg.transfer_account_id })
+																	: setLabel(row, label, sg.value ?? null)}>Accept</button
 														>
 													{:else if row.decision === 'replace'}
 														Stays as it is.
 													{:else}
 														<span class="warn">Needed.</span>
 													{/if}
-													{#if label === 'counterparty' && !(st.kind === 'yours' && !row.counterparty_id)}
+													{#if label === 'counterparty' && !(st.kind === 'yours' && !row.counterparty_id && !row.transfer_account_id)}
 														<button class="link" onclick={() => setLabel(row, label, null)}
 															>{noneNames.counterparty}</button
 														>
@@ -524,7 +589,18 @@
 											</div>
 										{/each}
 									</div>
-								{:else if row.decision === 'match' && row.status !== 'transfer_match'}
+								{:else if row.decision === 'match' && row.status === 'transfer_match'}
+									<p class="small muted">
+										This row and its match are the two sides of one transfer. Whichever file is
+										committed first records it, with both rows; the other file's row is then already
+										there.
+									</p>
+								{:else if row.decision === 'match' && row.status === 'transfer_duplicate'}
+									<p class="small muted">
+										This row is the other side of a transfer already in the ledger: nothing new is
+										created, and the row is kept with that transfer.
+									</p>
+								{:else if row.decision === 'match'}
 									<p class="small muted">
 										Nothing new is created: this file's row is kept with the transaction it matches.
 									</p>
@@ -546,9 +622,6 @@
 			</tbody>
 		</table>
 	</div>
-	<datalist id="counterparties">
-		{#each sorted(r.counterparties) as c (c.id)}<option value={c.name}></option>{/each}
-	</datalist>
 {:else if failure}
 	<Failure error={failure} />
 {:else}

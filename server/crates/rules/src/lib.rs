@@ -3,6 +3,8 @@
 //!
 //! The script may define `fn classify(row, s)`, called for each bank row,
 //! and `fn account(file, s)`, called for each statement without an account.
+//! A row's other side may be one of your accounts (`s.transfer(…)`); its
+//! potential transfer matches are `row.transfer_candidates`.
 //! What it sets is a suggestion at full confidence, naming the script's
 //! version and the line that set it.
 //!
@@ -106,7 +108,7 @@ impl Lookup {
             Setter::Label(Label::Counterparty) => (&self.counterparties, "counterparty"),
             Setter::Label(Label::Category) => (&self.categories, "category"),
             Setter::Label(Label::Purpose) => (&self.parties, "party"),
-            Setter::Account => {
+            Setter::Account | Setter::Transfer => {
                 return match self.accounts.get(name) {
                     Some(Some(id)) => Ok(*id),
                     Some(None) => Err(format!(
@@ -126,11 +128,22 @@ impl Lookup {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Setter {
     Label(Label),
+    /// A statement's account.
     Account,
+    /// A row's other side as one of your accounts: a transfer.
+    Transfer,
 }
 
-const SETTERS: [(&str, Setter); 4] = [
+impl Setter {
+    /// Whether it names an account, which can't be none.
+    const fn account(self) -> bool {
+        matches!(self, Self::Account | Self::Transfer)
+    }
+}
+
+const SETTERS: [(&str, Setter); 5] = [
     ("counterparty", Setter::Label(Label::Counterparty)),
+    ("transfer", Setter::Transfer),
     ("category", Setter::Label(Label::Category)),
     ("purpose", Setter::Label(Label::Purpose)),
     ("account", Setter::Account),
@@ -220,9 +233,13 @@ impl Sink {
             .lock()
             .map_err(|_| "the script's results are unavailable")?;
         match what {
-            Setter::Label(Label::Counterparty) => set.counterparty = Some((value, line)),
-            Setter::Label(Label::Category) => set.category = Some((value, line)),
-            Setter::Label(Label::Purpose) => set.purpose = Some((value, line)),
+            Setter::Label(Label::Counterparty) => set.counterparty = Some((value.into(), line)),
+            Setter::Label(Label::Category) => set.category = Some((value.into(), line)),
+            Setter::Label(Label::Purpose) => set.purpose = Some((value.into(), line)),
+            Setter::Transfer => {
+                let id = value.ok_or("a transfer needs an account")?;
+                set.counterparty = Some((Value::Account(id), line));
+            }
             Setter::Account => {
                 let id = value.ok_or("an account can't be none")?;
                 set.account = Some((id, line));
@@ -443,6 +460,21 @@ impl Script {
         m.insert("account".into(), name(account.map(AccountName::shown)));
         m.insert("account_name".into(), name(account.map(|a| a.name.clone())));
         m.insert("owner".into(), name(account.map(|a| a.owner.clone())));
+        let candidates: rhai::Array = r
+            .transfer_candidates
+            .iter()
+            .filter_map(|c| {
+                let a = self.lookup.by_id.get(&c.account)?;
+                let mut m = Map::new();
+                m.insert("account".into(), a.shown().into());
+                m.insert("account_name".into(), a.name.clone().into());
+                m.insert("owner".into(), a.owner.clone().into());
+                m.insert("date".into(), c.date.to_string().into());
+                m.insert("days".into(), (c.date - r.date).whole_days().abs().into());
+                Some(m.into())
+            })
+            .collect();
+        m.insert("transfer_candidates".into(), candidates.into());
         let mut raw = Map::new();
         if let Some(o) = r.raw.as_object() {
             for (k, v) in o {
@@ -472,16 +504,12 @@ fn check(expr: &Expr, lookup: &Lookup, errors: &mut Vec<ScriptError>) {
                         errors.push(ScriptError::at(*pos, e));
                     }
                 }
-                Some(Expr::Unit(_)) if *what != Setter::Account => {}
+                Some(Expr::Unit(_)) if !what.account() => {}
                 _ => errors.push(ScriptError::at(
                     *pos,
                     format!(
                         "{name}(…) takes a name written out (\"…\"){}, so it can be checked",
-                        if *what == Setter::Account {
-                            ""
-                        } else {
-                            " or ()"
-                        }
+                        if what.account() { "" } else { " or ()" }
                     ),
                 )),
             }

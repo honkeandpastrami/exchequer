@@ -18,6 +18,7 @@ class RowCounts:
         near_duplicate (int):
         needs_account (int):
         new (int):
+        transfer_duplicate (int):
         transfer_match (int):
     """
 
@@ -25,6 +26,7 @@ class RowCounts:
     near_duplicate: int
     needs_account: int
     new: int
+    transfer_duplicate: int
     transfer_match: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -37,6 +39,8 @@ class RowCounts:
 
         new = self.new
 
+        transfer_duplicate = self.transfer_duplicate
+
         transfer_match = self.transfer_match
 
         field_dict: dict[str, Any] = {}
@@ -47,6 +51,7 @@ class RowCounts:
                 "near_duplicate": near_duplicate,
                 "needs_account": needs_account,
                 "new": new,
+                "transfer_duplicate": transfer_duplicate,
                 "transfer_match": transfer_match,
             }
         )
@@ -64,6 +69,8 @@ class RowCounts:
 
         new = d.pop("new")
 
+        transfer_duplicate = d.pop("transfer_duplicate")
+
         transfer_match = d.pop("transfer_match")
 
         row_counts = cls(
@@ -71,6 +78,7 @@ class RowCounts:
             near_duplicate=near_duplicate,
             needs_account=needs_account,
             new=new,
+            transfer_duplicate=transfer_duplicate,
             transfer_match=transfer_match,
         )
 

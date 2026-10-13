@@ -70,7 +70,7 @@ pub struct Config {
     /// time zone files; the names come with the binary.
     pub zone: TimeZone,
     /// `EXCHEQUER_LOCAL_AI`: the local AI method (design §8), by its ID,
-    /// default the newest (`lexical-knn-v1`); `off` for none.
+    /// default the newest (`lexical-knn-v2`); `off` for none.
     pub local_ai: Option<String>,
     /// Remote AI (design §8), when its endpoint, deployment and key are all
     /// given; none of them, no remote AI.
@@ -268,7 +268,7 @@ mod tests {
         assert_eq!(c.db.port, 5432);
         assert!(c.db.password.is_none());
         assert!(c.web_dir.is_none());
-        assert_eq!(c.local_ai.as_deref(), Some("lexical-knn-v1"));
+        assert_eq!(c.local_ai.as_deref(), Some("lexical-knn-v2"));
         assert!(c.remote_ai.is_none());
     }
 

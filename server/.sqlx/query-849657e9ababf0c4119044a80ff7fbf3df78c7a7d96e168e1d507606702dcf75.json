@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH one AS (\n               SELECT t.id, t.date, t.description, s.from_account_id, s.to_account_id,\n                      s.from_counterparty_id, s.to_counterparty_id, s.from_quantity,\n                      s.to_quantity, s.category_id, s.purpose_id\n               FROM transaction t\n               JOIN split s ON s.transaction_id = t.id\n               WHERE s.from_commodity_id = s.to_commodity_id\n                 AND NOT EXISTS (SELECT 1 FROM split x\n                                 WHERE x.transaction_id = t.id AND x.position <> s.position))\n           SELECT o.id AS \"transaction_id!\",\n                  coalesce(o.from_account_id, o.to_account_id) AS \"account_id!\",\n                  o.date AS \"date!\", o.description AS \"description!\",\n                  CASE WHEN o.to_account_id IS NULL THEN -o.from_quantity\n                       ELSE o.to_quantity END AS \"amount!\",\n                  coalesce(o.from_counterparty_id, o.to_counterparty_id) AS counterparty_id,\n                  NULL::uuid AS transfer_account_id,\n                  o.category_id, o.purpose_id\n           FROM one o\n           LEFT JOIN counterparty c\n                  ON c.id = coalesce(o.from_counterparty_id, o.to_counterparty_id)\n           WHERE (o.from_account_id IS NULL) <> (o.to_account_id IS NULL)\n             AND c.system IS NULL\n           UNION ALL\n           SELECT o.id, o.from_account_id, o.date, o.description, -o.from_quantity,\n                  NULL, o.to_account_id, o.category_id, o.purpose_id\n           FROM one o\n           WHERE o.from_account_id IS NOT NULL AND o.to_account_id IS NOT NULL\n           UNION ALL\n           SELECT o.id, o.to_account_id, o.date, o.description, o.to_quantity,\n                  NULL, o.from_account_id, o.category_id, o.purpose_id\n           FROM one o\n           WHERE o.from_account_id IS NOT NULL AND o.to_account_id IS NOT NULL\n           ORDER BY 3, 1, 2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "transaction_id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "date!",
+        "type_info": "Date",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "description!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "amount!",
+        "type_info": "Numeric",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "counterparty_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "transfer_account_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "category_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "purpose_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "849657e9ababf0c4119044a80ff7fbf3df78c7a7d96e168e1d507606702dcf75"
+}

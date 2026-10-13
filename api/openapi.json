@@ -3886,7 +3886,7 @@
           {
             "name": "method",
             "in": "query",
-            "description": "The local method to measure, as configured (`lexical-knn-v1`); the\nserver's own if omitted.",
+            "description": "The local method to measure, as configured (`lexical-knn-v2`); the\nserver's own if omitted.",
             "required": false,
             "schema": {
               "type": "string"
@@ -5497,7 +5497,7 @@
           "matched": {
             "type": "integer",
             "format": "int64",
-            "description": "Rows recorded as already in the ledger (duplicates, near-duplicates).",
+            "description": "Rows recorded as already in the ledger (duplicates, near-duplicates,\ntransfer duplicates).",
             "minimum": 0
           },
           "replaced": {
@@ -5514,7 +5514,7 @@
           "transfers": {
             "type": "integer",
             "format": "int64",
-            "description": "Existing transactions made transfers.",
+            "description": "Of them, transfers made of a transfer match: two rows, one\ntransaction.",
             "minimum": 0
           }
         }
@@ -5701,7 +5701,7 @@
           "rows": {
             "type": "integer",
             "format": "int32",
-            "description": "Transactions it ran on: those between one of your accounts and the\noutside, dated in the range.",
+            "description": "Transactions it ran on: those between one of your accounts and the\noutside, and transfers between two of them (once from each side),\ndated in the range.",
             "minimum": 0
           },
           "truncated": {
@@ -5731,7 +5731,15 @@
               "null"
             ],
             "format": "uuid",
-            "description": "What the ledger has; `null` for none."
+            "description": "What the ledger has; `null` for none (or a transfer)."
+          },
+          "current_transfer_account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "For the counterparty: the ledger has a transfer with this account."
           },
           "label": {
             "$ref": "#/components/schemas/Label"
@@ -5748,7 +5756,15 @@
               "null"
             ],
             "format": "uuid",
-            "description": "What the script sets; `null` for none."
+            "description": "What the script sets; `null` for none (or a transfer)."
+          },
+          "proposed_transfer_account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "For the counterparty: the script sets a transfer with this account."
           }
         }
       },
@@ -6315,13 +6331,21 @@
           "suggester": {
             "$ref": "#/components/schemas/Suggester"
           },
+          "transfer_account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "For the counterparty: one of your accounts, suggested as the other\nside (a transfer)."
+          },
           "value": {
             "type": [
               "string",
               "null"
             ],
             "format": "uuid",
-            "description": "The suggested counterparty, category or party; `null` suggests none."
+            "description": "The suggested counterparty, category or party; `null` suggests none,\nunless `transfer_account_id` is set."
           }
         }
       },
@@ -7274,6 +7298,7 @@
                 "chosen",
                 "suggestions",
                 "missing",
+                "not_applicable",
                 "raw"
               ],
               "properties": {
@@ -7302,7 +7327,7 @@
                     "null"
                   ],
                   "format": "uuid",
-                  "description": "The labels below are what a new transaction gets: your choice, else a\nconfident suggestion. For a new transaction: who's on the outside\nside (unknown if absent)."
+                  "description": "The labels below are what a new transaction gets: your choice, else a\nconfident suggestion. For a new transaction: who's on the outside\nside (unknown if absent and there's no `transfer_account_id`)."
                 },
                 "date": {
                   "type": "string",
@@ -7332,7 +7357,7 @@
                     "null"
                   ],
                   "format": "uuid",
-                  "description": "The existing transaction a duplicate or match is of."
+                  "description": "The existing transaction a duplicate or transfer duplicate is of."
                 },
                 "missing": {
                   "type": "array",
@@ -7347,6 +7372,13 @@
                     "null"
                   ],
                   "description": "The bank's own ID for the row, if it has one."
+                },
+                "not_applicable": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Label"
+                  },
+                  "description": "Labels that don't apply: a transfer's category and purpose (design\n§3.2)."
                 },
                 "position": {
                   "type": "integer",
@@ -7384,6 +7416,25 @@
                     "$ref": "#/components/schemas/LabelSuggestion"
                   },
                   "description": "At most one per label, confident or not."
+                },
+                "transfer_account_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid",
+                  "description": "The other side when it's one of your accounts: the row is a transfer,\nwhose category and purpose don't apply (unless it's a liquidation).\nA transfer match's is its other side's account."
+                },
+                "transfer_match": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/TransferMatch",
+                      "description": "For a transfer match: the staged row that is the transfer's other\nside."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               }
             }
@@ -7827,6 +7878,7 @@
           "duplicate",
           "near_duplicate",
           "transfer_match",
+          "transfer_duplicate",
           "needs_account"
         ],
         "properties": {
@@ -7846,6 +7898,10 @@
             "type": "integer",
             "format": "int64"
           },
+          "transfer_duplicate": {
+            "type": "integer",
+            "format": "int64"
+          },
           "transfer_match": {
             "type": "integer",
             "format": "int64"
@@ -7860,6 +7916,7 @@
           "duplicate",
           "near_duplicate",
           "transfer_match",
+          "transfer_duplicate",
           "needs_account"
         ]
       },
@@ -7911,6 +7968,14 @@
               "string",
               "null"
             ]
+          },
+          "transfer_account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "One of your accounts as the other side: the row is a transfer. It\nsets the counterparty label (as yours), so not with\n`counterparty_id`; `null` is the same as `counterparty_id: null`."
           }
         },
         "additionalProperties": false
@@ -8225,6 +8290,7 @@
           "chosen",
           "suggestions",
           "missing",
+          "not_applicable",
           "raw"
         ],
         "properties": {
@@ -8253,7 +8319,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "The labels below are what a new transaction gets: your choice, else a\nconfident suggestion. For a new transaction: who's on the outside\nside (unknown if absent)."
+            "description": "The labels below are what a new transaction gets: your choice, else a\nconfident suggestion. For a new transaction: who's on the outside\nside (unknown if absent and there's no `transfer_account_id`)."
           },
           "date": {
             "type": "string",
@@ -8283,7 +8349,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "The existing transaction a duplicate or match is of."
+            "description": "The existing transaction a duplicate or transfer duplicate is of."
           },
           "missing": {
             "type": "array",
@@ -8298,6 +8364,13 @@
               "null"
             ],
             "description": "The bank's own ID for the row, if it has one."
+          },
+          "not_applicable": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Label"
+            },
+            "description": "Labels that don't apply: a transfer's category and purpose (design\n§3.2)."
           },
           "position": {
             "type": "integer",
@@ -8335,6 +8408,25 @@
               "$ref": "#/components/schemas/LabelSuggestion"
             },
             "description": "At most one per label, confident or not."
+          },
+          "transfer_account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The other side when it's one of your accounts: the row is a transfer,\nwhose category and purpose don't apply (unless it's a liquidation).\nA transfer match's is its other side's account."
+          },
+          "transfer_match": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TransferMatch",
+                "description": "For a transfer match: the staged row that is the transfer's other\nside."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -8643,6 +8735,50 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "TransferMatch": {
+        "type": "object",
+        "description": "A transfer match's other side.",
+        "required": [
+          "import_id",
+          "statement",
+          "position",
+          "account_id",
+          "date",
+          "description"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "description": {
+            "type": "string"
+          },
+          "file_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Its file's name, if it was given."
+          },
+          "import_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "statement": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },

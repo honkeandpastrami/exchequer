@@ -106,10 +106,16 @@ pub struct DryRunRequest {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DryRunChange {
     label: LabelName,
-    /// What the ledger has; `null` for none.
+    /// What the ledger has; `null` for none (or a transfer).
     current: Option<Uuid>,
-    /// What the script sets; `null` for none.
+    /// For the counterparty: the ledger has a transfer with this account.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_transfer_account_id: Option<Uuid>,
+    /// What the script sets; `null` for none (or a transfer).
     proposed: Option<Uuid>,
+    /// For the counterparty: the script sets a transfer with this account.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    proposed_transfer_account_id: Option<Uuid>,
     /// The line that sets it.
     line: u32,
 }
@@ -132,7 +138,8 @@ pub struct DryRun {
     #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<i32>,
     /// Transactions it ran on: those between one of your accounts and the
-    /// outside, dated in the range.
+    /// outside, and transfers between two of them (once from each side),
+    /// dated in the range.
     rows: u32,
     /// Of them, those it set any label for.
     labeled: u32,
@@ -321,11 +328,12 @@ async fn dry_run(
     };
     let names = names(&mut db).await?;
     let script = rules::Script::compile(version.unwrap_or(0), &source, &names).map_err(invalid)?;
-    let examples: Vec<suggest::Example> = history(&mut db)
-        .await?
+    let history = history(&mut db).await?;
+    let examples: Vec<(suggest::Example, Vec<suggest::Candidate>)> = history
         .examples
-        .into_iter()
+        .iter()
         .filter(|e| e.date >= p.from && e.date <= p.to)
+        .map(|e| (e.clone(), history.transfer_candidates(e)))
         .collect();
     drop(db);
     let out = tokio::task::spawn_blocking(move || {
@@ -338,7 +346,7 @@ async fn dry_run(
             items: Vec::new(),
             truncated: false,
         };
-        for e in examples {
+        for (e, transfer_candidates) in examples {
             out.rows += 1;
             let row = Row {
                 account: Some(e.account),
@@ -347,6 +355,7 @@ async fn dry_run(
                 description: e.description.clone(),
                 raw: serde_json::Value::Null,
                 facts: Facts::default(),
+                transfer_candidates,
             };
             let mut item = DryRunRow {
                 transaction_id: e.transaction,
@@ -365,10 +374,13 @@ async fn dry_run(
                         if let Some((value, line)) = set.get(l)
                             && value != e.labels.get(l)
                         {
+                            let current = e.labels.get(l);
                             item.changes.push(DryRunChange {
                                 label: l.into(),
-                                current: e.labels.get(l),
-                                proposed: value,
+                                current: current.id(),
+                                current_transfer_account_id: current.account(),
+                                proposed: value.id(),
+                                proposed_transfer_account_id: value.account(),
                                 line: u32::try_from(line).unwrap_or(0),
                             });
                         }

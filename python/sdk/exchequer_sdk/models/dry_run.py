@@ -24,7 +24,8 @@ class DryRun:
         items (list[DryRunRow]): Changed and failed rows, by date (at most 500).
         labeled (int): Of them, those it set any label for.
         rows (int): Transactions it ran on: those between one of your accounts and the
-            outside, dated in the range.
+            outside, and transfers between two of them (once from each side),
+            dated in the range.
         truncated (bool):
         version (int | None | Unset): The script's version; absent for a candidate.
     """

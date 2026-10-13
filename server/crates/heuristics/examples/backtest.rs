@@ -10,10 +10,11 @@
 //! With `BACKTEST_DUMP=out.json`, each row's guesses are written too, for
 //! looking into what the method gets wrong.
 //!
-//! The file: `{"accounts": [{"id", "kind", "owner", "archived"}], "examples":
-//! [{"transaction", "account", "date", "amount", "description",
-//! "counterparty", "category", "purpose"}]}`, IDs as UUID strings, the
-//! amount a signed decimal string, labels `null` for none.
+//! The file: `{"accounts": [{"id", "kind", "owner", "liquid", "archived"}],
+//! "examples": [{"transaction", "account", "date", "amount", "description",
+//! "counterparty", "transfer_account", "category", "purpose"}]}`, IDs as UUID
+//! strings, the amount a signed decimal string, labels `null` for none; a
+//! transfer has `transfer_account` (the other side) and no counterparty.
 #![allow(
     clippy::float_arithmetic,
     clippy::disallowed_types,
@@ -81,6 +82,7 @@ fn main() {
                 id: uuid(&a["id"]).expect("an ID"),
                 kind: a["kind"].as_str().expect("a kind").to_owned(),
                 owner: uuid(&a["owner"]).expect("an owner"),
+                liquid: a["liquid"].as_bool().unwrap_or(true),
                 archived: a["archived"].as_bool().unwrap_or(false),
             })
             .collect(),
@@ -99,9 +101,10 @@ fn main() {
                     .expect("a decimal"),
                 description: e["description"].as_str().unwrap_or_default().to_owned(),
                 labels: Labels {
-                    counterparty: uuid(&e["counterparty"]),
-                    category: uuid(&e["category"]),
-                    purpose: uuid(&e["purpose"]),
+                    counterparty: uuid(&e["transfer_account"])
+                        .map_or_else(|| uuid(&e["counterparty"]).into(), suggest::Value::Account),
+                    category: uuid(&e["category"]).into(),
+                    purpose: uuid(&e["purpose"]).into(),
                 },
             })
             .collect(),
@@ -161,6 +164,7 @@ fn main() {
 /// what came before.
 fn guesses(method: &dyn suggest::Method, history: &History, start: Date, end: Date) -> Vec<Value> {
     let s = method.train(&history.before(start));
+    let accounts = &history.accounts;
     let tests: Vec<&Example> = history
         .examples
         .iter()
@@ -175,20 +179,26 @@ fn guesses(method: &dyn suggest::Method, history: &History, start: Date, end: Da
             description: e.description.clone(),
             raw: Value::Null,
             facts: suggest::Facts::default(),
+            transfer_candidates: history.transfer_candidates(e),
         })
         .collect();
+    let picks = suggest::stack::labels(&[s.as_ref()], &rows, accounts);
     tests
         .iter()
-        .zip(s.labels(&rows))
+        .zip(picks)
         .map(|(e, p)| {
             let mut out = serde_json::Map::new();
             out.insert("transaction".into(), e.transaction.to_string().into());
             for l in Label::ALL {
                 out.insert(
                     l.as_str().into(),
-                    p.get(l).map_or(Value::Null, |g| {
+                    p.get(l).map(|p| &p.guess).map_or(Value::Null, |g| {
                         serde_json::json!({
-                            "value": g.value.map(|v| v.to_string()),
+                            "value": match g.value {
+                                suggest::Value::None => None,
+                                suggest::Value::Id(id) => Some(id.to_string()),
+                                suggest::Value::Account(id) => Some(format!("account:{id}")),
+                            },
                             "confidence": g.confidence,
                             "reason": g.reason,
                         })

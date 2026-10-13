@@ -298,18 +298,18 @@ async fn a_card_statement_becomes_transactions_and_a_balance_check(pool: PgPool)
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn decisions_labels_and_transfers(pool: PgPool) {
     let h = H::new(&pool).await;
-    let store_cp = ("counterparty_id", h.store.as_str());
     let savings = h.acct(&h.joint_savings);
-    // Pay recorded from the savings side as leaving to the outside.
+    // A transfer from savings into checking, already recorded (from the
+    // savings side): checking's row of it is a transfer duplicate.
     let pay = h
         .send(
             &pool,
             "POST",
             "/api/v1/transactions",
             Some(
-                json!({ "date": "2026-03-04", "description": "To checking", "splits": [{
-                "from": h.leg(savings, "1500.00"), "to": h.leg(store_cp, "1500.00"),
-                "category_id": null }] }),
+                json!({ "date": "2026-03-07", "description": "To checking", "splits": [{
+                "from": h.leg(savings, "1500.00"),
+                "to": h.leg(h.acct(&h.alex_checking), "1500.00") }] }),
             ),
         )
         .await
@@ -326,9 +326,10 @@ async fn decisions_labels_and_transfers(pool: PgPool) {
         [
             (json!("new"), json!("new")),
             (json!("new"), json!("new")),
-            (json!("transfer_match"), json!("match")),
+            (json!("transfer_duplicate"), json!("match")),
         ]
     );
+    assert_eq!(all[2]["match_transaction_id"], json!(pay));
 
     // Can't match a row with nothing to match; skip one coffee, label the other.
     let r = set_row(&pool, &h, &id, 0, json!({ "decision": "match" })).await;
@@ -379,10 +380,15 @@ async fn decisions_labels_and_transfers(pool: PgPool) {
     let r = commit(&pool, &h, &id, &read(&pool, &h, &id).await.etag()).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_eq!(
-        (&r.body["created"], &r.body["transfers"], &r.body["skipped"]),
-        (&json!(1), &json!(1), &json!(1))
+        (
+            &r.body["created"],
+            &r.body["transfers"],
+            &r.body["matched"],
+            &r.body["skipped"]
+        ),
+        (&json!(1), &json!(0), &json!(1), &json!(1))
     );
-    // The pay is now a transfer from savings into checking.
+    // The transfer stays as it was, now holding checking's bank row too.
     let t = h
         .send(&pool, "GET", &format!("/api/v1/transactions/{pay}"), None)
         .await;

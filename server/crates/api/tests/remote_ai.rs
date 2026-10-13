@@ -107,7 +107,7 @@ async fn remote_ai_answers_what_local_ai_leaves_unsure(pool: PgPool) {
             &json!(h.alex_credit),
             &json!("remote"),
             &json!("decision-model"),
-            &json!("q1"),
+            &json!("q2"),
             &json!("decision-model: 0.95")
         ),
         "{s}"

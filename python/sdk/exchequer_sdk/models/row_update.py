@@ -25,6 +25,9 @@ class RowUpdate:
         revert (list[Label] | Unset): Labels to stop choosing, so their suggestions apply again. Setting a
             label (to a value or `null`) makes it your choice.
         set_description (None | str | Unset):
+        transfer_account_id (None | Unset | UUID): One of your accounts as the other side: the row is a transfer. It
+            sets the counterparty label (as yours), so not with
+            `counterparty_id`; `null` is the same as `counterparty_id: null`.
     """
 
     category_id: None | Unset | UUID = UNSET
@@ -33,6 +36,7 @@ class RowUpdate:
     purpose_id: None | Unset | UUID = UNSET
     revert: list[Label] | Unset = UNSET
     set_description: None | str | Unset = UNSET
+    transfer_account_id: None | Unset | UUID = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         category_id: None | str | Unset
@@ -80,6 +84,14 @@ class RowUpdate:
         else:
             set_description = self.set_description
 
+        transfer_account_id: None | str | Unset
+        if isinstance(self.transfer_account_id, Unset):
+            transfer_account_id = UNSET
+        elif isinstance(self.transfer_account_id, UUID):
+            transfer_account_id = str(self.transfer_account_id)
+        else:
+            transfer_account_id = self.transfer_account_id
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update({})
@@ -95,6 +107,8 @@ class RowUpdate:
             field_dict["revert"] = revert
         if set_description is not UNSET:
             field_dict["set_description"] = set_description
+        if transfer_account_id is not UNSET:
+            field_dict["transfer_account_id"] = transfer_account_id
 
         return field_dict
 
@@ -188,6 +202,23 @@ class RowUpdate:
 
         set_description = _parse_set_description(d.pop("set_description", UNSET))
 
+        def _parse_transfer_account_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                transfer_account_id_type_0 = UUID(data)
+
+                return transfer_account_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        transfer_account_id = _parse_transfer_account_id(d.pop("transfer_account_id", UNSET))
+
         row_update = cls(
             category_id=category_id,
             counterparty_id=counterparty_id,
@@ -195,6 +226,7 @@ class RowUpdate:
             purpose_id=purpose_id,
             revert=revert,
             set_description=set_description,
+            transfer_account_id=transfer_account_id,
         )
 
         return row_update

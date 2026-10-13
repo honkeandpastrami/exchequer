@@ -24,10 +24,12 @@ class Committed:
         balance_checks (list[BalanceCheck]): One per statement with a ledger balance: the bank's balance against
             the ledger's.
         created (int): New transactions.
-        matched (int): Rows recorded as already in the ledger (duplicates, near-duplicates).
+        matched (int): Rows recorded as already in the ledger (duplicates, near-duplicates,
+            transfer duplicates).
         replaced (int): Existing transactions replaced by their rows.
         skipped (int):
-        transfers (int): Existing transactions made transfers.
+        transfers (int): Of them, transfers made of a transfer match: two rows, one
+            transaction.
         import_batch_id (None | Unset | UUID): The batch the new transactions are in; absent if there were none.
     """
 

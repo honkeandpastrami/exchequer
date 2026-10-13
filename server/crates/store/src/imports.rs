@@ -76,11 +76,19 @@ pub struct RowRow {
     pub decision: Option<String>,
     pub set_description: Option<String>,
     pub counterparty_id: Option<Uuid>,
+    /// The other side as one of your accounts (a transfer), when chosen;
+    /// never with `counterparty_id`.
+    pub transfer_account_id: Option<Uuid>,
     pub category_id: Option<Uuid>,
     pub purpose_id: Option<Uuid>,
     /// The labels set by the client (`counterparty`, `category`,
     /// `purpose`); the others are open to suggestions.
     pub chosen: Vec<String>,
+    /// A transfer match's other side: a staged row, maybe in another
+    /// import.
+    pub pair_import_id: Option<Uuid>,
+    pub pair_statement: Option<i16>,
+    pub pair_position: Option<i32>,
 }
 
 /// How many of a statement's rows have each status.
@@ -340,7 +348,8 @@ pub async fn rows(
         RowRow,
         "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,
                 status, match_transaction_id, decision, set_description, counterparty_id,
-                category_id, purpose_id, chosen
+                transfer_account_id, category_id, purpose_id, chosen, pair_import_id,
+                pair_statement, pair_position
          FROM staged_row
          WHERE import_id = $1
            AND ($2::int2 IS NULL OR statement = $2)
@@ -447,12 +456,11 @@ pub async fn near_candidates(
     .await
 }
 
-/// Staged rows that may be the other side of a transfer recorded from
-/// another account: a one-split transaction moving the same amount of the
-/// commodity between another of your accounts and the outside, the opposite
-/// way (out of it for a row entering this account, into it for a row
-/// leaving), dated within `days`. `similarity` is always 0.
-pub async fn transfer_candidates(
+/// Staged rows whose other side may already be in the ledger as a transfer
+/// (a transfer duplicate): a one-split transfer between the account and
+/// another of yours, moving the same amount of the commodity the same way,
+/// dated within `days`, and not yet holding a bank row of this account.
+pub async fn transfer_duplicates(
     db: impl PgExecutor<'_>,
     import_id: Uuid,
     statement: i16,
@@ -466,14 +474,17 @@ pub async fn transfer_candidates(
                   abs(r.date - t.date) AS "days_apart!"
            FROM staged_row r
            JOIN split s ON s.from_commodity_id = $4 AND s.to_commodity_id = $4
-                AND ((r.amount > 0 AND s.from_account_id <> $3 AND s.to_account_id IS NULL
-                      AND s.from_quantity = r.amount)
-                  OR (r.amount < 0 AND s.to_account_id <> $3 AND s.from_account_id IS NULL
-                      AND s.to_quantity = -r.amount))
+                AND s.from_account_id IS NOT NULL AND s.to_account_id IS NOT NULL
+                AND ((r.amount < 0 AND s.from_account_id = $3 AND s.to_account_id <> $3
+                      AND s.from_quantity = -r.amount)
+                  OR (r.amount > 0 AND s.to_account_id = $3 AND s.from_account_id <> $3
+                      AND s.to_quantity = r.amount))
            JOIN transaction t ON t.id = s.transaction_id
            WHERE r.import_id = $1 AND r.statement = $2
              AND t.date BETWEEN r.date - $5::int4 AND r.date + $5::int4
-             AND (SELECT count(*) FROM split x WHERE x.transaction_id = t.id) = 1"#,
+             AND (SELECT count(*) FROM split x WHERE x.transaction_id = t.id) = 1
+             AND NOT EXISTS (SELECT 1 FROM import_fingerprint f
+                             WHERE f.transaction_id = t.id AND f.account_id = $3)"#,
         import_id,
         statement,
         account_id,
@@ -482,6 +493,141 @@ pub async fn transfer_candidates(
     )
     .fetch_all(db)
     .await
+}
+
+/// A staged row of any staged import, as transfer matching sees it.
+#[derive(Debug, Clone)]
+pub struct Matchable {
+    pub import_id: Uuid,
+    pub statement: i16,
+    pub position: i32,
+    /// The statement's account: its own, else a confident suggestion.
+    pub account_id: Option<Uuid>,
+    pub commodity_id: Uuid,
+    pub date: Date,
+    pub amount: Decimal,
+    pub status: String,
+    pub match_transaction_id: Option<Uuid>,
+    pub decision: Option<String>,
+    /// Whether you chose the other side, and what: an account, a
+    /// counterparty, or none.
+    pub chose_side: bool,
+    pub transfer_account_id: Option<Uuid>,
+    /// The suggested other side, if it's an account, and how sure.
+    pub suggested_account_id: Option<Uuid>,
+    pub suggested_confidence: Option<i16>,
+    pub pair_import_id: Option<Uuid>,
+    pub pair_statement: Option<i16>,
+    pub pair_position: Option<i32>,
+}
+
+/// Every staged row, in every staged import.
+pub async fn matchable(db: impl PgExecutor<'_>) -> Result<Vec<Matchable>, sqlx::Error> {
+    sqlx::query_as!(
+        Matchable,
+        r#"SELECT r.import_id, r.statement, r.position,
+                  coalesce(st.account_id,
+                           CASE WHEN st.account_confidence >= 900
+                                THEN st.suggested_account_id END) AS account_id,
+                  st.commodity_id, r.date, r.amount, r.status, r.match_transaction_id,
+                  r.decision,
+                  'counterparty' = ANY(r.chosen) AS "chose_side!",
+                  r.transfer_account_id,
+                  sg.account_id AS "suggested_account_id?",
+                  sg.confidence AS "suggested_confidence?",
+                  r.pair_import_id, r.pair_statement, r.pair_position
+           FROM staged_row r
+           JOIN staged_statement st
+             ON st.import_id = r.import_id AND st.position = r.statement
+           LEFT JOIN staged_suggestion sg
+             ON sg.import_id = r.import_id AND sg.statement = r.statement
+            AND sg.position = r.position AND sg.label = 'counterparty'
+           ORDER BY r.import_id, r.statement, r.position"#
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// A staged row, by its import, statement and position.
+pub type RowKey = (Uuid, i16, i32);
+
+/// A staged row as its transfer match shows it.
+#[derive(Debug, Clone)]
+pub struct PairRow {
+    pub import_id: Uuid,
+    pub statement: i16,
+    pub position: i32,
+    pub file_name: Option<String>,
+    pub file_sha256: String,
+    /// The statement's account: its own, else a confident suggestion.
+    pub account_id: Option<Uuid>,
+    pub date: Date,
+    pub amount: Decimal,
+    pub description: String,
+    pub set_description: Option<String>,
+    pub fingerprint: String,
+    pub raw: Value,
+}
+
+/// These rows, in any staged imports.
+pub async fn pair_rows(
+    db: impl PgExecutor<'_>,
+    keys: &[RowKey],
+) -> Result<Vec<PairRow>, sqlx::Error> {
+    let imports: Vec<Uuid> = keys.iter().map(|k| k.0).collect();
+    let statements: Vec<i16> = keys.iter().map(|k| k.1).collect();
+    let positions: Vec<i32> = keys.iter().map(|k| k.2).collect();
+    sqlx::query_as!(
+        PairRow,
+        r#"SELECT r.import_id, r.statement, r.position, i.file_name, i.file_sha256,
+                  coalesce(st.account_id,
+                           CASE WHEN st.account_confidence >= 900
+                                THEN st.suggested_account_id END) AS account_id,
+                  r.date, r.amount, r.description, r.set_description, r.fingerprint, r.raw
+           FROM unnest($1::uuid[], $2::int2[], $3::int4[]) AS u(i, s, p)
+           JOIN staged_row r
+             ON r.import_id = u.i AND r.statement = u.s AND r.position = u.p
+           JOIN staged_statement st
+             ON st.import_id = r.import_id AND st.position = r.statement
+           JOIN staged_import i ON i.id = r.import_id"#,
+        &imports,
+        &statements,
+        &positions,
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// Sets rows' status and transfer match (`None`: none).
+pub async fn set_pairs(
+    db: impl PgExecutor<'_>,
+    rows: &[(RowKey, String, Option<RowKey>)],
+) -> Result<(), sqlx::Error> {
+    let imports: Vec<Uuid> = rows.iter().map(|r| r.0.0).collect();
+    let statements: Vec<i16> = rows.iter().map(|r| r.0.1).collect();
+    let positions: Vec<i32> = rows.iter().map(|r| r.0.2).collect();
+    let statuses: Vec<String> = rows.iter().map(|r| r.1.clone()).collect();
+    let pair_imports: Vec<Option<Uuid>> = rows.iter().map(|r| r.2.map(|p| p.0)).collect();
+    let pair_statements: Vec<Option<i16>> = rows.iter().map(|r| r.2.map(|p| p.1)).collect();
+    let pair_positions: Vec<Option<i32>> = rows.iter().map(|r| r.2.map(|p| p.2)).collect();
+    sqlx::query!(
+        "UPDATE staged_row r SET status = u.status, match_transaction_id = NULL,
+                                 pair_import_id = u.pi, pair_statement = u.ps,
+                                 pair_position = u.pp
+         FROM unnest($1::uuid[], $2::int2[], $3::int4[], $4::text[], $5::uuid[], $6::int2[],
+                     $7::int4[]) AS u(i, s, p, status, pi, ps, pp)
+         WHERE r.import_id = u.i AND r.statement = u.s AND r.position = u.p",
+        &imports,
+        &statements,
+        &positions,
+        &statuses,
+        &pair_imports as &[Option<Uuid>],
+        &pair_statements as &[Option<i16>],
+        &pair_positions as &[Option<i32>],
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 /// One imported row's ID in an account, and the transaction it became.
@@ -565,7 +711,8 @@ pub async fn set_decision(
 ) -> Result<bool, sqlx::Error> {
     let done = sqlx::query!(
         "UPDATE staged_row SET decision = $4, set_description = $5, counterparty_id = $6,
-                               category_id = $7, purpose_id = $8, chosen = $9
+                               category_id = $7, purpose_id = $8, chosen = $9,
+                               transfer_account_id = $10
          WHERE import_id = $1 AND statement = $2 AND position = $3",
         import_id,
         r.statement,
@@ -576,6 +723,7 @@ pub async fn set_decision(
         r.category_id,
         r.purpose_id,
         &r.chosen,
+        r.transfer_account_id,
     )
     .execute(db)
     .await?;
@@ -700,7 +848,8 @@ pub async fn suggesters(
     .await
 }
 
-/// A suggested label for a staged row; `value` `None` suggests "none".
+/// A suggested label for a staged row; `value` `None` suggests "none",
+/// unless `account_id` suggests one of your accounts as the other side.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SuggestionRow {
     pub statement: i16,
@@ -708,6 +857,8 @@ pub struct SuggestionRow {
     /// `counterparty`, `category` or `purpose`.
     pub label: String,
     pub value: Option<Uuid>,
+    /// For the counterparty: one of your accounts (a transfer).
+    pub account_id: Option<Uuid>,
     pub suggester_id: Uuid,
     /// Per mille.
     pub confidence: i16,
@@ -726,7 +877,7 @@ pub async fn suggestions(
         SuggestionRow,
         r#"SELECT s.statement, s.position, s.label,
                   coalesce(s.counterparty_id, s.category_id, s.purpose_id) AS value,
-                  s.suggester_id, s.confidence, s.reason
+                  s.account_id, s.suggester_id, s.confidence, s.reason
            FROM staged_suggestion s
            JOIN unnest($2::int2[], $3::int4[]) AS u(statement, position)
              ON u.statement = s.statement AND u.position = s.position
@@ -757,24 +908,28 @@ pub async fn set_suggestions(
     let positions: Vec<i32> = items.iter().map(|s| s.position).collect();
     let labels: Vec<String> = items.iter().map(|s| s.label.clone()).collect();
     let values: Vec<Option<Uuid>> = items.iter().map(|s| s.value).collect();
+    let accounts: Vec<Option<Uuid>> = items.iter().map(|s| s.account_id).collect();
     let suggesters: Vec<Uuid> = items.iter().map(|s| s.suggester_id).collect();
     let confidences: Vec<i16> = items.iter().map(|s| s.confidence).collect();
     let reasons: Vec<String> = items.iter().map(|s| s.reason.clone()).collect();
     sqlx::query!(
         "INSERT INTO staged_suggestion (import_id, statement, position, label, counterparty_id,
-                                        category_id, purpose_id, suggester_id, confidence, reason)
+                                        category_id, purpose_id, account_id, suggester_id,
+                                        confidence, reason)
          SELECT $1, $2, u.position, u.label,
                 CASE WHEN u.label = 'counterparty' THEN u.value END,
                 CASE WHEN u.label = 'category' THEN u.value END,
                 CASE WHEN u.label = 'purpose' THEN u.value END,
-                u.suggester, u.confidence, u.reason
-         FROM unnest($3::int4[], $4::text[], $5::uuid[], $6::uuid[], $7::int2[], $8::text[])
-              AS u(position, label, value, suggester, confidence, reason)",
+                u.account, u.suggester, u.confidence, u.reason
+         FROM unnest($3::int4[], $4::text[], $5::uuid[], $6::uuid[], $7::uuid[], $8::int2[],
+                     $9::text[])
+              AS u(position, label, value, account, suggester, confidence, reason)",
         import_id,
         statement,
         &positions,
         &labels,
         &values as &[Option<Uuid>],
+        &accounts as &[Option<Uuid>],
         &suggesters,
         &confidences,
         &reasons,

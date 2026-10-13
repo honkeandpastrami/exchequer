@@ -786,48 +786,6 @@ pub(crate) async fn create_in(
     Ok(created)
 }
 
-/// Turns a one-split expense or income into a transfer by putting
-/// `account_id` on its outside side (design §6.4): a bank file showed the
-/// money arriving in (or leaving) that account. Transfers have no purpose or
-/// category, so those go.
-pub(crate) async fn into_transfer(
-    db: &mut PgConnection,
-    principal: Principal,
-    id: Uuid,
-    account_id: Uuid,
-) -> Result<(), Problem> {
-    let full = store::transactions::get(&mut *db, id, true)
-        .await?
-        .ok_or_else(|| Problem::conflict(format!("transaction {id} no longer exists")))?;
-    check_open(&mut *db, &[full.transaction.date]).await?;
-    let [row] = &full.splits[..] else {
-        return Err(Problem::conflict(format!(
-            "transaction {id} no longer has exactly one split"
-        )));
-    };
-    let mut split = new_split_from_row(row);
-    match (split.from.account_id, split.to.account_id) {
-        (Some(_), None) => {
-            split.to.account_id = Some(account_id);
-            split.to.counterparty_id = None;
-        }
-        (None, Some(_)) => {
-            split.from.account_id = Some(account_id);
-            split.from.counterparty_id = None;
-        }
-        _ => {
-            return Err(Problem::conflict(format!(
-                "transaction {id} is no longer between an account and the outside"
-            )));
-        }
-    }
-    split.purpose_id = None;
-    split.category_id = None;
-    split.settles = None;
-    let (date, description) = (full.transaction.date, full.transaction.description.clone());
-    rewrite(db, principal, full, date, description, split).await
-}
-
 /// Labels a replaced transaction gets; `None` keeps its own.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Relabel {

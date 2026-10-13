@@ -17,6 +17,7 @@ from exchequer_sdk.models import (
     StagedRow,
     StagedRowRaw,
     StagedStatement,
+    TransferMatch,
 )
 
 CARD = UUID(int=1)
@@ -42,7 +43,14 @@ def test_a_statement_shows_its_account_counts_and_balance():
     names = Names(accounts={CARD: "Alex · Card"})
     s = StagedStatement(
         commodity_id=UUID(int=9),
-        counts=RowCounts(new=3, duplicate=1, near_duplicate=0, transfer_match=0, needs_account=0),
+        counts=RowCounts(
+            new=3,
+            duplicate=1,
+            near_duplicate=0,
+            transfer_match=0,
+            transfer_duplicate=0,
+            needs_account=0,
+        ),
         position=0,
         skipped=[SkippedLine(line=4, reason="unreadable date")],
         account_id=CARD,
@@ -74,9 +82,23 @@ def test_a_row_and_what_it_can_become():
         chosen=[],
         suggestions=[],
         missing=[],
+        not_applicable=[],
     )
     assert row_line(r, "2026-03-01 'Groceries'") == (
         "2026-03-02        -80.00  GROCER" + " " * 34 + "  near duplicate of 2026-03-01 'Groceries'"
+    )
+    # A transfer match names its other side.
+    r.status = RowStatus.TRANSFER_MATCH
+    r.transfer_match = TransferMatch(
+        import_id=UUID(int=5),
+        statement=0,
+        position=3,
+        account_id=CARD,
+        date=datetime.date(2026, 3, 1),
+        description="PAYMENT",
+    )
+    assert row_line(r, None, Names(accounts={CARD: "Alex · Card"})).endswith(
+        "transfer match with Alex · Card: 2026-03-01 'PAYMENT'"
     )
     assert decisions_for(RowStatus.NEW) == [Decision.NEW, Decision.SKIP]
     assert decisions_for(RowStatus.DUPLICATE)[0] == Decision.MATCH

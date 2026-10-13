@@ -1105,7 +1105,8 @@ export interface components {
 			import_batch_id?: string | null;
 			/**
 			 * Format: int64
-			 * @description Rows recorded as already in the ledger (duplicates, near-duplicates).
+			 * @description Rows recorded as already in the ledger (duplicates, near-duplicates,
+			 *     transfer duplicates).
 			 */
 			matched: number;
 			/**
@@ -1117,7 +1118,8 @@ export interface components {
 			skipped: number;
 			/**
 			 * Format: int64
-			 * @description Existing transactions made transfers.
+			 * @description Of them, transfers made of a transfer match: two rows, one
+			 *     transaction.
 			 */
 			transfers: number;
 		};
@@ -1192,7 +1194,8 @@ export interface components {
 			/**
 			 * Format: int32
 			 * @description Transactions it ran on: those between one of your accounts and the
-			 *     outside, dated in the range.
+			 *     outside, and transfers between two of them (once from each side),
+			 *     dated in the range.
 			 */
 			rows: number;
 			truncated: boolean;
@@ -1206,9 +1209,14 @@ export interface components {
 		DryRunChange: {
 			/**
 			 * Format: uuid
-			 * @description What the ledger has; `null` for none.
+			 * @description What the ledger has; `null` for none (or a transfer).
 			 */
 			current?: string | null;
+			/**
+			 * Format: uuid
+			 * @description For the counterparty: the ledger has a transfer with this account.
+			 */
+			current_transfer_account_id?: string | null;
 			label: components['schemas']['Label'];
 			/**
 			 * Format: int32
@@ -1217,9 +1225,14 @@ export interface components {
 			line: number;
 			/**
 			 * Format: uuid
-			 * @description What the script sets; `null` for none.
+			 * @description What the script sets; `null` for none (or a transfer).
 			 */
 			proposed?: string | null;
+			/**
+			 * Format: uuid
+			 * @description For the counterparty: the script sets a transfer with this account.
+			 */
+			proposed_transfer_account_id?: string | null;
 		};
 		DryRunRequest: {
 			/** @description A candidate script; the active one if omitted (`{}`). */
@@ -1443,7 +1456,14 @@ export interface components {
 			suggester: components['schemas']['Suggester'];
 			/**
 			 * Format: uuid
-			 * @description The suggested counterparty, category or party; `null` suggests none.
+			 * @description For the counterparty: one of your accounts, suggested as the other
+			 *     side (a transfer).
+			 */
+			transfer_account_id?: string | null;
+			/**
+			 * Format: uuid
+			 * @description The suggested counterparty, category or party; `null` suggests none,
+			 *     unless `transfer_account_id` is set.
 			 */
 			value?: string | null;
 		};
@@ -1782,7 +1802,7 @@ export interface components {
 				 * Format: uuid
 				 * @description The labels below are what a new transaction gets: your choice, else a
 				 *     confident suggestion. For a new transaction: who's on the outside
-				 *     side (unknown if absent).
+				 *     side (unknown if absent and there's no `transfer_account_id`).
 				 */
 				counterparty_id?: string | null;
 				/** Format: date */
@@ -1793,7 +1813,7 @@ export interface components {
 				description: string;
 				/**
 				 * Format: uuid
-				 * @description The existing transaction a duplicate or match is of.
+				 * @description The existing transaction a duplicate or transfer duplicate is of.
 				 */
 				match_transaction_id?: string | null;
 				/**
@@ -1804,6 +1824,11 @@ export interface components {
 				missing: components['schemas']['Label'][];
 				/** @description The bank's own ID for the row, if it has one. */
 				native_id?: string | null;
+				/**
+				 * @description Labels that don't apply: a transfer's category and purpose (design
+				 *     §3.2).
+				 */
+				not_applicable: components['schemas']['Label'][];
 				/** Format: int32 */
 				position: number;
 				/**
@@ -1820,6 +1845,14 @@ export interface components {
 				status: components['schemas']['RowStatus'];
 				/** @description At most one per label, confident or not. */
 				suggestions: components['schemas']['LabelSuggestion'][];
+				/**
+				 * Format: uuid
+				 * @description The other side when it's one of your accounts: the row is a transfer,
+				 *     whose category and purpose don't apply (unless it's a liquidation).
+				 *     A transfer match's is its other side's account.
+				 */
+				transfer_account_id?: string | null;
+				transfer_match?: components['schemas']['TransferMatch'] | null;
 			}[];
 			/** @description Pass as `cursor` to get the next page; absent on the last page. */
 			next_cursor?: string | null;
@@ -1965,13 +1998,21 @@ export interface components {
 			/** Format: int64 */
 			new: number;
 			/** Format: int64 */
+			transfer_duplicate: number;
+			/** Format: int64 */
 			transfer_match: number;
 		};
 		/**
 		 * @description What a row would become.
 		 * @enum {string}
 		 */
-		RowStatus: 'new' | 'duplicate' | 'near_duplicate' | 'transfer_match' | 'needs_account';
+		RowStatus:
+			| 'new'
+			| 'duplicate'
+			| 'near_duplicate'
+			| 'transfer_match'
+			| 'transfer_duplicate'
+			| 'needs_account';
 		/** @description Fields to change; omitted ones stay as they are, `null` clears one. */
 		RowUpdate: {
 			/** Format: uuid */
@@ -1987,6 +2028,13 @@ export interface components {
 			 */
 			revert?: components['schemas']['Label'][];
 			set_description?: string | null;
+			/**
+			 * Format: uuid
+			 * @description One of your accounts as the other side: the row is a transfer. It
+			 *     sets the counterparty label (as yours), so not with
+			 *     `counterparty_id`; `null` is the same as `counterparty_id: null`.
+			 */
+			transfer_account_id?: string | null;
 		};
 		/** @description A version of the rules script. */
 		RuleScript: {
@@ -2109,7 +2157,7 @@ export interface components {
 			 * Format: uuid
 			 * @description The labels below are what a new transaction gets: your choice, else a
 			 *     confident suggestion. For a new transaction: who's on the outside
-			 *     side (unknown if absent).
+			 *     side (unknown if absent and there's no `transfer_account_id`).
 			 */
 			counterparty_id?: string | null;
 			/** Format: date */
@@ -2120,7 +2168,7 @@ export interface components {
 			description: string;
 			/**
 			 * Format: uuid
-			 * @description The existing transaction a duplicate or match is of.
+			 * @description The existing transaction a duplicate or transfer duplicate is of.
 			 */
 			match_transaction_id?: string | null;
 			/**
@@ -2131,6 +2179,11 @@ export interface components {
 			missing: components['schemas']['Label'][];
 			/** @description The bank's own ID for the row, if it has one. */
 			native_id?: string | null;
+			/**
+			 * @description Labels that don't apply: a transfer's category and purpose (design
+			 *     §3.2).
+			 */
+			not_applicable: components['schemas']['Label'][];
 			/** Format: int32 */
 			position: number;
 			/**
@@ -2147,6 +2200,14 @@ export interface components {
 			status: components['schemas']['RowStatus'];
 			/** @description At most one per label, confident or not. */
 			suggestions: components['schemas']['LabelSuggestion'][];
+			/**
+			 * Format: uuid
+			 * @description The other side when it's one of your accounts: the row is a transfer,
+			 *     whose category and purpose don't apply (unless it's a liquidation).
+			 *     A transfer match's is its other side's account.
+			 */
+			transfer_account_id?: string | null;
+			transfer_match?: components['schemas']['TransferMatch'] | null;
 		};
 		/** @description One account's part of the file. */
 		StagedStatement: {
@@ -2256,6 +2317,22 @@ export interface components {
 			notes?: string | null;
 			splits: components['schemas']['Split'][];
 			tags: string[];
+		};
+		/** @description A transfer match's other side. */
+		TransferMatch: {
+			/** Format: uuid */
+			account_id: string;
+			/** Format: date */
+			date: string;
+			description: string;
+			/** @description Its file's name, if it was given. */
+			file_name?: string | null;
+			/** Format: uuid */
+			import_id: string;
+			/** Format: int32 */
+			position: number;
+			/** Format: int32 */
+			statement: number;
 		};
 		/**
 		 * @description A split the settlement couldn't value: neither leg is in USD (prices come
@@ -4711,7 +4788,7 @@ export interface operations {
 				/** @description Last month, `YYYY-MM`; `from` if omitted (at most 24 months in all). */
 				to?: string;
 				/**
-				 * @description The local method to measure, as configured (`lexical-knn-v1`); the
+				 * @description The local method to measure, as configured (`lexical-knn-v2`); the
 				 *     server's own if omitted.
 				 */
 				method?: string;

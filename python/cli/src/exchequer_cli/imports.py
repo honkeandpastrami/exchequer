@@ -43,6 +43,7 @@ STATUS = {
     RowStatus.DUPLICATE: "duplicate",
     RowStatus.NEAR_DUPLICATE: "near duplicate",
     RowStatus.TRANSFER_MATCH: "transfer match",
+    RowStatus.TRANSFER_DUPLICATE: "transfer already recorded",
     RowStatus.NEEDS_ACCOUNT: "needs account",
 }
 # The letter that picks each decision in a prompt.
@@ -143,11 +144,15 @@ def statement_line(s: StagedStatement, names: Names) -> str:
     return text
 
 
-def row_line(r: StagedRow, matched: str | None = None) -> str:
+def row_line(r: StagedRow, matched: str | None = None, names: Names | None = None) -> str:
     description = r.set_description if isinstance(r.set_description, str) else r.description
     text = f"{r.date}  {r.amount:>12}  {description[:40]:<40}  {STATUS[r.status]}"
     if matched:
         text += f" of {matched}"
+    m = r.transfer_match
+    if not isinstance(m, Unset) and m is not None:
+        account = names.accounts.get(m.account_id, "?") if names else str(m.account_id)
+        text += f" with {account}: {m.date} {m.description!r}"
     return text
 
 
@@ -164,7 +169,7 @@ def decisions_for(status: RowStatus) -> list[Decision]:
 
 def committed_lines(c: Committed, names: Names) -> list[str]:
     out = [
-        f"  {c.created} new, {c.transfers} made transfers, {c.matched} already there, "
+        f"  {c.created} new ({c.transfers} transfers with their match), {c.matched} already there, "
         f"{c.replaced} replaced, {c.skipped} skipped"
     ]
     for b in c.balance_checks:
@@ -311,7 +316,7 @@ class Importer:
             if r.status in (RowStatus.DUPLICATE, RowStatus.NEEDS_ACCOUNT):
                 continue
             match = r.match_transaction_id if isinstance(r.match_transaction_id, UUID) else None
-            self.ui.say(row_line(r, self.matched(match) if match else None))
+            self.ui.say(row_line(r, self.matched(match) if match else None, self.names))
             options = decisions_for(r.status)
             current = r.decision if isinstance(r.decision, Decision) else options[0]
             prompt = "    " + ", ".join(f"[{KEYS[d]}]{LABELS[d][1:]}" for d in options) + "?"

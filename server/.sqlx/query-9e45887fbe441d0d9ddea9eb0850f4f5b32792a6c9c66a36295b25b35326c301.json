@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE staged_row SET decision = $4, set_description = $5, counterparty_id = $6,\n                               category_id = $7, purpose_id = $8, chosen = $9,\n                               transfer_account_id = $10\n         WHERE import_id = $1 AND statement = $2 AND position = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2",
+        "Int4",
+        "Text",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "TextArray",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9e45887fbe441d0d9ddea9eb0850f4f5b32792a6c9c66a36295b25b35326c301"
+}

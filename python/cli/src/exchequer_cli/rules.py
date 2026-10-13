@@ -17,6 +17,7 @@ from uuid import UUID
 
 from exchequer_cli.imports import ApiError, _all, etag, ok
 from exchequer_sdk import AuthenticatedClient
+from exchequer_sdk.api.accounts import accounts_list
 from exchequer_sdk.api.categories import categories_list
 from exchequer_sdk.api.counterparties import counterparties_list
 from exchequer_sdk.api.parties import parties_list
@@ -102,9 +103,10 @@ def diff(a: RuleScript, b: RuleScript) -> list[str]:
 
 @dataclass
 class LabelNames:
-    """Counterparties, categories and parties by ID."""
+    """Counterparties, categories, parties and accounts by ID."""
 
     names: dict[UUID, str] = field(default_factory=dict)
+    accounts: dict[UUID, str] = field(default_factory=dict)
 
     @classmethod
     def load(cls, client: AuthenticatedClient) -> LabelNames:
@@ -112,9 +114,14 @@ class LabelNames:
         for fetch in (counterparties_list, categories_list, parties_list):
             for x in _all(lambda c, f=fetch: f.sync_detailed(client=client, limit=500, cursor=c)):
                 out.names[x.id] = x.name
+        for a in _all(lambda c: accounts_list.sync_detailed(client=client, limit=500, cursor=c)):
+            out.accounts[a.id] = f"{out.names.get(a.owner_id, '?')} · {a.name}"
         return out
 
-    def of(self, id: UUID | Unset | None) -> str:
+    def of(self, id: UUID | Unset | None, account: UUID | Unset | None = None) -> str:
+        """A value's name; with `account`, a transfer with that account."""
+        if isinstance(account, UUID):
+            return f"transfer with {self.accounts.get(account, str(account))}"
         if id is None or isinstance(id, Unset):
             return "none"
         return self.names.get(id, str(id))
@@ -132,7 +139,8 @@ def dry_run_lines(d: DryRun, names: LabelNames) -> list[str]:
             out.append(f"      error: {r.error}")
         for c in r.changes:
             out.append(
-                f"      {c.label.value}: {names.of(c.current)} → {names.of(c.proposed)}"
+                f"      {c.label.value}: {names.of(c.current, c.current_transfer_account_id)}"
+                f" → {names.of(c.proposed, c.proposed_transfer_account_id)}"
                 f"  (line {c.line})"
             )
     if d.truncated:

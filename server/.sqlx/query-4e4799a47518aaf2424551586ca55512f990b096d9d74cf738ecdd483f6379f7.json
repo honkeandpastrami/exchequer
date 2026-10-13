@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.statement, s.position, s.label,\n                  coalesce(s.counterparty_id, s.category_id, s.purpose_id) AS value,\n                  s.suggester_id, s.confidence, s.reason\n           FROM staged_suggestion s\n           JOIN unnest($2::int2[], $3::int4[]) AS u(statement, position)\n             ON u.statement = s.statement AND u.position = s.position\n           WHERE s.import_id = $1\n           ORDER BY s.statement, s.position, s.label",
+  "query": "SELECT s.statement, s.position, s.label,\n                  coalesce(s.counterparty_id, s.category_id, s.purpose_id) AS value,\n                  s.account_id, s.suggester_id, s.confidence, s.reason\n           FROM staged_suggestion s\n           JOIN unnest($2::int2[], $3::int4[]) AS u(statement, position)\n             ON u.statement = s.statement AND u.position = s.position\n           WHERE s.import_id = $1\n           ORDER BY s.statement, s.position, s.label",
   "describe": {
     "columns": [
       {
@@ -44,6 +44,17 @@
       },
       {
         "ordinal": 4,
+        "name": "account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_suggestion",
+            "name": "account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "suggester_id",
         "type_info": "Uuid",
         "origin": {
@@ -54,7 +65,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "confidence",
         "type_info": "Int2",
         "origin": {
@@ -65,7 +76,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "reason",
         "type_info": "Text",
         "origin": {
@@ -88,10 +99,11 @@
       false,
       false,
       null,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "768c419671597d94c2df703108ac15e3490088bc3f6479b5557c98fd05894e09"
+  "hash": "4e4799a47518aaf2424551586ca55512f990b096d9d74cf738ecdd483f6379f7"
 }

@@ -4,6 +4,7 @@
 
 pub mod csv;
 pub mod fingerprint;
+pub mod matching;
 pub mod ofx;
 mod statements;
 

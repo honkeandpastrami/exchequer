@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO staged_suggestion (import_id, statement, position, label, counterparty_id,\n                                        category_id, purpose_id, account_id, suggester_id,\n                                        confidence, reason)\n         SELECT $1, $2, u.position, u.label,\n                CASE WHEN u.label = 'counterparty' THEN u.value END,\n                CASE WHEN u.label = 'category' THEN u.value END,\n                CASE WHEN u.label = 'purpose' THEN u.value END,\n                u.account, u.suggester, u.confidence, u.reason\n         FROM unnest($3::int4[], $4::text[], $5::uuid[], $6::uuid[], $7::uuid[], $8::int2[],\n                     $9::text[])\n              AS u(position, label, value, account, suggester, confidence, reason)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2",
+        "Int4Array",
+        "TextArray",
+        "UuidArray",
+        "UuidArray",
+        "UuidArray",
+        "Int2Array",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "097248eb92fd99a09c2244cb8d48c901e470646bef72d1fb430c071c5ddafcf4"
+}

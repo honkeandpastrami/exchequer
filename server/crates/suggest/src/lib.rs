@@ -42,9 +42,49 @@ impl Label {
     }
 }
 
-/// A label's value: an ID, or `None` for "none" (an unknown counterparty, no
-/// category, the account's owner as the purpose).
-pub type Value = Option<Uuid>;
+/// How far apart the two sides of a transfer may be dated: money can take a
+/// few business days to arrive.
+pub const TRANSFER_DAYS: i64 = 5;
+
+/// A label's value.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Value {
+    /// "None": an unknown counterparty, no category, the account's owner as
+    /// the purpose.
+    #[default]
+    None,
+    /// A counterparty, category or party, by ID.
+    Id(Uuid),
+    /// For the counterparty only: one of your accounts, so the row is a
+    /// transfer (design §3.2).
+    Account(Uuid),
+}
+
+impl Value {
+    /// The counterparty, category or party, if it's one.
+    #[must_use]
+    pub fn id(self) -> Option<Uuid> {
+        match self {
+            Self::Id(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// The account, if it's a transfer.
+    #[must_use]
+    pub fn account(self) -> Option<Uuid> {
+        match self {
+            Self::Account(id) => Some(id),
+            _ => None,
+        }
+    }
+}
+
+impl From<Option<Uuid>> for Value {
+    fn from(id: Option<Uuid>) -> Self {
+        id.map_or(Self::None, Self::Id)
+    }
+}
 
 /// One value per label.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -145,7 +185,35 @@ pub struct Account {
     /// `checking`, `credit_card`, …
     pub kind: String,
     pub owner: Uuid,
+    /// Checking, savings, cards and cash; not investments (design §4.1).
+    pub liquid: bool,
     pub archived: bool,
+}
+
+/// Whether a row's category and purpose apply, given its other side (design
+/// §3.2): not for a transfer between your accounts, unless it's a
+/// liquidation (from an investment account into a liquid one). Unknown
+/// accounts count as liquid.
+#[must_use]
+pub fn labeled(accounts: &[Account], row: Option<Uuid>, amount: Decimal, other: Value) -> bool {
+    let Value::Account(other) = other else {
+        return true;
+    };
+    let liquid = |id: Option<Uuid>| {
+        id.is_none_or(|id| {
+            accounts
+                .iter()
+                .find(|a| a.id == id)
+                .is_none_or(|a| a.liquid)
+        })
+    };
+    // Money leaves the row's account when its amount is negative.
+    let (from, to) = if amount.is_sign_negative() {
+        (row, Some(other))
+    } else {
+        (Some(other), row)
+    };
+    !liquid(from) && liquid(to)
 }
 
 /// A labeled transaction from the ledger: one of your accounts and the
@@ -192,11 +260,15 @@ impl History {
         let mut accounts: Vec<&Account> = self.accounts.iter().collect();
         accounts.sort_by_key(|a| a.id);
         let mut h = Sha256::new();
-        let id = |v: Value| v.map(|u| u.to_string()).unwrap_or_default();
+        let id = |v: Value| match v {
+            Value::None => String::new(),
+            Value::Id(u) => u.to_string(),
+            Value::Account(u) => format!("a:{u}"),
+        };
         for a in accounts {
             h.update(format!(
-                "a|{}|{}|{}|{}\n",
-                a.id, a.kind, a.owner, a.archived
+                "a|{}|{}|{}|{}|{}\n",
+                a.id, a.kind, a.owner, a.liquid, a.archived
             ));
         }
         for e in examples {
@@ -224,6 +296,49 @@ impl History {
     pub fn through(&self) -> Option<Date> {
         self.examples.iter().map(|e| e.date).max()
     }
+
+    /// The potential transfer matches of an example, as if the examples
+    /// were staged rows: those in other accounts with the opposite amount,
+    /// dated within [`TRANSFER_DAYS`]. The other side of a recorded transfer
+    /// is one.
+    #[must_use]
+    pub fn transfer_candidates(&self, e: &Example) -> Vec<Candidate> {
+        candidates(
+            e.account,
+            e.date,
+            e.amount,
+            self.examples.iter().map(|o| (o.account, o.date, o.amount)),
+        )
+    }
+}
+
+/// The potential transfer matches of a row on `account`: the rows of
+/// `others` (each `(account, date, amount)`) in another account, with the
+/// opposite amount, dated within [`TRANSFER_DAYS`].
+pub fn candidates(
+    account: Uuid,
+    date: Date,
+    amount: Decimal,
+    others: impl IntoIterator<Item = (Uuid, Date, Decimal)>,
+) -> Vec<Candidate> {
+    let mut out: Vec<Candidate> = others
+        .into_iter()
+        .filter(|(a, d, x)| {
+            *a != account && *x == -amount && (*d - date).whole_days().abs() <= TRANSFER_DAYS
+        })
+        .map(|(account, date, _)| Candidate { account, date })
+        .collect();
+    out.sort_by_key(|c| ((c.date - date).whole_days().abs(), c.account, c.date));
+    out
+}
+
+/// A potential transfer match: a row in another of your accounts with the
+/// opposite amount, dated within [`TRANSFER_DAYS`], that may be the other
+/// side of the same transfer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Candidate {
+    pub account: Uuid,
+    pub date: Date,
 }
 
 /// A bank row to suggest labels for.
@@ -239,6 +354,8 @@ pub struct Row {
     /// it came from one.
     pub raw: serde_json::Value,
     pub facts: Facts,
+    /// Its potential transfer matches, closest first.
+    pub transfer_candidates: Vec<Candidate>,
 }
 
 /// What kind of account a bank file says a statement is for.

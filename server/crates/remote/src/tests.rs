@@ -147,9 +147,9 @@ fn history() -> History {
             amount: Decimal::new(cents, 2),
             description: text.into(),
             labels: Labels {
-                counterparty: Some(cp),
-                category: Some(cat),
-                purpose: (cat == GROCERIES).then_some(HOUSEHOLD),
+                counterparty: Value::Id(cp),
+                category: Value::Id(cat),
+                purpose: (cat == GROCERIES).then_some(HOUSEHOLD).into(),
             },
         });
     }
@@ -190,6 +190,7 @@ fn row(description: &str, facts: Facts) -> Row {
         description: description.into(),
         raw: serde_json::json!({ "Type": "Sale", "Card Member": "ALEX", "Reference": "998877665544" }),
         facts,
+        transfer_candidates: Vec::new(),
     }
 }
 
@@ -213,16 +214,16 @@ fn open_labels_are_asked_and_answers_are_ledger_values() {
     let cp = p.counterparty.as_ref().unwrap();
     assert_eq!(
         (cp.value, cp.confidence, cp.reason.as_str()),
-        (Some(CAFE), 950, "decision-model: 0.95")
+        (Value::Id(CAFE), 950, "decision-model: 0.95")
     );
     assert!(cp.confidence >= CONFIDENT);
-    assert_eq!(p.category.as_ref().unwrap().value, Some(DINING));
+    assert_eq!(p.category.as_ref().unwrap().value, Value::Id(DINING));
     // "None" is a value: the account's owner.
-    assert_eq!(p.purpose.as_ref().unwrap().value, None);
+    assert_eq!(p.purpose.as_ref().unwrap().value, Value::None);
     let i = l.identity();
     assert_eq!(
         (i.kind, i.name.as_str(), i.version.as_str()),
-        (Kind::Remote, "decision-model", "q1")
+        (Kind::Remote, "decision-model", "q2")
     );
     assert_eq!(i.details["deployment"], "my-deployment");
 
@@ -282,15 +283,47 @@ fn open_labels_are_asked_and_answers_are_ledger_values() {
 }
 
 #[test]
+fn a_potential_transfer_match_is_an_option() {
+    let fake = Arc::new(Fake::new(|q| {
+        (q.name == "counterparty").then(|| "(your account) Alex · Checking".to_owned())
+    }));
+    let l = level(fake.clone());
+    let mut r = row("ONLINE PAYMENT THANK YOU", Facts::default());
+    r.amount = Decimal::new(30_000, 2);
+    r.transfer_candidates = vec![suggest::Candidate {
+        account: CHECKING,
+        date: date!(2026 - 03 - 02),
+    }];
+    let p = &l.labels(&[r])[0];
+    assert_eq!(
+        p.counterparty.as_ref().map(|g| g.value),
+        Some(Value::Account(CHECKING))
+    );
+    let asked = fake.asked.lock().unwrap();
+    let (state, questions) = &asked[0];
+    let option = &questions[0]
+        .options
+        .iter()
+        .find(|o| o.0 == "(your account) Alex · Checking")
+        .unwrap()
+        .1;
+    assert!(option.contains("same amount the other way"), "{option}");
+    assert_eq!(
+        state["transaction"]["same_amount_the_other_way_in"][0]["account"],
+        "Alex · Checking"
+    );
+}
+
+#[test]
 fn settled_labels_are_facts_not_questions() {
     let fake = Arc::new(Fake::new(pick));
     let l = level(fake.clone());
     let mut facts = Facts::default();
-    facts.set(Label::Counterparty, Some(CAFE));
-    facts.set(Label::Purpose, Some(HOUSEHOLD));
+    facts.set(Label::Counterparty, Value::Id(CAFE));
+    facts.set(Label::Purpose, Value::Id(HOUSEHOLD));
     let p = &l.labels(&[row("CORNER CAFE", facts)])[0];
     assert!(p.counterparty.is_none() && p.purpose.is_none());
-    assert_eq!(p.category.as_ref().unwrap().value, Some(DINING));
+    assert_eq!(p.category.as_ref().unwrap().value, Value::Id(DINING));
     let asked = fake.asked.lock().unwrap();
     assert_eq!(asked[0].1.len(), 1);
     assert_eq!(
@@ -299,7 +332,7 @@ fn settled_labels_are_facts_not_questions() {
     );
     // Nothing open: nothing asked.
     drop(asked);
-    facts.set(Label::Category, None);
+    facts.set(Label::Category, Value::None);
     l.labels(&[row("CORNER CAFE", facts)]);
     assert_eq!(fake.asked.lock().unwrap().len(), 1);
 }
@@ -375,6 +408,7 @@ fn context_shuffle(items: &mut [u32], seed: &str) {
             description: seed.into(),
             raw: serde_json::Value::Null,
             facts: Facts::default(),
+            transfer_candidates: Vec::new(),
         },
         &[],
     );

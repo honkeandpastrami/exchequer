@@ -1118,8 +1118,10 @@ dependencies = [
  "rust_decimal",
  "serde_json",
  "sha2 0.11.0",
+ "suggest",
  "thiserror",
  "time",
+ "uuid",
 ]
 
 [[package]]

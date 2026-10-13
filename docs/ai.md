@@ -19,6 +19,35 @@ When a bank file is staged (design §6), suggestions are made in two passes:
 
 Bills and tags are not suggested yet.
 
+## Transfers
+
+A card payment shows up twice: leaving checking, and arriving on the card. It's one
+transfer, never an expense plus an income.
+
+- **The other side.** The counterparty label is really a row's *other side*: a
+  counterparty, or **one of your accounts** — the row is then a transfer. Every level can
+  suggest an account there, and you can choose one in review. A transfer has no category
+  and no purpose (design §3.2), so once its other side is settled as an account, those
+  are settled as none and not asked; a liquidation (from an investment account into a
+  liquid one) keeps them.
+- **Potential transfer matches.** Each row comes with the rows of every staged import
+  (this file's other statements, other files) that could be the other side of it: in
+  another of your accounts, with the opposite amount in the same currency, dated within 5
+  days. Every level sees them (`row.transfer_candidates` in rules); they're evidence, not a
+  verdict.
+- **Transfer match.** When a row is settled as a transfer to an account (yours, or a
+  confident suggestion) and one of its potential transfer matches is in that account and
+  open (or settled as the transfer back), the two are a transfer match: committed as one
+  transfer, by whichever file is committed first, with both bank rows. This pairing is a
+  rule, not a guess (`import::matching`): one-to-one, rows agreeing on both sides first,
+  then the closest dates. A counterparty you chose, or a decision you made on a row, rules
+  it out; *Not the same transfer* splits a pair.
+- **Transfer duplicate.** When the transfer is already in the ledger (committed from the
+  other account), its other side is a transfer duplicate: kept with that transfer,
+  nothing new created, unless you add it as new.
+- One-sided transactions already in the ledger are never turned into transfers
+  afterwards: a transfer is recorded as one when its first side is committed.
+
 ## The stack
 
 Suggestions come from three levels, tried in order:
@@ -89,15 +118,29 @@ fn account(file, s) {
 | `date`, `year`, `month`, `day`, `weekday` | `"2026-03-02"`; numbers; weekday 1 (Monday) to 7 |
 | `account`, `account_name`, `owner` | `"Owner · Name"`, the name alone, the owner's name; `()` when the statement has no account yet |
 | `raw` | The bank file's own fields, by name, as text (e.g. `row.raw.Memo`) |
+| `transfer_candidates` | Its potential transfer matches, closest first, each with `account` (`"Owner · Name"`), `account_name`, `owner`, `date` and `days` apart |
 
 A `file` has `name` (or `()`), `kind` (`"bank"`, `"credit_card"` or `()`) and `rows`.
 
 **What `s` sets:** `s.counterparty("…")`, `s.category("…")` and `s.purpose("…")` (a
-party), each by name or `()` for none, and `s.account("Owner · Name")`. The name alone is
+party), each by name or `()` for none; `s.transfer("Owner · Name")`, the other side as
+one of your accounts (a transfer); and `s.account("Owner · Name")`. The name alone is
 enough for an account no other shares. If a setter is called twice, the last call wins.
 Whatever is set is a suggestion at full confidence, by the rules level: its reason is
 `rule v<version>:<line>`. Labels left unset go to local AI as usual, with the set ones as
 facts.
+
+For example, a card payment, when the card's side of it is staged:
+
+```rust
+fn classify(row, s) {
+    for c in row.transfer_candidates {
+        if c.account == "Household · Joint Card" && row.description.contains("PAYMENT") {
+            s.transfer("Household · Joint Card");
+        }
+    }
+}
+```
 
 **Validation.** `PUT /rules` refuses a script with each error and its line (`422`,
 `rules-invalid`, `errors: [{line, column, message}]`), and it never becomes active:
@@ -123,8 +166,9 @@ records who uploaded it, when, and an optional note. The newest is active.
 - `GET /rules/versions`, `GET /rules/versions/{n}`.
 - `POST /rules/dry-run?from=&to=` with `{}` (the active script) or `{ "source": … }` (a
   candidate) runs `classify` over the ledger's transactions in the range, those between
-  one of your accounts and the outside. It lists each one it would label differently from
-  the ledger, or fails on. It stores nothing. In a dry run `row.raw` is empty, and
+  one of your accounts and the outside, and transfers (once from each side, with the
+  other side as a potential transfer match). It lists each one it would label differently
+  from the ledger, or fails on. It stores nothing. In a dry run `row.raw` is empty, and
   `account` doesn't run.
 
 On the command line:
@@ -142,8 +186,9 @@ exchequer rules dry-run --month 2026-09 [--file candidate.rhai]
 ## Local AI
 
 Local AI learns from the ledger itself: every transaction with one split between one of
-your accounts and the outside, which is what an imported row becomes. Adjustments, such as
-opening balances, are left out. It runs in the server, in pure Rust, with no model files
+your accounts and the outside, which is what an imported row becomes, and every one-split
+transfer between two of your accounts, once from each side (its other side is the other
+account). Adjustments, such as opening balances, are left out. It runs in the server, in pure Rust, with no model files
 and no training step to run: it's trained when needed, on the ledger as it is, and kept
 until the ledger changes.
 
@@ -153,14 +198,16 @@ chosen by `EXCHEQUER_LOCAL_AI`:
 
 | Value | Method |
 |---|---|
-| `lexical-knn-v1` (default) | Lexical nearest neighbors, below |
+| `lexical-knn-v2` (default) | Lexical nearest neighbors, below |
 | `off` | No local AI |
 
 A new method (or a new version of one) gets its own ID. Switching is a configuration
 change, and its suggestions name it, so the two can be compared on what was committed
 (`suggestion_outcome`) and measured on the same past by the backtest.
 
-### `lexical-knn-v1`
+### `lexical-knn-v2`
+
+Version 2 learns transfers (version 1 didn't see them).
 
 1. **Normalization.** Bank texts are compared without what varies between rows of the
    same merchant: payment processors' prefixes (`SQ *`, `TST*`, …), card and reference
@@ -169,7 +216,8 @@ change, and its suggestions name it, so the two can be compared on what was comm
    trigrams and words, TF-IDF, cosine similarity) vote on **the whole combination** of
    counterparty, category and purpose. Each vote is weighted by similarity and by context:
    the same account (else one with the same owner), the same direction, the same or a
-   similar amount, and recency. A label's score is the weight agreeing with the winning
+   similar amount, and recency; a past transfer to an account where the row has a
+   potential transfer match counts double. A label's score is the weight agreeing with the winning
    combination, out of all of it plus a prior, so one lone neighbor never scores high.
 3. **Alias memory.** Rows with exactly the same normalized text, on this account if it has
    any: how many of the latest five, in a row, had the same value.
@@ -178,13 +226,16 @@ change, and its suggestions name it, so the two can be compared on what was comm
    transactions are neighbors, however their text reads.
 5. **The account.** For a statement without one, each row's neighbors vote for the
    accounts they're in (only accounts that aren't archived, and of the statement's kind
-   when the file says: a credit card statement for a credit card).
+   when the file says: a credit card statement for a credit card). Transfers don't vote:
+   a transfer's text is one bank's, not necessarily this account's.
 6. **Calibration.** On training, the method suggests its latest 2,000 transactions again,
    each from only the ones before it, and each of the latest account-months as a
    statement, from the months before. Each score is then mapped to how often it was right
    (isotonic regression, smoothed so that thin evidence stays unsure). A confidence of 0.9
    means right about 9 times in 10 on this ledger's own data. With little history,
-   nothing reaches 0.9.
+   nothing reaches 0.9. A transfer's potential transfer matches are worked out from the
+   history as if its rows had been staged together; its category and purpose aren't
+   asked.
 
 Reasons read like *like 2026-03-12 “CORNER CAFE #” (6 of 7 similar)*, *the last 3 times
 as “corner cafe”*, or, for an account, *12 of 15 rows look like its past transactions*.
@@ -195,8 +246,10 @@ transactions and the latest date.
 
 `GET /suggesters/backtest?from=YYYY-MM&to=YYYY-MM[&method=…][&remote=true]` measures a
 method on the ledger's own past. For each month, the method learns from everything before it, then
-suggests labels for the month's transactions (their account known, nothing settled) and
-an account for each account's transactions taken as one statement. Per label and for
+suggests labels for the month's transactions (their account known, nothing settled, the
+month's other transactions as potential transfer matches) and an account for each
+account's transactions taken as one statement. A transfer is scored on its other side
+only. Per label and for
 accounts it reports how many were asked, guessed, right, confident, and right when
 confident, plus guesses and right answers by confidence bin, which shows whether 0.9
 really means 9 in 10. It reads only; nothing is stored. Any method can be named, so a
@@ -224,12 +277,12 @@ It's the last level: asked only about what rules and local AI left unsure, with 
 settled as facts. Without it configured, or when the service fails, everything else works
 as before.
 
-**The questions** (version `q1`). One request per row, with a question per open label,
-sharing one state; one request per statement without an account.
+**The questions** (version `q2`; `q1` didn't offer transfers). One request per row, with a
+question per open label, sharing one state; one request per statement without an account.
 
 | Question | Options |
 |---|---|
-| `counterparty` | The counterparties of the row's similar past transactions and of those with the same text, at most 10 — never the whole list — plus *none of these* and *cannot tell* |
+| `counterparty` | The row's other side: the accounts of its potential transfer matches (a transfer), then the other sides of its similar past transactions and of those with the same text, at most 10 — never the whole list — plus *none of these* and *cannot tell* |
 | `category` | Every category, plus *no category* and *cannot tell* |
 | `purpose` | Every party, plus *the account's owner* and *cannot tell* |
 | `account` | Every account that isn't archived and fits the file's kind, plus *none of these* and *cannot tell* |
@@ -247,7 +300,8 @@ An answer that isn't one of the options is dropped.
 
 - the transaction: its bank text normalized, date and weekday, amount and direction, the
   bank's own fields saying what kind of transaction it is (a `Type` or `Category` column,
-  a merchant category code), and whether the same amount recurred in recent months;
+  a merchant category code), whether the same amount recurred in recent months, and the
+  accounts where the same amount moved the other way (its potential transfer matches);
 - its account: name, kind, owner, and its purposes and top categories over six months;
 - the labels already settled, as facts;
 - the 10 most similar past transactions, from local AI, with their labels.
@@ -264,7 +318,7 @@ key, a wrong endpoint, the service unreachable, still busy after retries) stops 
 for the rest of that upload, logged once.
 
 **Suggestions** name the model as the service reports it and the questions' version
-(`microsoft-decision-1 q1`); the details record the provider and deployment. The reason is
+(`microsoft-decision-1 q2`); the details record the provider and deployment. The reason is
 the model and its probability (*microsoft-decision-1: 0.94*). A new wording is a new
 version: measure it with the backtest before using it.
 
@@ -312,7 +366,12 @@ shows the suggester and the reason.
   their badges. In its details, you can change any of them (the value becomes yours),
   accept an unsure suggestion (it becomes yours too), or go back to the suggestion.
   *None* is a choice you can make explicitly: an unknown counterparty, no category, or
-  the account's owner as the purpose.
+  the account's owner as the purpose. The counterparty can be one of your accounts
+  (typed by its `Owner · Name`): the row is then a transfer, and its category and purpose
+  show *Not for a transfer*.
+- **Transfers.** A transfer match names its other side (account, date, text, and file if
+  it's another), and committing makes the two one transfer; *Not the same transfer*
+  splits them. A transfer duplicate names the transfer it's the other side of.
 
 ## Commit
 
@@ -340,11 +399,15 @@ transactions are later edited or undone.
 - `GET /imports/{id}`: each statement's `account_id` is the one the rows are checked
   against; `account_suggested` says it's a suggestion's; `suggested_account` is the
   suggestion, confident or not.
-- `GET /imports/{id}/rows`: each row's `counterparty_id`, `category_id` and `purpose_id`
-  are what a new transaction would get; `chosen` lists the labels you set;
-  `suggestions` has at most one per label; `missing` lists, for a row that will be a new
-  transaction, the labels commit still needs.
+- `GET /imports/{id}/rows`: each row's `counterparty_id` (or `transfer_account_id`, for
+  a transfer), `category_id` and `purpose_id` are what a new transaction would get;
+  `chosen` lists the labels you set; `suggestions` has at most one per label (a
+  suggested transfer has `transfer_account_id`); `missing` lists, for a row that will be
+  a new transaction, the labels commit still needs; `not_applicable` the labels a
+  transfer doesn't have; `transfer_match` is a transfer match's other side.
 - `PATCH /imports/{id}/rows/{statement}/{position}`: setting a label (to a value or
-  `null`) makes it yours; `"revert": ["category"]` hands it back to its suggestion.
+  `null`) makes it yours; `transfer_account_id` sets the other side to one of your
+  accounts (the counterparty label, yours); `"revert": ["category"]` hands it back to its
+  suggestion. `"decision": "new"` on a transfer match splits it.
 - `PATCH /imports/{id}/statements/{position}` with an `account_id` makes it the
   statement's own; with `null`, it goes back to the suggestion, if any.

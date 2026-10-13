@@ -35,7 +35,7 @@ pub struct BacktestParams {
     /// Last month, `YYYY-MM`; `from` if omitted (at most 24 months in all).
     #[param(value_type = Option<String>)]
     to: Option<Month>,
-    /// The local method to measure, as configured (`lexical-knn-v1`); the
+    /// The local method to measure, as configured (`lexical-knn-v2`); the
     /// server's own if omitted.
     method: Option<String>,
     /// Also ask remote AI, as configured, about what the method leaves

@@ -1,12 +1,15 @@
-//! `lexical-knn`, version 1: suggestions from the labeled transactions
+//! `lexical-knn`, version 2: suggestions from the labeled transactions
 //! whose bank text looks most like the row's (design §8, docs/ai.md).
+//! Transfers are labeled transactions too: their other side, one of your
+//! accounts, is the counterparty's value.
 //!
 //! - Texts are compared by their [`normalize::key`]: character trigrams and
 //!   words, weighted by TF-IDF, cosine similarity.
 //! - **Nearest neighbors** vote on the whole combination of labels, each
 //!   weighted by its similarity, then by the row's context: the same account
 //!   (else the same owner), the same direction, the same or a similar
-//!   amount, and recency. A label's score is the weight agreeing with the
+//!   amount, and recency; a transfer to an account where the row has a
+//!   potential transfer match counts double. A label's score is the weight agreeing with the
 //!   winning combination, out of all of it plus a prior, so a lone neighbor
 //!   never scores high.
 //! - **Settled labels** (facts): only examples that agree with them vote
@@ -27,7 +30,7 @@ use std::collections::{BTreeMap, HashMap};
 use rust_decimal::Decimal;
 use suggest::{
     Account, Facts, Guess, History, Identity, Kind, Label, Labels, Method, Proposal, Row,
-    Statement, StatementKind, Suggester, Value,
+    Statement, StatementKind, Suggester, TRANSFER_DAYS, Value, labeled,
 };
 use time::Date;
 use uuid::Uuid;
@@ -43,7 +46,7 @@ impl Method for LexicalKnn {
     }
 
     fn version(&self) -> &'static str {
-        "1"
+        "2"
     }
 
     fn train(&self, history: &History) -> Box<dyn Suggester> {
@@ -59,6 +62,9 @@ const MIN_SIMILARITY: f32 = 0.3;
 const PRIOR: f32 = 0.5;
 /// The latest rows with the same text that alias memory looks at.
 const ALIAS: usize = 5;
+/// How much more a transfer to an account counts when the row has a
+/// potential transfer match there.
+const CANDIDATE: f32 = 2.0;
 /// Rows of a statement that vote on its account.
 const STATEMENT_ROWS: usize = 40;
 /// Calibration: the latest labeled transactions suggested again.
@@ -84,6 +90,8 @@ struct Ex {
 struct Model {
     identity: Identity,
     accounts: HashMap<Uuid, Account>,
+    /// The same, as a list.
+    account_list: Vec<Account>,
     ex: Vec<Ex>,
     /// Feature (a trigram or a word) → its index.
     features: HashMap<String, usize>,
@@ -92,8 +100,10 @@ struct Model {
     postings: Vec<Vec<(u32, f32)>>,
     /// Key → its examples, oldest first.
     alias: HashMap<String, Vec<u32>>,
-    /// Counterparty → its examples.
-    by_counterparty: HashMap<Uuid, Vec<u32>>,
+    /// Counterparty (or transfer account) → its examples.
+    by_counterparty: HashMap<Value, Vec<u32>>,
+    /// Amount → its examples, to find potential transfer matches.
+    by_amount: HashMap<Decimal, Vec<u32>>,
     neighbors_curve: BTreeMap<Label, Curve>,
     alias_curve: BTreeMap<Label, Curve>,
     account_curve: Curve,
@@ -107,6 +117,8 @@ struct Query<'a> {
     amount: Decimal,
     key: &'a str,
     facts: Facts,
+    /// The accounts of its potential transfer matches.
+    candidates: Vec<Uuid>,
     /// Only examples dated before this (calibration and backtests).
     before: Option<Date>,
 }
@@ -220,13 +232,20 @@ impl Model {
             }
         }
 
-        let mut by_counterparty: HashMap<Uuid, Vec<u32>> = HashMap::new();
+        let mut by_counterparty: HashMap<Value, Vec<u32>> = HashMap::new();
+        let mut by_amount: HashMap<Decimal, Vec<u32>> = HashMap::new();
         for (i, e) in ex.iter().enumerate() {
-            if let Some(c) = e.labels.counterparty {
-                #[expect(clippy::cast_possible_truncation, reason = "fewer than 2^32 examples")]
-                by_counterparty.entry(c).or_default().push(i as u32);
+            #[expect(clippy::cast_possible_truncation, reason = "fewer than 2^32 examples")]
+            let i = i as u32;
+            if e.labels.counterparty != Value::None {
+                by_counterparty
+                    .entry(e.labels.counterparty)
+                    .or_default()
+                    .push(i);
             }
+            by_amount.entry(e.amount.normalize()).or_default().push(i);
         }
+        let account_list: Vec<Account> = history.accounts.clone();
 
         let mut model = Self {
             identity: Identity {
@@ -240,12 +259,14 @@ impl Model {
                 }),
             },
             accounts,
+            account_list,
             ex,
             features: index,
             idf,
             postings,
             alias,
             by_counterparty,
+            by_amount,
             neighbors_curve: BTreeMap::new(),
             alias_curve: BTreeMap::new(),
             account_curve: Curve::default(),
@@ -259,7 +280,7 @@ impl Model {
         let mut neighbors: BTreeMap<Label, Vec<(f32, bool)>> = BTreeMap::new();
         let mut alias: BTreeMap<Label, Vec<(f32, bool)>> = BTreeMap::new();
         let from = self.ex.len().saturating_sub(CALIBRATION_ROWS);
-        for e in &self.ex[from..] {
+        for (i, e) in self.ex.iter().enumerate().skip(from) {
             let q = Query {
                 account: Some(e.account),
                 owner: e.owner,
@@ -267,10 +288,21 @@ impl Model {
                 amount: e.amount,
                 key: &e.key,
                 facts: Facts::default(),
+                candidates: self.candidates_of(i),
                 before: Some(e.date),
             };
             let (votes, aliases) = self.raw(&q);
+            // A transfer's category and purpose don't apply.
+            let transfer = !labeled(
+                &self.account_list,
+                Some(e.account),
+                e.amount,
+                e.labels.counterparty,
+            );
             for l in Label::ALL {
+                if transfer && l != Label::Counterparty {
+                    continue;
+                }
                 let truth = e.labels.get(l);
                 if let Some(v) = &votes[&l] {
                     neighbors
@@ -295,7 +327,9 @@ impl Model {
         // An account's month of rows is one statement.
         let mut months: BTreeMap<(Date, Uuid), Vec<u32>> = BTreeMap::new();
         for (i, e) in self.ex.iter().enumerate() {
-            if self.accounts.get(&e.account).is_some_and(|a| !a.archived) {
+            if self.accounts.get(&e.account).is_some_and(|a| !a.archived)
+                && !matches!(e.labels.counterparty, Value::Account(_))
+            {
                 #[expect(clippy::cast_possible_truncation, reason = "fewer than 2^32 examples")]
                 months
                     .entry((first_of_month(e.date), e.account))
@@ -324,6 +358,7 @@ impl Model {
                     amount: e.amount,
                     key: &e.key,
                     facts: Facts::default(),
+                    candidates: Vec::new(),
                     before: Some(month),
                 })
                 .collect();
@@ -332,6 +367,26 @@ impl Model {
             }
         }
         self.account_curve = Curve::fit(points);
+    }
+
+    /// The accounts of an example's potential transfer matches among the
+    /// other examples, as if they were staged together.
+    fn candidates_of(&self, i: usize) -> Vec<Uuid> {
+        let e = &self.ex[i];
+        let mut out: Vec<Uuid> = self
+            .by_amount
+            .get(&(-e.amount).normalize())
+            .into_iter()
+            .flatten()
+            .map(|j| &self.ex[*j as usize])
+            .filter(|o| {
+                o.account != e.account && (o.date - e.date).whole_days().abs() <= TRANSFER_DAYS
+            })
+            .map(|o| o.account)
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
     }
 
     /// The examples most like `q`, with their weights, heaviest first.
@@ -369,7 +424,8 @@ impl Model {
         }
         // Rows of a counterparty settled as a fact are neighbors however
         // their text reads.
-        if let Some(Some(c)) = q.facts.counterparty
+        if let Some(c) = q.facts.counterparty
+            && c != Value::None
             && let Some(of) = self.by_counterparty.get(&c)
         {
             for i in of {
@@ -418,7 +474,11 @@ impl Model {
         };
         let days = (q.date - e.date).whole_days().max(0) as f32;
         let recency = 1.0 / (1.0 + days / 730.0);
-        account * direction * amount * recency
+        let candidate = match e.labels.counterparty {
+            Value::Account(a) if q.candidates.contains(&a) => CANDIDATE,
+            _ => 1.0,
+        };
+        account * direction * amount * recency * candidate
     }
 
     /// The neighbors' vote and alias memory, per label not in the facts.
@@ -526,10 +586,14 @@ impl Model {
         kind: Option<StatementKind>,
         rows: &[Query],
     ) -> Option<(Uuid, f32, usize)> {
+        // A transfer's text is one bank's, not necessarily this account's:
+        // transfers don't vote.
         let fits = |e: &Ex| {
-            self.accounts
-                .get(&e.account)
-                .is_some_and(|a| !a.archived && kind.is_none_or(|k| k.fits(&a.kind)))
+            !matches!(e.labels.counterparty, Value::Account(_))
+                && self
+                    .accounts
+                    .get(&e.account)
+                    .is_some_and(|a| !a.archived && kind.is_none_or(|k| k.fits(&a.kind)))
         };
         let mut share: HashMap<Uuid, f32> = HashMap::new();
         let mut first: HashMap<Uuid, usize> = HashMap::new();
@@ -577,6 +641,7 @@ impl Model {
             amount: r.amount,
             key,
             facts: r.facts,
+            candidates: r.transfer_candidates.iter().map(|c| c.account).collect(),
             before: None,
         }
     }
@@ -674,6 +739,7 @@ impl Suggester for Model {
                 account: None,
                 owner: None,
                 facts: Facts::default(),
+                candidates: Vec::new(),
                 ..self.query(r, k)
             })
             .collect();
@@ -709,14 +775,22 @@ mod tests {
 
     fn labels(cp: Uuid, cat: Uuid, purpose: Option<Uuid>) -> Labels {
         Labels {
-            counterparty: Some(cp),
-            category: Some(cat),
-            purpose,
+            counterparty: Value::Id(cp),
+            category: Value::Id(cat),
+            purpose: purpose.into(),
+        }
+    }
+
+    /// A transfer's side: the other account, nothing else.
+    fn transfer(to: Uuid) -> Labels {
+        Labels {
+            counterparty: Value::Account(to),
+            ..Labels::default()
         }
     }
 
     /// Two years of a fictional household: coffee and groceries on the
-    /// card, pay into checking.
+    /// card, pay into checking, the card paid from checking each month.
     fn history() -> History {
         let mut examples = Vec::new();
         let mut day = date!(2024 - 01 - 01);
@@ -761,6 +835,21 @@ mod tests {
                     labels(EMPLOYER, SALARY, None),
                 );
             }
+            if day.day() == 8 {
+                let paid = -40_000 - i64::from(u8::from(day.month())) * 1000;
+                add(
+                    CHECKING,
+                    paid,
+                    format!("CARD AUTOPAY {}", day.to_julian_day()),
+                    transfer(CARD),
+                );
+                add(
+                    CARD,
+                    -paid,
+                    format!("CARD AUTOPAY {}", day.to_julian_day()),
+                    transfer(CHECKING),
+                );
+            }
             day = day.next_day().unwrap();
         }
         History {
@@ -769,12 +858,14 @@ mod tests {
                     id: CHECKING,
                     kind: "checking".into(),
                     owner: HOUSEHOLD,
+                    liquid: true,
                     archived: false,
                 },
                 Account {
                     id: CARD,
                     kind: "credit_card".into(),
                     owner: HOUSEHOLD,
+                    liquid: true,
                     archived: false,
                 },
             ],
@@ -790,6 +881,7 @@ mod tests {
             description: description.into(),
             raw: serde_json::Value::Null,
             facts: Facts::default(),
+            transfer_candidates: Vec::new(),
         }
     }
 
@@ -799,15 +891,15 @@ mod tests {
         assert_eq!(m.identity().name, "lexical-knn");
         let p = &m.labels(&[row(Some(CARD), -463, "SQ *CORNER CAFE #0412 01/10")])[0];
         let cp = p.counterparty.as_ref().unwrap();
-        assert_eq!(cp.value, Some(CAFE));
+        assert_eq!(cp.value, Value::Id(CAFE));
         assert!(cp.confidence >= CONFIDENT, "{cp:?}");
-        assert_eq!(p.purpose.as_ref().unwrap().value, Some(ALEX));
+        assert_eq!(p.purpose.as_ref().unwrap().value, Value::Id(ALEX));
         // "None" is a value like any other: groceries are the owner's.
         let p = &m.labels(&[row(Some(CARD), -8000, "GREEN GROCER 999999")])[0];
         let purpose = p.purpose.as_ref().unwrap();
         assert_eq!(
             (purpose.value, purpose.confidence >= CONFIDENT),
-            (None, true)
+            (Value::None, true)
         );
     }
 
@@ -819,9 +911,30 @@ mod tests {
         assert_eq!(near.len(), 3);
         for t in near {
             let e = h.examples.iter().find(|e| e.transaction == t).unwrap();
-            assert_eq!(e.labels.counterparty, Some(CAFE));
+            assert_eq!(e.labels.counterparty, Value::Id(CAFE));
         }
         assert!(m.similar(&row(None, -1, "UNHEARD OF"), 3).is_empty());
+    }
+
+    #[test]
+    fn a_card_payment_is_a_transfer_to_the_card() {
+        let m = LexicalKnn.train(&history());
+        let mut r = row(Some(CHECKING), -45_000, "CARD AUTOPAY 2461050");
+        let p = &m.labels(std::slice::from_ref(&r))[0];
+        let cp = p.counterparty.as_ref().unwrap();
+        assert_eq!(cp.value, Value::Account(CARD));
+        // The card's side, staged too, is a potential transfer match: more
+        // sure still.
+        r.transfer_candidates = vec![suggest::Candidate {
+            account: CARD,
+            date: r.date,
+        }];
+        let boosted = m.labels(std::slice::from_ref(&r))[0]
+            .counterparty
+            .clone()
+            .unwrap();
+        assert_eq!(boosted.value, Value::Account(CARD));
+        assert!(boosted.confidence >= cp.confidence, "{boosted:?} {cp:?}");
     }
 
     #[test]
@@ -840,10 +953,10 @@ mod tests {
     fn facts_are_left_out_and_steer_the_rest() {
         let m = LexicalKnn.train(&history());
         let mut r = row(Some(CARD), -463, "SQ *CORNER CAFE");
-        r.facts.set(Label::Counterparty, Some(GROCER));
+        r.facts.set(Label::Counterparty, Value::Id(GROCER));
         let p = &m.labels(&[r])[0];
         assert!(p.counterparty.is_none());
-        assert_eq!(p.category.as_ref().unwrap().value, Some(GROCERIES));
+        assert_eq!(p.category.as_ref().unwrap().value, Value::Id(GROCERIES));
     }
 
     #[test]

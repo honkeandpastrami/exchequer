@@ -1,0 +1,157 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT r.import_id, r.statement, r.position, i.file_name, i.file_sha256,\n                  coalesce(st.account_id,\n                           CASE WHEN st.account_confidence >= 900\n                                THEN st.suggested_account_id END) AS account_id,\n                  r.date, r.amount, r.description, r.set_description, r.fingerprint, r.raw\n           FROM unnest($1::uuid[], $2::int2[], $3::int4[]) AS u(i, s, p)\n           JOIN staged_row r\n             ON r.import_id = u.i AND r.statement = u.s AND r.position = u.p\n           JOIN staged_statement st\n             ON st.import_id = r.import_id AND st.position = r.statement\n           JOIN staged_import i ON i.id = r.import_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "import_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "import_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "statement",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "statement"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "position",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "file_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_import",
+            "name": "file_name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "file_sha256",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_import",
+            "name": "file_sha256"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "account_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "date",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "date"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "amount",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "amount"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "set_description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "set_description"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "raw",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "raw"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Int2Array",
+        "Int4Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      null,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "90b2697046f7a6fecdd23362ba223850bfbd00fc17593ebeee080d9c976896cd"
+}

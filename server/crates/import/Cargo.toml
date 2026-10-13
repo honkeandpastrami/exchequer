@@ -18,8 +18,10 @@ ofx-rs = "0.2"
 rust_decimal = "1.43.0"
 serde_json = "1.0.154"
 sha2 = "0.11.0"
+suggest = { path = "../suggest" }
 thiserror = "2.0.21"
 time = "0.3.55"
+uuid = "1.28.0"
 
 [dev-dependencies]
 time = { version = "0.3.55", features = ["macros"] }

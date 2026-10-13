@@ -74,6 +74,7 @@ fn label(
         position,
         label: label.to_owned(),
         value: value.map(uuid),
+        account_id: None,
         suggester_id: by,
         confidence,
         reason: format!("like a past {label}"),
@@ -511,7 +512,7 @@ async fn local_ai_suggests_the_account_and_the_labels(pool: PgPool) {
     let local = &all[0]["suggestions"][0]["suggester"];
     assert_eq!(
         (&local["kind"], &local["version"]),
-        (&json!("local"), &json!("1"))
+        (&json!("local"), &json!("2"))
     );
     assert!(local["details"]["snapshot"].is_string(), "{local}");
     // A stranger: nothing confident.
@@ -575,7 +576,7 @@ async fn a_backtest_measures_local_ai_on_past_months(pool: PgPool) {
         )
         .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
-    assert_eq!(r.body["method"], json!("lexical-knn-v1"));
+    assert_eq!(r.body["method"], json!("lexical-knn-v2"));
     let october = &r.body["months"][1];
     assert_eq!(
         (&october["month"], &october["trained_on"]),

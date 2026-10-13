@@ -30,7 +30,7 @@ pub use context::{AccountInfo, Catalog, PartyInfo};
 use context::{Context, Options};
 
 /// The version of the questions: their wording, options and state.
-pub const QUESTIONS: u32 = 1;
+pub const QUESTIONS: u32 = 2;
 
 /// The configured service.
 pub struct Remote {

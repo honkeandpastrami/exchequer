@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, kind, owner_id, archived FROM account ORDER BY id",
+  "query": "SELECT id, kind, owner_id, liquid, archived FROM account ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -38,6 +38,17 @@
       },
       {
         "ordinal": 3,
+        "name": "liquid",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "account",
+            "name": "liquid"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
         "name": "archived",
         "type_info": "Bool",
         "origin": {
@@ -55,8 +66,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "5e5a765d9d121da334f1af7c9592824680142becdcf85116f57c8c0adeefa392"
+  "hash": "99d71f2d6ebdbf09c6f3a4067fe788b8ba7760b78abc68ef654a89b6aeeb54cb"
 }

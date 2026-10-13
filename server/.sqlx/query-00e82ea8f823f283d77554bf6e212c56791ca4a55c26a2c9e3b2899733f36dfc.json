@@ -1,0 +1,208 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT r.import_id, r.statement, r.position,\n                  coalesce(st.account_id,\n                           CASE WHEN st.account_confidence >= 900\n                                THEN st.suggested_account_id END) AS account_id,\n                  st.commodity_id, r.date, r.amount, r.status, r.match_transaction_id,\n                  r.decision,\n                  'counterparty' = ANY(r.chosen) AS \"chose_side!\",\n                  r.transfer_account_id,\n                  sg.account_id AS \"suggested_account_id?\",\n                  sg.confidence AS \"suggested_confidence?\",\n                  r.pair_import_id, r.pair_statement, r.pair_position\n           FROM staged_row r\n           JOIN staged_statement st\n             ON st.import_id = r.import_id AND st.position = r.statement\n           LEFT JOIN staged_suggestion sg\n             ON sg.import_id = r.import_id AND sg.statement = r.statement\n            AND sg.position = r.position AND sg.label = 'counterparty'\n           ORDER BY r.import_id, r.statement, r.position",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "import_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "import_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "statement",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "statement"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "position",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "account_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "commodity_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "commodity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "date",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "date"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "amount",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "amount"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "match_transaction_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "match_transaction_id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "decision",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "decision"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "chose_side!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "transfer_account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "transfer_account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "suggested_account_id?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_suggestion",
+            "name": "account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "suggested_confidence?",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "staged_suggestion",
+            "name": "confidence"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "pair_import_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "pair_import_id"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "pair_statement",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "pair_statement"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "pair_position",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "pair_position"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      null,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "00e82ea8f823f283d77554bf6e212c56791ca4a55c26a2c9e3b2899733f36dfc"
+}

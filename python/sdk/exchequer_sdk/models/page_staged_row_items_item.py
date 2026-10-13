@@ -16,6 +16,7 @@ from ..types import UNSET, Unset
 if TYPE_CHECKING:
     from ..models.label_suggestion import LabelSuggestion
     from ..models.page_staged_row_items_item_raw import PageStagedRowItemsItemRaw
+    from ..models.transfer_match import TransferMatch
 
 
 T = TypeVar("T", bound="PageStagedRowItemsItem")
@@ -33,6 +34,8 @@ class PageStagedRowItemsItem:
         missing (list[Label]): For a row that will be a new transaction: the labels that are
             neither yours nor confidently suggested. Commit refuses while any row
             has some.
+        not_applicable (list[Label]): Labels that don't apply: a transfer's category and purpose (design
+            §3.2).
         position (int):
         raw (PageStagedRowItemsItemRaw): The row's fields as the file had them.
         statement (int):
@@ -41,12 +44,16 @@ class PageStagedRowItemsItem:
         category_id (None | Unset | UUID):
         counterparty_id (None | Unset | UUID): The labels below are what a new transaction gets: your choice, else a
             confident suggestion. For a new transaction: who's on the outside
-            side (unknown if absent).
+            side (unknown if absent and there's no `transfer_account_id`).
         decision (Decision | None | Unset):
-        match_transaction_id (None | Unset | UUID): The existing transaction a duplicate or match is of.
+        match_transaction_id (None | Unset | UUID): The existing transaction a duplicate or transfer duplicate is of.
         native_id (None | str | Unset): The bank's own ID for the row, if it has one.
         purpose_id (None | Unset | UUID): Who the money was for; absent, the account's owner.
         set_description (None | str | Unset): The new transaction's description, if not the bank's.
+        transfer_account_id (None | Unset | UUID): The other side when it's one of your accounts: the row is a transfer,
+            whose category and purpose don't apply (unless it's a liquidation).
+            A transfer match's is its other side's account.
+        transfer_match (None | TransferMatch | Unset):
     """
 
     amount: str
@@ -55,6 +62,7 @@ class PageStagedRowItemsItem:
     decided: bool
     description: str
     missing: list[Label]
+    not_applicable: list[Label]
     position: int
     raw: PageStagedRowItemsItemRaw
     statement: int
@@ -67,9 +75,13 @@ class PageStagedRowItemsItem:
     native_id: None | str | Unset = UNSET
     purpose_id: None | Unset | UUID = UNSET
     set_description: None | str | Unset = UNSET
+    transfer_account_id: None | Unset | UUID = UNSET
+    transfer_match: None | TransferMatch | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.transfer_match import TransferMatch  # noqa: PLC0415
+
         amount = self.amount
 
         chosen = []
@@ -87,6 +99,11 @@ class PageStagedRowItemsItem:
         for missing_item_data in self.missing:
             missing_item = missing_item_data.value
             missing.append(missing_item)
+
+        not_applicable = []
+        for not_applicable_item_data in self.not_applicable:
+            not_applicable_item = not_applicable_item_data.value
+            not_applicable.append(not_applicable_item)
 
         position = self.position
 
@@ -153,6 +170,22 @@ class PageStagedRowItemsItem:
         else:
             set_description = self.set_description
 
+        transfer_account_id: None | str | Unset
+        if isinstance(self.transfer_account_id, Unset):
+            transfer_account_id = UNSET
+        elif isinstance(self.transfer_account_id, UUID):
+            transfer_account_id = str(self.transfer_account_id)
+        else:
+            transfer_account_id = self.transfer_account_id
+
+        transfer_match: dict[str, Any] | None | Unset
+        if isinstance(self.transfer_match, Unset):
+            transfer_match = UNSET
+        elif isinstance(self.transfer_match, TransferMatch):
+            transfer_match = self.transfer_match.to_dict()
+        else:
+            transfer_match = self.transfer_match
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -163,6 +196,7 @@ class PageStagedRowItemsItem:
                 "decided": decided,
                 "description": description,
                 "missing": missing,
+                "not_applicable": not_applicable,
                 "position": position,
                 "raw": raw,
                 "statement": statement,
@@ -184,6 +218,10 @@ class PageStagedRowItemsItem:
             field_dict["purpose_id"] = purpose_id
         if set_description is not UNSET:
             field_dict["set_description"] = set_description
+        if transfer_account_id is not UNSET:
+            field_dict["transfer_account_id"] = transfer_account_id
+        if transfer_match is not UNSET:
+            field_dict["transfer_match"] = transfer_match
 
         return field_dict
 
@@ -191,6 +229,7 @@ class PageStagedRowItemsItem:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.label_suggestion import LabelSuggestion  # noqa: PLC0415
         from ..models.page_staged_row_items_item_raw import PageStagedRowItemsItemRaw  # noqa: PLC0415
+        from ..models.transfer_match import TransferMatch  # noqa: PLC0415
 
         d = dict(src_dict)
         amount = d.pop("amount")
@@ -214,6 +253,13 @@ class PageStagedRowItemsItem:
             missing_item = Label(missing_item_data)
 
             missing.append(missing_item)
+
+        not_applicable = []
+        _not_applicable = d.pop("not_applicable")
+        for not_applicable_item_data in _not_applicable:
+            not_applicable_item = Label(not_applicable_item_data)
+
+            not_applicable.append(not_applicable_item)
 
         position = d.pop("position")
 
@@ -333,6 +379,40 @@ class PageStagedRowItemsItem:
 
         set_description = _parse_set_description(d.pop("set_description", UNSET))
 
+        def _parse_transfer_account_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                transfer_account_id_type_0 = UUID(data)
+
+                return transfer_account_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        transfer_account_id = _parse_transfer_account_id(d.pop("transfer_account_id", UNSET))
+
+        def _parse_transfer_match(data: object) -> None | TransferMatch | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                transfer_match_type_0 = TransferMatch.from_dict(data)
+
+                return transfer_match_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | TransferMatch | Unset, data)
+
+        transfer_match = _parse_transfer_match(d.pop("transfer_match", UNSET))
+
         page_staged_row_items_item = cls(
             amount=amount,
             chosen=chosen,
@@ -340,6 +420,7 @@ class PageStagedRowItemsItem:
             decided=decided,
             description=description,
             missing=missing,
+            not_applicable=not_applicable,
             position=position,
             raw=raw,
             statement=statement,
@@ -352,6 +433,8 @@ class PageStagedRowItemsItem:
             native_id=native_id,
             purpose_id=purpose_id,
             set_description=set_description,
+            transfer_account_id=transfer_account_id,
+            transfer_match=transfer_match,
         )
 
         page_staged_row_items_item.additional_properties = d

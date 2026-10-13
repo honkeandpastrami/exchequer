@@ -12,6 +12,7 @@ export const statuses: Record<Status, string> = {
 	duplicate: 'Duplicate',
 	near_duplicate: 'Near duplicate',
 	transfer_match: 'Transfer match',
+	transfer_duplicate: 'Transfer already recorded',
 	needs_account: 'Needs account'
 };
 
@@ -38,9 +39,11 @@ export function decisionsFor(status: Status): Decision[] {
 	}
 }
 
-/** For a transfer match, `match` means something else. */
+/** For a transfer match, `match` and `new` mean something else. */
 export function decisionLabel(status: Status, d: Decision): string {
-	return status === 'transfer_match' && d === 'match' ? 'Make it a transfer' : decisions[d];
+	if (status === 'transfer_match' && d === 'match') return 'One transfer with its match';
+	if (status === 'transfer_match' && d === 'new') return 'Not the same transfer';
+	return decisions[d];
 }
 
 /** `…6789`, or what to call a statement without a number. */
@@ -62,6 +65,7 @@ export function totals(statements: Schemas['StagedStatement'][]): Schemas['RowCo
 		duplicate: 0,
 		near_duplicate: 0,
 		transfer_match: 0,
+		transfer_duplicate: 0,
 		needs_account: 0
 	};
 	for (const s of statements) for (const k of Object.keys(out) as Status[]) out[k] += s.counts[k];
@@ -126,6 +130,27 @@ export const percent = (perMille: number) => `${Math.round(perMille / 10)}%`;
 /** Who made a suggestion, exactly. */
 export const suggesterName = (s: Schemas['Suggester']) =>
 	`${sourceNames[s.kind]}: ${s.name} ${s.version}`;
+
+/**
+ * The other side of a row, as shown: one of your accounts (a transfer), a
+ * counterparty, none, or `undefined` while missing. Yours, else a
+ * suggestion's.
+ */
+export type Side = { account: string } | { counterparty: string | null } | undefined;
+
+export function sideOf(row: Schemas['StagedRow']): Side {
+	if (row.transfer_account_id) return { account: row.transfer_account_id };
+	const st = labelState(row, 'counterparty');
+	if (st.kind === 'yours') return { counterparty: row.counterparty_id ?? null };
+	if (st.kind === 'missing') return undefined;
+	return suggestedSide(st.suggestion);
+}
+
+export function suggestedSide(s: Suggestion): Side {
+	return s.transfer_account_id
+		? { account: s.transfer_account_id }
+		: { counterparty: s.value ?? null };
+}
 
 /** Rows commit refuses until their labels are settled. */
 export const unlabeled = (rows: Schemas['StagedRow'][]) => rows.filter((r) => r.missing.length);

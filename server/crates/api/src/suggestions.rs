@@ -8,7 +8,10 @@ use std::sync::{Arc, Mutex};
 
 use sqlx::PgConnection;
 use store::imports::{AccountSuggestion, RowRow, StatementRow, SuggestionRow};
-use suggest::{Facts, History, Label, Method, Row, Statement, StatementKind, Suggester, stack};
+use suggest::{
+    Candidate, Facts, History, Label, Method, Row, Statement, StatementKind, Suggester, Value,
+    stack,
+};
 use uuid::Uuid;
 
 use crate::problem::Problem;
@@ -116,18 +119,24 @@ impl Suggestions {
     }
 }
 
-/// The ledger's labeled history (store::history).
-pub(crate) async fn history(db: &mut PgConnection) -> Result<History, Problem> {
-    let accounts = store::history::accounts(&mut *db)
+/// Your accounts, as suggesters see them.
+pub(crate) async fn accounts(db: &mut PgConnection) -> Result<Vec<suggest::Account>, Problem> {
+    Ok(store::history::accounts(&mut *db)
         .await?
         .into_iter()
         .map(|a| suggest::Account {
             id: a.id,
             kind: a.kind,
             owner: a.owner_id,
+            liquid: a.liquid,
             archived: a.archived,
         })
-        .collect();
+        .collect())
+}
+
+/// The ledger's labeled history (store::history).
+pub(crate) async fn history(db: &mut PgConnection) -> Result<History, Problem> {
+    let accounts = accounts(db).await?;
     let examples = store::history::examples(&mut *db)
         .await?
         .into_iter()
@@ -138,9 +147,11 @@ pub(crate) async fn history(db: &mut PgConnection) -> Result<History, Problem> {
             amount: e.amount,
             description: e.description,
             labels: suggest::Labels {
-                counterparty: e.counterparty_id,
-                category: e.category_id,
-                purpose: e.purpose_id,
+                counterparty: e
+                    .transfer_account_id
+                    .map_or_else(|| e.counterparty_id.into(), Value::Account),
+                category: e.category_id.into(),
+                purpose: e.purpose_id.into(),
             },
         })
         .collect();
@@ -203,14 +214,16 @@ fn facts(r: &RowRow) -> Facts {
     stack::facts(
         &chosen,
         &suggest::Labels {
-            counterparty: r.counterparty_id,
-            category: r.category_id,
-            purpose: r.purpose_id,
+            counterparty: r
+                .transfer_account_id
+                .map_or_else(|| r.counterparty_id.into(), Value::Account),
+            category: r.category_id.into(),
+            purpose: r.purpose_id.into(),
         },
     )
 }
 
-fn row(r: &RowRow, account: Option<Uuid>) -> Row {
+fn row(r: &RowRow, account: Option<Uuid>, transfer_candidates: Vec<Candidate>) -> Row {
     Row {
         account,
         date: r.date,
@@ -218,7 +231,47 @@ fn row(r: &RowRow, account: Option<Uuid>) -> Row {
         description: r.description.clone(),
         raw: r.raw.clone(),
         facts: facts(r),
+        transfer_candidates,
     }
+}
+
+/// Each row's potential transfer matches (design §6.4): rows of every staged
+/// import, in your other accounts, in the same commodity, with the opposite
+/// amount, dated within a few days, that will become new transactions.
+pub(crate) async fn candidates(
+    db: &mut PgConnection,
+    import_id: Uuid,
+    statement: i16,
+) -> Result<std::collections::HashMap<i32, Vec<Candidate>>, Problem> {
+    let all = store::imports::matchable(&mut *db).await?;
+    let Some(mine) = all
+        .iter()
+        .find(|r| r.import_id == import_id && r.statement == statement)
+    else {
+        return Ok(std::collections::HashMap::new());
+    };
+    let (Some(account), commodity) = (mine.account_id, mine.commodity_id) else {
+        return Ok(std::collections::HashMap::new());
+    };
+    let others: Vec<(Uuid, time::Date, rust_decimal::Decimal)> = all
+        .iter()
+        .filter(|r| {
+            r.commodity_id == commodity
+                && matches!(r.status.as_str(), "new" | "transfer_match")
+                && r.decision.as_deref() != Some("skip")
+        })
+        .filter_map(|r| Some((r.account_id?, r.date, r.amount)))
+        .collect();
+    Ok(all
+        .iter()
+        .filter(|r| r.import_id == import_id && r.statement == statement)
+        .map(|r| {
+            (
+                r.position,
+                suggest::candidates(account, r.date, r.amount, others.iter().copied()),
+            )
+        })
+        .collect())
 }
 
 fn per_mille(c: u16) -> i16 {
@@ -249,7 +302,7 @@ pub(crate) async fn account(
                 StatementKind::Bank
             }
         }),
-        rows: rows.iter().map(|r| row(r, None)).collect(),
+        rows: rows.iter().map(|r| row(r, None, Vec::new())).collect(),
     };
     let owned = levels.to_vec();
     let pick = tokio::task::spawn_blocking(move || {
@@ -288,11 +341,19 @@ pub(crate) async fn labels(
     let account = s.effective_account();
     let staged =
         store::imports::rows(&mut *db, import_id, Some(statement), None, None, i64::MAX).await?;
-    let rows: Vec<Row> = staged.iter().map(|r| row(r, account)).collect();
+    let mut candidates = candidates(db, import_id, statement).await?;
+    let rows: Vec<Row> = staged
+        .iter()
+        .map(|r| {
+            let c = candidates.remove(&r.position).unwrap_or_default();
+            row(r, account, c)
+        })
+        .collect();
+    let accounts = accounts(db).await?;
     let owned = levels.to_vec();
     let picks = tokio::task::spawn_blocking(move || {
         let refs: Vec<&dyn Suggester> = owned.iter().map(AsRef::as_ref).collect();
-        stack::labels(&refs, &rows)
+        stack::labels(&refs, &rows, &accounts)
     })
     .await
     .map_err(|_| Problem::internal())?;
@@ -313,7 +374,8 @@ pub(crate) async fn labels(
                 statement,
                 position: r.position,
                 label: l.as_str().to_owned(),
-                value: pick.guess.value,
+                value: pick.guess.value.id(),
+                account_id: pick.guess.value.account(),
                 suggester_id: id,
                 confidence: per_mille(pick.guess.confidence),
                 reason: pick.guess.reason.chars().take(500).collect(),

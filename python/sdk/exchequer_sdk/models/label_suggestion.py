@@ -28,7 +28,10 @@ class LabelSuggestion:
         label (Label): A label a row's new transaction gets.
         reason (str):
         suggester (Suggester): The exact system that made a suggestion.
-        value (None | Unset | UUID): The suggested counterparty, category or party; `null` suggests none.
+        transfer_account_id (None | Unset | UUID): For the counterparty: one of your accounts, suggested as the other
+            side (a transfer).
+        value (None | Unset | UUID): The suggested counterparty, category or party; `null` suggests none,
+            unless `transfer_account_id` is set.
     """
 
     confidence: int
@@ -36,6 +39,7 @@ class LabelSuggestion:
     label: Label
     reason: str
     suggester: Suggester
+    transfer_account_id: None | Unset | UUID = UNSET
     value: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -49,6 +53,14 @@ class LabelSuggestion:
         reason = self.reason
 
         suggester = self.suggester.to_dict()
+
+        transfer_account_id: None | str | Unset
+        if isinstance(self.transfer_account_id, Unset):
+            transfer_account_id = UNSET
+        elif isinstance(self.transfer_account_id, UUID):
+            transfer_account_id = str(self.transfer_account_id)
+        else:
+            transfer_account_id = self.transfer_account_id
 
         value: None | str | Unset
         if isinstance(self.value, Unset):
@@ -69,6 +81,8 @@ class LabelSuggestion:
                 "suggester": suggester,
             }
         )
+        if transfer_account_id is not UNSET:
+            field_dict["transfer_account_id"] = transfer_account_id
         if value is not UNSET:
             field_dict["value"] = value
 
@@ -88,6 +102,23 @@ class LabelSuggestion:
         reason = d.pop("reason")
 
         suggester = Suggester.from_dict(d.pop("suggester"))
+
+        def _parse_transfer_account_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                transfer_account_id_type_0 = UUID(data)
+
+                return transfer_account_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        transfer_account_id = _parse_transfer_account_id(d.pop("transfer_account_id", UNSET))
 
         def _parse_value(data: object) -> None | Unset | UUID:
             if data is None:
@@ -112,6 +143,7 @@ class LabelSuggestion:
             label=label,
             reason=reason,
             suggester=suggester,
+            transfer_account_id=transfer_account_id,
             value=value,
         )
 

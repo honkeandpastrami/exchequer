@@ -2,11 +2,13 @@
 //! remote AI). A level runs while anything is still below [`CONFIDENT`];
 //! labels already settled, by you or confidently by an earlier level, are
 //! given to the next level as facts. A label nobody is confident about keeps
-//! the most confident guess any level made.
+//! the most confident guess any level made. Once a row's other side is
+//! settled as one of your accounts, a transfer, its category and purpose
+//! don't apply (design §3.2): they're settled as none.
 
 use uuid::Uuid;
 
-use crate::{CONFIDENT, Facts, Guess, Label, Row, Statement, Suggester, Value};
+use crate::{Account, CONFIDENT, Facts, Guess, Label, Row, Statement, Suggester, Value, labeled};
 
 /// A guess and the level (its index in the stack) that made it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,9 +44,34 @@ impl Picks {
     }
 }
 
+/// What's settled for a row: its facts, the confident picks so far, and a
+/// transfer's category and purpose as none.
+fn settled(r: &Row, picks: &Picks, accounts: &[Account]) -> Facts {
+    let mut facts = r.facts;
+    for l in Label::ALL {
+        if let Some(p) = picks.get(l)
+            && facts.get(l).is_none()
+            && p.guess.confidence >= CONFIDENT
+        {
+            facts.set(l, p.guess.value);
+        }
+    }
+    if let Some(other) = facts.counterparty
+        && !labeled(accounts, r.account, r.amount, other)
+    {
+        for l in [Label::Category, Label::Purpose] {
+            if facts.get(l).is_none() {
+                facts.set(l, Value::None);
+            }
+        }
+    }
+    facts
+}
+
 /// Labels for each row, in order. A row's own facts are never suggested.
+/// `accounts` are yours, to tell a transfer from a liquidation.
 #[must_use]
-pub fn labels(levels: &[&dyn Suggester], rows: &[Row]) -> Vec<Picks> {
+pub fn labels(levels: &[&dyn Suggester], rows: &[Row], accounts: &[Account]) -> Vec<Picks> {
     let mut out: Vec<Picks> = vec![Picks::default(); rows.len()];
     for (level, s) in levels.iter().enumerate() {
         // What's settled so far, per row; rows with everything settled sit
@@ -52,15 +79,7 @@ pub fn labels(levels: &[&dyn Suggester], rows: &[Row]) -> Vec<Picks> {
         let mut asked = Vec::new();
         let mut which = Vec::new();
         for (i, r) in rows.iter().enumerate() {
-            let mut facts = r.facts;
-            for l in Label::ALL {
-                if let Some(p) = out[i].get(l)
-                    && facts.get(l).is_none()
-                    && p.guess.confidence >= CONFIDENT
-                {
-                    facts.set(l, p.guess.value);
-                }
-            }
+            let facts = settled(r, &out[i], accounts);
             if !facts.all_settled() {
                 asked.push(Row { facts, ..r.clone() });
                 which.push(i);
@@ -86,6 +105,20 @@ pub fn labels(levels: &[&dyn Suggester], rows: &[Row]) -> Vec<Picks> {
                         guess: g.clone(),
                     });
                 }
+            }
+        }
+    }
+    // A transfer settled late: its category and purpose guesses go.
+    for (r, p) in rows.iter().zip(&mut out) {
+        let other = r.facts.counterparty.or_else(|| {
+            p.counterparty
+                .as_ref()
+                .filter(|c| c.guess.confidence >= CONFIDENT)
+                .map(|c| c.guess.value)
+        });
+        if other.is_some_and(|v| !labeled(accounts, r.account, r.amount, v)) {
+            for l in [Label::Category, Label::Purpose] {
+                *p.slot(l) = None;
             }
         }
     }
@@ -172,7 +205,7 @@ mod tests {
                             p.set(
                                 l,
                                 Some(Guess {
-                                    value: Some(self.value),
+                                    value: Value::Id(self.value),
                                     confidence: self.confidence,
                                     reason: "fixed".into(),
                                 }),
@@ -200,13 +233,14 @@ mod tests {
             description: "COFFEE".into(),
             raw: serde_json::Value::Null,
             facts,
+            transfer_candidates: Vec::new(),
         }
     }
 
     #[test]
     fn later_levels_get_settled_labels_as_facts() {
         let mut chosen = Facts::default();
-        chosen.set(Label::Purpose, None);
+        chosen.set(Label::Purpose, Value::None);
         // The first level is sure only of its counterparty: a second answers
         // the category, knowing the counterparty and your purpose.
         struct OnlyCounterparty(Fixed);
@@ -231,21 +265,21 @@ mod tests {
         let first = OnlyCounterparty(Fixed::new(1, 950));
         let second = Fixed::new(2, 700);
         let third = Fixed::new(3, 800);
-        let picks = labels(&[&first, &second, &third], &[row(chosen)]);
+        let picks = labels(&[&first, &second, &third], &[row(chosen)], &[]);
         let p = &picks[0];
         assert_eq!(
             p.counterparty.as_ref().map(|p| (p.level, p.guess.value)),
-            Some((0, Some(Uuid::from_u128(1))))
+            Some((0, Value::Id(Uuid::from_u128(1))))
         );
         // The unsure category: the most confident of the later levels.
         assert_eq!(
             p.category.as_ref().map(|p| (p.level, p.guess.value)),
-            Some((2, Some(Uuid::from_u128(3))))
+            Some((2, Value::Id(Uuid::from_u128(3))))
         );
         assert!(p.purpose.is_none());
         let seen = second.seen.lock().unwrap();
-        assert_eq!(seen[0].counterparty, Some(Some(Uuid::from_u128(1))));
-        assert_eq!(seen[0].purpose, Some(None));
+        assert_eq!(seen[0].counterparty, Some(Value::Id(Uuid::from_u128(1))));
+        assert_eq!(seen[0].purpose, Some(Value::None));
         assert_eq!(seen[0].category, None);
     }
 
@@ -253,9 +287,62 @@ mod tests {
     fn a_settled_row_is_not_asked() {
         let first = Fixed::new(1, 1000);
         let second = Fixed::new(2, 1000);
-        let picks = labels(&[&first, &second], &[row(Facts::default())]);
+        let picks = labels(&[&first, &second], &[row(Facts::default())], &[]);
         assert!(second.seen.lock().unwrap().is_empty());
         assert_eq!(picks[0].category.as_ref().unwrap().level, 0);
+    }
+
+    #[test]
+    fn a_transfer_has_no_category_or_purpose() {
+        let account = |id: u128, liquid: bool| Account {
+            id: Uuid::from_u128(id),
+            kind: "checking".into(),
+            owner: Uuid::from_u128(99),
+            liquid,
+            archived: false,
+        };
+        let accounts = [account(50, true), account(51, true), account(52, false)];
+        // The first level is sure the other side is account 51: the second
+        // isn't asked about category or purpose, and the first's go.
+        struct Transfer(Fixed, Uuid);
+        impl Suggester for Transfer {
+            fn identity(&self) -> &Identity {
+                self.0.identity()
+            }
+            fn labels(&self, rows: &[Row]) -> Vec<Proposal> {
+                self.0
+                    .labels(rows)
+                    .into_iter()
+                    .map(|mut p| {
+                        if let Some(c) = &mut p.counterparty {
+                            c.value = Value::Account(self.1);
+                        }
+                        p
+                    })
+                    .collect()
+            }
+            fn account(&self, s: &Statement) -> Option<Guess<Uuid>> {
+                self.0.account(s)
+            }
+        }
+        let first = Transfer(Fixed::new(1, 950), Uuid::from_u128(51));
+        let second = Fixed::new(2, 950);
+        let mut r = row(Facts::default());
+        r.account = Some(Uuid::from_u128(50));
+        r.amount = -Decimal::ONE;
+        let p = &labels(&[&first, &second], &[r.clone()], &accounts)[0];
+        assert_eq!(
+            p.counterparty.as_ref().map(|p| p.guess.value),
+            Some(Value::Account(Uuid::from_u128(51)))
+        );
+        assert!(p.category.is_none() && p.purpose.is_none(), "{p:?}");
+        assert!(second.seen.lock().unwrap().is_empty());
+        // Into a liquid account from an investment one: a liquidation, which
+        // keeps them.
+        let first = Transfer(Fixed::new(1, 950), Uuid::from_u128(52));
+        r.amount = Decimal::ONE;
+        let p = &labels(&[&first], &[r], &accounts)[0];
+        assert!(p.category.is_some() && p.purpose.is_some(), "{p:?}");
     }
 
     #[test]
