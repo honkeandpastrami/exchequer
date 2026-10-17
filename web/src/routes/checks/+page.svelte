@@ -6,6 +6,7 @@
 	import { all, api, done, ok, type Schemas } from '#lib/api/client.ts';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
+	import Mark from '#lib/components/Mark.svelte';
 	import { today } from '#lib/dates.ts';
 	import { candidateReasons } from '#lib/labels.ts';
 	import { negate } from '#lib/money.ts';
@@ -213,7 +214,7 @@
 						<td class="num"><Amount value={c.amount} code={code(c.commodity_id)} /></td>
 						<td class="num"><Amount value={c.ledger} /></td>
 						<td class="num">
-							{#if c.matches}<span class="match">✓ matches</span>{:else}<Amount
+							{#if c.matches}<Mark tone="ok" label="Matches" />{:else}<Amount
 									value={c.difference}
 								/>{/if}
 						</td>
@@ -285,9 +286,6 @@
 	}
 	.selected td {
 		background: var(--color-surface-alt);
-	}
-	.match {
-		color: var(--color-positive);
 	}
 	.actions {
 		text-align: right;

@@ -3,12 +3,14 @@
 	import { resolve } from '$app/paths';
 	import { all, api, ok, type Schemas } from '#lib/api/client.ts';
 	import Failure from '#lib/components/Failure.svelte';
+	import Mark from '#lib/components/Mark.svelte';
 	import { localDate } from '#lib/dates.ts';
 	import { accountLabel } from '#lib/names.ts';
 	import { reference, type Reference } from '#lib/reference.ts';
 	import {
 		committedSummary,
 		readinessNames,
+		readinessTones,
 		readinessWhy,
 		statementName
 	} from '#lib/views/imports.ts';
@@ -181,11 +183,10 @@
 							{/each}
 						</td>
 						<td>
-							<span class="mark {imp.readiness.state}"
-								><span class="dot" aria-hidden="true"></span>{readinessNames[
-									imp.readiness.state
-								]}</span
-							>
+							<Mark
+								tone={readinessTones[imp.readiness.state]}
+								label={readinessNames[imp.readiness.state]}
+							/>
 							{#each readinessWhy(imp.readiness) as why (why)}
 								<div class="why">{why}</div>
 							{/each}
@@ -240,27 +241,6 @@
 	}
 	.notice {
 		font-size: var(--text-sm);
-	}
-	.mark {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-		white-space: nowrap;
-	}
-	.dot {
-		width: 0.7em;
-		height: 0.7em;
-		border-radius: 50%;
-		background: currentColor;
-	}
-	.ready .dot {
-		color: var(--color-positive);
-	}
-	.suggested .dot {
-		color: var(--color-warning);
-	}
-	.needs_work .dot {
-		color: var(--color-negative);
 	}
 	.why {
 		font-size: var(--text-sm);

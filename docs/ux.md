@@ -60,7 +60,14 @@ these; a screen that can't is a reason to change this doc, not to make an except
   page, in light and dark.
 - Shared things come from shared components: amounts (`Amount`), suggestions
   (`SuggestionBadge`), none and unknown (`NoValue`), names of legs (`LegName`), failures
-  (`Failure`). A second way of showing the same thing is a bug.
+  (`Failure`), statuses (`Mark`). A second way of showing the same thing is a bug.
+- A status is a symbol plus a word, in its colour, never a dot or colour alone:
+  - ✓ ok, green: settled, ready, matches;
+  - ⚠ warning, amber: it would go through but you should look (confident suggestions, a
+    month closed with a difference);
+  - ✗ error, red: it needs you first;
+  - ○ open, muted: not done yet;
+  - ↺ in progress, accent: paying down a past difference.
 - Amounts: tabular figures, right-aligned in columns, sign and commodity always shown,
   never rounded for display beyond the commodity's precision. Dates in one format
   (`dates.ts`).

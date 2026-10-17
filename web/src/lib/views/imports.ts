@@ -2,6 +2,7 @@
 // committing will do with it.
 
 import type { Schemas } from '../api/client';
+import type { Tone } from '../components/Mark.svelte';
 
 type Status = Schemas['RowStatus'];
 type Decision = Schemas['Decision'];
@@ -82,6 +83,12 @@ export const readinessNames: Record<Schemas['ReadinessState'], string> = {
 	ready: 'Ready',
 	suggested: 'Confident suggestions',
 	needs_work: 'Needs work'
+};
+
+export const readinessTones: Record<Schemas['ReadinessState'], Tone> = {
+	ready: 'ok',
+	suggested: 'warning',
+	needs_work: 'error'
 };
 
 const several = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
