@@ -3,10 +3,15 @@
 
 mod common;
 
+use std::sync::{Arc, Mutex};
+
 use axum::http::StatusCode;
 use common::household::{H, create};
+use outbound::prices::{Error, Kind, Pair, PriceSource, Quote};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use time::Date;
+use time::macros::format_description;
 
 async fn fetched(pool: &PgPool, base: &str, quote: &str, date: &str, rate: &str, source: &str) {
     sqlx::query(
@@ -139,4 +144,130 @@ async fn one_source_before_a_chain(pool: PgPool) {
         .send()
         .await;
     assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
+}
+
+/// A price source that answers from a list, and counts what it's asked.
+struct Fake {
+    name: &'static str,
+    /// `(base, quote, date, rate)`.
+    quotes: Vec<(&'static str, &'static str, &'static str, &'static str)>,
+    fail: bool,
+    asked: Arc<Mutex<Vec<String>>>,
+}
+
+impl PriceSource for Fake {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn plan(&self, base: &str, _: Kind, quote: &str, _: Kind) -> Option<Vec<Pair>> {
+        Some(vec![Pair {
+            base: base.into(),
+            quote: quote.into(),
+            kind: Kind::Currency,
+        }])
+    }
+
+    fn fetch(&self, pairs: &[Pair], from: Date, to: Date) -> Result<Vec<Quote>, Error> {
+        for p in pairs {
+            self.asked
+                .lock()
+                .unwrap()
+                .push(format!("{} {}{} {from} {to}", self.name, p.base, p.quote));
+        }
+        if self.fail {
+            return Err(Error::RateLimited);
+        }
+        Ok(self
+            .quotes
+            .iter()
+            .filter(|(b, q, _, _)| pairs.iter().any(|p| p.base == *b && p.quote == *q))
+            .map(|(b, q, d, r)| Quote {
+                base: (*b).into(),
+                quote: (*q).into(),
+                date: Date::parse(d, format_description!("[year]-[month]-[day]")).unwrap(),
+                rate: (*r).into(),
+            })
+            .collect())
+    }
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn missing_prices_are_fetched_in_source_order(pool: PgPool) {
+    let h = H::new(&pool).await;
+    fiat(&h, &pool, "GBP").await;
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let source = |name, fail, quotes| -> Arc<dyn PriceSource> {
+        Arc::new(Fake {
+            name,
+            quotes,
+            fail,
+            asked: Arc::clone(&asked),
+        })
+    };
+    let pricing = api::Pricing::new(
+        vec![
+            source("first", true, vec![]),
+            source("second", false, vec![]),
+            source("third", false, vec![("GBP", "USD", "2026-06-01", "1.27")]),
+            source("fourth", false, vec![("GBP", "USD", "2026-06-01", "9")]),
+        ],
+        5,
+    );
+    let get = |q: &'static str| {
+        common::call(&pool, "GET", format!("/api/v1/prices/value?{q}"))
+            .token(&h.t)
+            .pricing(pricing.clone())
+            .send()
+    };
+
+    // The first fails, the second has nothing, the third answers: the
+    // fourth isn't asked. The range goes back to cover a few fresh days.
+    let r = get("from=GBP&to=USD&date=2026-06-02").await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(r.body["rate"], "1.27");
+    assert_eq!(r.body["prices"][0]["source"], "provider:third");
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [
+            "first GBPUSD 2026-05-28 2026-06-02",
+            "second GBPUSD 2026-05-28 2026-06-02",
+            "third GBPUSD 2026-05-28 2026-06-02",
+        ]
+    );
+
+    // Stored now: nobody is asked again.
+    asked.lock().unwrap().clear();
+    let r = get("from=USD&to=GBP&date=2026-06-03").await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert!(asked.lock().unwrap().is_empty());
+
+    // Stale: the sources asked within the hour aren't asked again, so the
+    // fourth is. It has nothing newer either.
+    let r = get("from=GBP&to=USD&date=2026-07-01").await;
+    assert_eq!(r.body["stale"], true);
+    assert_eq!(r.body["prices"][0]["source"], "provider:third");
+    assert_eq!(
+        *asked.lock().unwrap(),
+        ["fourth GBPUSD 2026-06-26 2026-07-01"]
+    );
+    asked.lock().unwrap().clear();
+    get("from=USD&to=GBP&date=2026-07-01").await;
+    assert!(asked.lock().unwrap().is_empty(), "either way round");
+
+    // A refresh asks anyway.
+    let r = common::call(&pool, "POST", "/api/v1/prices/refresh")
+        .token(&h.t)
+        .pricing(pricing.clone())
+        .json(json!({ "from": "2026-06-01", "to": "2026-06-05" }))
+        .send()
+        .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(
+        r.body["sources"],
+        json!(["first", "second", "third", "fourth"])
+    );
+    assert_eq!(r.body["stored"], 1);
+    assert_eq!(r.body["errors"], json!(["first: rate-limited"]));
+    assert_eq!(asked.lock().unwrap().len(), 3);
 }

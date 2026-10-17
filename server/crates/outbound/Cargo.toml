@@ -10,10 +10,13 @@ description = "Outbound calls (design §15): the only place household data leave
 workspace = true
 
 [dependencies]
+csv = "1.4"
 rust_decimal = "1.43.0"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
+# raw_value: a price is read as the literal digits, never through a float.
+serde_json = { version = "1.0.154", features = ["raw_value"] }
 thiserror = "2.0.21"
+time = { version = "0.3.55", features = ["formatting", "parsing", "macros"] }
 # Blocking: suggesters run on blocking threads. rustls with ring and bundled
 # root certificates: the image has no system certificates (design §15).
 ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }

@@ -44,6 +44,13 @@ Run these as the (non-root) user that will own the service, from a clone of this
    podman secret create exchequer_remote_ai_key -
    ```
 
+   Optionally, for prices of stocks and funds (design §3.4), a Tiingo API key; then
+   uncomment the Tiingo lines:
+
+   ```sh
+   podman secret create exchequer_tiingo_api_key -
+   ```
+
 3. Pull the server and backup images of the newest release:
 
    ```sh

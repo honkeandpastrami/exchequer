@@ -3210,6 +3210,52 @@
         ]
       }
     },
+    "/api/v1/prices/refresh": {
+      "post": {
+        "tags": [
+          "prices"
+        ],
+        "summary": "Fetch every commodity's prices in `value_in` for a range of days,\nagain, from the configured sources in order.",
+        "operationId": "prices_refresh",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refreshed"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/prices/value": {
       "get": {
         "tags": [
@@ -8600,6 +8646,64 @@
             "items": {
               "$ref": "#/components/schemas/Row"
             }
+          }
+        }
+      },
+      "RefreshRequest": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "Default: `to`."
+          },
+          "to": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "Default (and at most): today in the server's time zone."
+          },
+          "value_in": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A commodity code. Default: `USD`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "Refreshed": {
+        "type": "object",
+        "required": [
+          "sources",
+          "stored",
+          "errors"
+        ],
+        "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`source: what went wrong`, for each failure; the next source was\nasked instead."
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The configured sources, in the order asked."
+          },
+          "stored": {
+            "type": "integer",
+            "description": "Prices stored or replaced.",
+            "minimum": 0
           }
         }
       },

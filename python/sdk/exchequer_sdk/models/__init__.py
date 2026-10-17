@@ -111,6 +111,8 @@ from .problem import Problem
 from .problem_item import ProblemItem
 from .query_request import QueryRequest
 from .query_result import QueryResult
+from .refresh_request import RefreshRequest
+from .refreshed import Refreshed
 from .row import Row
 from .row_counts import RowCounts
 from .row_status import RowStatus
@@ -254,6 +256,8 @@ __all__ = (
     "ProblemItem",
     "QueryRequest",
     "QueryResult",
+    "Refreshed",
+    "RefreshRequest",
     "Row",
     "RowCounts",
     "RowStatus",

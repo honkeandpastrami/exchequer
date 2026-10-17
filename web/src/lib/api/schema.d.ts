@@ -498,6 +498,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v1/prices/refresh': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Fetch every commodity's prices in `value_in` for a range of days,
+		 *     again, from the configured sources in order.
+		 */
+		post: operations['prices_refresh'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/prices/value': {
 		parameters: {
 			query?: never;
@@ -2177,6 +2197,31 @@ export interface components {
 		};
 		QueryResult: {
 			rows: components['schemas']['Row'][];
+		};
+		RefreshRequest: {
+			/**
+			 * Format: date
+			 * @description Default: `to`.
+			 */
+			from?: string | null;
+			/**
+			 * Format: date
+			 * @description Default (and at most): today in the server's time zone.
+			 */
+			to?: string | null;
+			/** @description A commodity code. Default: `USD`. */
+			value_in?: string | null;
+		};
+		Refreshed: {
+			/**
+			 * @description `source: what went wrong`, for each failure; the next source was
+			 *     asked instead.
+			 */
+			errors: string[];
+			/** @description The configured sources, in the order asked. */
+			sources: string[];
+			/** @description Prices stored or replaced. */
+			stored: number;
 		};
 		/**
 		 * @description One row. A grouped field is present (`null` for "none", e.g. no
@@ -4572,6 +4617,39 @@ export interface operations {
 				};
 				content: {
 					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	prices_refresh: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['RefreshRequest'];
+			};
+		};
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Refreshed'];
 				};
 			};
 			/** @description Unprocessable Entity */

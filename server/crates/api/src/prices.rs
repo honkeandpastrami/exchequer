@@ -6,7 +6,7 @@ use axum::Extension;
 use axum::extract::State;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use domain::valuation::{self, Prices, Source, Valuation};
+use domain::valuation::{self, Source, Valuation};
 use domain::{CommodityId, Rate};
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
@@ -22,66 +22,15 @@ use crate::AppState;
 use crate::auth::Principal;
 use crate::common::{audit, write_error};
 use crate::conventions::{IfMatch, Page, etag};
+use crate::pricing::{Need, same, to_domain};
 use crate::problem::{Json, Path, Problem, Query};
 
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(list, create))
         .routes(routes!(value))
+        .routes(routes!(refresh))
         .routes(routes!(get, update, delete))
-}
-
-/// How valuations choose among prices.
-#[derive(Debug, Clone)]
-pub struct Pricing {
-    /// Price sources by name, most preferred first.
-    pub order: Vec<String>,
-    /// A price at most this many days older than the date asked is fresh.
-    pub fresh_days: u32,
-}
-
-impl Default for Pricing {
-    fn default() -> Self {
-        Self {
-            order: Vec::new(),
-            fresh_days: 5,
-        }
-    }
-}
-
-/// How far back of a range prices are loaded day by day; before that,
-/// only each pair's latest.
-const WINDOW_DAYS: i64 = 31;
-
-impl Pricing {
-    /// The stored prices that may value `commodities` between two dates,
-    /// and their rows (for [`ValuationOut`]).
-    pub async fn load(
-        &self,
-        db: &mut PgConnection,
-        commodities: &[Uuid],
-        from: Date,
-        to: Date,
-    ) -> Result<(Prices, Vec<PriceRow>), Problem> {
-        let rows =
-            store::prices::for_valuation(&mut *db, commodities, from, to, WINDOW_DAYS).await?;
-        let prices = rows.iter().map(to_domain).collect::<Result<Vec<_>, _>>()?;
-        Ok((
-            Prices::new(prices, self.order.clone(), self.fresh_days),
-            rows,
-        ))
-    }
-}
-
-fn to_domain(r: &PriceRow) -> Result<valuation::Price, Problem> {
-    Ok(valuation::Price {
-        base: CommodityId::from_uuid(r.base_id),
-        quote: CommodityId::from_uuid(r.quote_id),
-        date: r.date,
-        rate: r.rate.parse().map_err(|_| Problem::internal())?,
-        source: Source::parse(&r.source).ok_or_else(Problem::internal)?,
-        provisional: r.provisional,
-    })
 }
 
 // ------------------------------------------------------------- Schemas ----
@@ -165,6 +114,28 @@ pub struct ValueParams {
     date: Option<Date>,
 }
 
+#[derive(Debug, Default, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RefreshRequest {
+    /// A commodity code. Default: `USD`.
+    value_in: Option<String>,
+    /// Default: `to`.
+    from: Option<Date>,
+    /// Default (and at most): today in the server's time zone.
+    to: Option<Date>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct Refreshed {
+    /// The configured sources, in the order asked.
+    sources: Vec<String>,
+    /// Prices stored or replaced.
+    stored: usize,
+    /// `source: what went wrong`, for each failure; the next source was
+    /// asked instead.
+    errors: Vec<String>,
+}
+
 /// A stored price as a valuation used it.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct PriceUsed {
@@ -200,12 +171,7 @@ impl ValuationOut {
     pub fn new(v: &Valuation, rows: &[PriceRow]) -> Self {
         let id = |p: &valuation::Price| {
             rows.iter()
-                .find(|r| {
-                    r.base_id == *p.base.as_uuid()
-                        && r.quote_id == *p.quote.as_uuid()
-                        && r.date == p.date
-                        && r.source == p.source.to_string()
-                })
+                .find(|r| same(r, p))
                 .map(|r| r.id)
                 .unwrap_or_default()
         };
@@ -462,18 +428,58 @@ async fn value(
     let mut conn = state.pool.acquire().await?;
     let from = commodity(&mut conn, &p.from).await?;
     let to = commodity(&mut conn, &p.to).await?;
-    let (prices, rows) = state
+    let need = Need { from, to, date };
+    let loaded = state
         .pricing
-        .load(&mut conn, &[from, to], date, date)
+        .load(&mut conn, state.today(), &[need], false)
         .await?;
-    let v = prices
+    let v = loaded
+        .prices
         .value(
             CommodityId::from_uuid(from),
             CommodityId::from_uuid(to),
             date,
         )
         .ok_or_else(|| {
-            Problem::not_found().detail(format!("no stored price connects {} and {}", p.from, p.to))
+            Problem::not_found().detail(format!("no price connects {} and {}", p.from, p.to))
         })?;
-    Ok(axum::Json(ValuationOut::new(&v, &rows)))
+    Ok(axum::Json(ValuationOut::new(&v, &loaded.rows)))
+}
+
+/// Fetch every commodity's prices in `value_in` for a range of days,
+/// again, from the configured sources in order.
+#[utoipa::path(post, path = "/prices/refresh", tag = "prices", security(("bearer" = [])),
+    request_body = RefreshRequest,
+    responses((status = OK, body = Refreshed),
+              (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json")))]
+async fn refresh(
+    State(state): State<AppState>,
+    Json(req): Json<RefreshRequest>,
+) -> Result<axum::Json<Refreshed>, Problem> {
+    let today = state.today();
+    let to_date = req.to.unwrap_or(today).min(today);
+    let from_date = req.from.unwrap_or(to_date);
+    if from_date > to_date {
+        return Err(Problem::invalid("from is after to"));
+    }
+    let mut conn = state.pool.acquire().await?;
+    let target = commodity(&mut conn, req.value_in.as_deref().unwrap_or("USD")).await?;
+    let needs: Vec<Need> = store::commodities::list(&mut *conn, None, i64::MAX)
+        .await?
+        .into_iter()
+        .filter(|c| c.id != target)
+        .flat_map(|c| {
+            [from_date, to_date].map(|date| Need {
+                from: c.id,
+                to: target,
+                date,
+            })
+        })
+        .collect();
+    let loaded = state.pricing.load(&mut conn, today, &needs, true).await?;
+    Ok(axum::Json(Refreshed {
+        sources: state.pricing.names(),
+        stored: loaded.stored,
+        errors: loaded.errors,
+    }))
 }

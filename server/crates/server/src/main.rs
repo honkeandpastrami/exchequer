@@ -124,6 +124,25 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             None
         }
     };
+    let timeout = std::time::Duration::from_secs(15);
+    let mut price_sources: Vec<std::sync::Arc<dyn outbound::prices::PriceSource>> = Vec::new();
+    for s in &config.prices.sources {
+        price_sources.push(match s {
+            config::PriceSource::Tiingo { key } => std::sync::Arc::new(
+                outbound::prices::Tiingo::new(outbound::prices::Tiingo::URL, key.expose(), timeout)
+                    .map_err(|e| format!("tiingo: {e}"))?,
+            ),
+            config::PriceSource::Ecb => std::sync::Arc::new(
+                outbound::prices::Ecb::new(outbound::prices::Ecb::URL, timeout)
+                    .map_err(|e| format!("ecb: {e}"))?,
+            ),
+        });
+    }
+    let pricing = api::Pricing::new(price_sources, config.prices.fresh_days);
+    for name in &config.prices.unkeyed {
+        tracing::info!(source = name, "price source off: no key");
+    }
+    tracing::info!(sources = pricing.names().join(","), "price sources");
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(bind = %config.bind, "listening");
     let state = api::AppState {
@@ -132,7 +151,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         zone: config.zone,
         suggestions: api::Suggestions::new(config.local_ai.as_deref().and_then(heuristics::method))
             .with_remote(remote),
-        pricing: api::Pricing::default(),
+        pricing,
     };
     let app = match &config.web_dir {
         Some(dir) => api::app_with_web(state, dir),

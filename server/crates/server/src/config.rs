@@ -16,7 +16,7 @@ const SECRETS: [&str; 4] = [
     "DB_PASSWORD",
     "BOOTSTRAP_TOKEN",
     "REMOTE_AI_KEY",
-    "PRICE_API_KEY",
+    "TIINGO_API_KEY",
 ];
 
 /// `openssl rand -base64 32` gives 44 characters.
@@ -75,6 +75,29 @@ pub struct Config {
     /// Remote AI (design §8), when its endpoint, deployment and key are all
     /// given; none of them, no remote AI.
     pub remote_ai: Option<RemoteAi>,
+    pub prices: PriceConfig,
+}
+
+/// Price sources (design §3.4).
+#[derive(Debug)]
+pub struct PriceConfig {
+    /// `EXCHEQUER_PRICE_SOURCES`: names in order, default `tiingo,ecb`;
+    /// `off` for none. A source whose key isn't given sits out.
+    pub sources: Vec<PriceSource>,
+    /// Listed but without their key: they sit out.
+    pub unkeyed: Vec<&'static str>,
+    /// `EXCHEQUER_PRICE_FRESH_DAYS`: a price at most this many days older
+    /// than the date asked is fresh, default 5.
+    pub fresh_days: u32,
+}
+
+#[derive(Debug)]
+pub enum PriceSource {
+    /// `TIINGO_API_KEY_FILE`.
+    Tiingo {
+        key: Secret,
+    },
+    Ecb,
 }
 
 /// A decision model on Azure AI Foundry.
@@ -190,6 +213,48 @@ impl Config {
             (_, None, _) => return Err(ConfigError::Missing("EXCHEQUER_REMOTE_AI_DEPLOYMENT")),
             (_, _, None) => return Err(ConfigError::Missing("REMOTE_AI_KEY_FILE")),
         };
+        let mut price_sources = Vec::new();
+        let mut unkeyed = Vec::new();
+        let names = parsed("EXCHEQUER_PRICE_SOURCES", "tiingo,ecb")?;
+        if names != "off" {
+            let mut seen = Vec::new();
+            for name in names.split(',').map(str::trim) {
+                if seen.contains(&name) {
+                    return Err(ConfigError::Invalid {
+                        name: "EXCHEQUER_PRICE_SOURCES",
+                        value: names.clone(),
+                    });
+                }
+                seen.push(name);
+                match name {
+                    "tiingo" => match secret("TIINGO_API_KEY")? {
+                        Some(key) => price_sources.push(PriceSource::Tiingo { key }),
+                        None => unkeyed.push("tiingo"),
+                    },
+                    "ecb" => price_sources.push(PriceSource::Ecb),
+                    _ => {
+                        return Err(ConfigError::Invalid {
+                            name: "EXCHEQUER_PRICE_SOURCES",
+                            value: names.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        let fresh_days = parsed("EXCHEQUER_PRICE_FRESH_DAYS", "5")?;
+        let prices = PriceConfig {
+            sources: price_sources,
+            unkeyed,
+            fresh_days: match fresh_days.parse() {
+                Ok(n @ 0..=31) => n,
+                _ => {
+                    return Err(ConfigError::Invalid {
+                        name: "EXCHEQUER_PRICE_FRESH_DAYS",
+                        value: fresh_days,
+                    });
+                }
+            },
+        };
         let bind = parsed("EXCHEQUER_BIND", DEFAULT_BIND)?;
         let port = parsed("DB_PORT", "5432")?;
         Ok(Self {
@@ -240,6 +305,7 @@ impl Config {
                 None => heuristics::METHODS.first().map(|m| m.id()),
             },
             remote_ai,
+            prices,
         })
     }
 }
@@ -273,6 +339,55 @@ mod tests {
         assert!(c.web_dir.is_none());
         assert_eq!(c.local_ai.as_deref(), Some("lexical-knn-v2"));
         assert!(c.remote_ai.is_none());
+        // Tiingo sits out without its key.
+        assert!(matches!(c.prices.sources[..], [PriceSource::Ecb]));
+        assert_eq!(c.prices.unkeyed, ["tiingo"]);
+        assert_eq!(c.prices.fresh_days, 5);
+    }
+
+    #[test]
+    fn price_sources() {
+        let dir = std::env::temp_dir().join(format!("exchequer-prices-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("key");
+        std::fs::write(&file, "t1ingo\n").unwrap();
+        let path = file.to_str().unwrap().to_owned();
+        let with = |extra: &[(&'static str, &str)]| {
+            let mut vars = DB.to_vec();
+            vars.extend_from_slice(extra);
+            config(&vars)
+        };
+        let c = with(&[("TIINGO_API_KEY_FILE", &path)]).unwrap();
+        match &c.prices.sources[..] {
+            [PriceSource::Tiingo { key }, PriceSource::Ecb] => assert_eq!(key.expose(), "t1ingo"),
+            other => panic!("{other:?}"),
+        }
+        let c = with(&[
+            ("TIINGO_API_KEY_FILE", &path),
+            ("EXCHEQUER_PRICE_SOURCES", "ecb, tiingo"),
+        ])
+        .unwrap();
+        assert!(matches!(
+            c.prices.sources[..],
+            [PriceSource::Ecb, PriceSource::Tiingo { .. }]
+        ));
+        let c = with(&[("EXCHEQUER_PRICE_SOURCES", "off")]).unwrap();
+        assert!(c.prices.sources.is_empty() && c.prices.unkeyed.is_empty());
+        for bad in ["yahoo", "ecb,ecb", ""] {
+            assert!(
+                matches!(
+                    with(&[("EXCHEQUER_PRICE_SOURCES", bad)]),
+                    Err(ConfigError::Invalid { .. })
+                ),
+                "{bad}"
+            );
+        }
+        assert!(matches!(
+            with(&[("TIINGO_API_KEY", "plain")]),
+            Err(ConfigError::PlainSecret("TIINGO_API_KEY"))
+        ));
+        assert!(with(&[("EXCHEQUER_PRICE_FRESH_DAYS", "40")]).is_err());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

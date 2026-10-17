@@ -179,8 +179,28 @@ from conversion splits after the fact, without a schema change.
    latest stored price and marks the figure stale. Outages degrade answers, never fail them.
 5. `POST /prices/refresh` forces a fetch.
 
-The provider is pluggable and should cover FX plus US equities and funds. Its API key is a
-podman secret (§14.1). Manual prices always win over fetched ones.
+**Sources** are pluggable and tried in order, each a `PriceSource` behind one interface
+(how it would value a pair, and a batch fetch of pairs × dates), so a source can be added,
+replaced or dropped without touching valuation:
+
+1. **Tiingo** (primary): end-of-day closes for US stocks, ETFs and mutual funds (in USD),
+   and FX. Its API key is the `exchequer_tiingo_api_key` podman secret (§14.1); without
+   it, Tiingo sits out.
+2. **ECB reference rates** (backup, FX only): official daily rates of about 30 currencies
+   against the euro; public, no key. Any other pair is two of them chained through EUR, so
+   EUR must be a commodity for that.
+
+A price is asked of the next source when one doesn't cover the pair, fails, is
+rate-limited or has nothing; the first that answers is recorded (`provider:<name>`), so a
+source's prices outlive it. A source isn't asked for the same pair again within an hour
+(a ticker it doesn't know would otherwise cost a request on every page), except by
+`POST /prices/refresh`. Only commodity codes and dates are sent.
+
+A source that needs a key has its own secret, `exchequer_<source>_api_key`, read as
+`<SOURCE>_API_KEY_FILE`; adding a source adds a secret, never a shared one. Which sources
+run, and in which order, is configuration (`EXCHEQUER_PRICE_SOURCES`, default
+`tiingo,ecb`; `off` for none), as is freshness (`EXCHEQUER_PRICE_FRESH_DAYS`, default 5).
+Manual prices always win over fetched ones.
 
 ### 3.5 Numbers: no floating point
 
@@ -739,14 +759,14 @@ secrets**, generated on the host once and handed to containers as files under
 | `exchequer_db_password` | db (sets it), api (connects), backup (dumps) |
 | `exchequer_bootstrap_token` | api (first admin token, §10) |
 | `exchequer_remote_ai_key` | api (optional: remote AI, §8) |
-| `exchequer_price_api_key` | api (§3.4) |
+| `exchequer_tiingo_api_key` | api (optional: the Tiingo price source, §3.4); each keyed price source has its own, `exchequer_<source>_api_key` |
 | `exchequer_azure_backup_sas` | backup unit, offsite step (optional, §14.2) |
 
 ```bash
 openssl rand -base64 32 | tr -d '\n' | podman secret create exchequer_db_password -
 openssl rand -base64 32 | tr -d '\n' | podman secret create exchequer_bootstrap_token -
 podman secret create exchequer_remote_ai_key -   # pasted once, reads stdin
-podman secret create exchequer_price_api_key -
+podman secret create exchequer_tiingo_api_key -
 ```
 
 ```ini
@@ -815,7 +835,7 @@ boundary, so each side uses the language that suits it.
 | `rules` | Embedded Rhai engine: compile, validate, run the stored script as a `suggest::Suggester` (§8) | `rhai` (`no_float`, `only_i64`, `sync`), `suggest` |
 | `api` | HTTP handlers, auth middleware, OpenAPI generation | `axum`, `tokio`, `utoipa`, `utoipa-axum`, `serde`, `tracing` |
 | `remote` | Remote AI: the decision model as a `suggest::Suggester`, its questions and what it's shown (§8) | `outbound`, `suggest`, `heuristics` (normalization) |
-| `outbound` | Outbound clients (the decision model; prices later); the only place data leaves the server | `ureq` (blocking, rustls with ring, bundled roots) |
+| `outbound` | Outbound clients (the decision model, price sources); the only place data leaves the server | `ureq` (blocking, rustls with ring, bundled roots) |
 | `server` | The binary: configuration, wiring, startup migrations | — |
 
 - **OpenAPI:** `utoipa-axum` registers each route together with its spec entry. The spec is
@@ -969,6 +989,7 @@ The components are independent behind the API contract, but they have a natural 
 | 22 | Repo hygiene | Conventions only: fictional examples, synthetic fixtures, push protection | §16.3 |
 | 23 | PII at runtime | `AccountNumber` masking, no bodies in logs; remote AI gets features, not identifiers | §3.6 |
 | 24 | Name | Exchequer: originally the treasury of the royal household | — |
+| 25 | Price sources | Tiingo first, ECB reference rates as the FX backup; pluggable and configured, so either can be replaced. One price before a chain | §3.4 |
 
 ### Open
 

@@ -37,6 +37,10 @@ Environment=BOOTSTRAP_TOKEN_FILE=/run/secrets/exchequer_bootstrap_token
 #Environment=EXCHEQUER_REMOTE_AI_ENDPOINT=https://<resource>.services.ai.azure.com
 #Environment=EXCHEQUER_REMOTE_AI_DEPLOYMENT=<deployment name>
 #Environment=REMOTE_AI_KEY_FILE=/run/secrets/exchequer_remote_ai_key
+# Optional: Tiingo, the first price source (design §3.4); without its key, the
+# ECB's reference rates (no key) are the only one.
+#Secret=exchequer_tiingo_api_key
+#Environment=TIINGO_API_KEY_FILE=/run/secrets/exchequer_tiingo_api_key
 
 [Service]
 Restart=on-failure

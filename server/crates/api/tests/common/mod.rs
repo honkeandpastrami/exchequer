@@ -37,6 +37,7 @@ pub struct Call<'a> {
     body: Option<Value>,
     bytes: Option<Vec<u8>>,
     suggestions: Option<api::Suggestions>,
+    pricing: Option<api::Pricing>,
 }
 
 pub fn call<'a>(pool: &'a PgPool, method: &'a str, path: impl Into<String>) -> Call<'a> {
@@ -48,6 +49,7 @@ pub fn call<'a>(pool: &'a PgPool, method: &'a str, path: impl Into<String>) -> C
         body: None,
         bytes: None,
         suggestions: None,
+        pricing: None,
     }
 }
 
@@ -78,6 +80,12 @@ impl Call<'_> {
         self
     }
 
+    /// Price sources (by default, none).
+    pub fn pricing(mut self, p: api::Pricing) -> Self {
+        self.pricing = Some(p);
+        self
+    }
+
     /// A raw body, e.g. an uploaded file.
     pub fn bytes(mut self, body: impl Into<Vec<u8>>) -> Self {
         self.bytes = Some(body.into());
@@ -90,7 +98,7 @@ impl Call<'_> {
             bootstrap_token: Some(BOOTSTRAP.into()),
             zone: jiff::tz::TimeZone::get("America/New_York").unwrap(),
             suggestions: self.suggestions.unwrap_or_default(),
-            pricing: api::Pricing::default(),
+            pricing: self.pricing.unwrap_or_default(),
         });
         let mut req = Request::builder().method(self.method).uri(&self.path);
         for (k, v) in &self.headers {
