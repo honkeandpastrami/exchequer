@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
+from uuid import UUID
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
+
+from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.account_balance import AccountBalance
@@ -20,10 +23,12 @@ class Balances:
     Attributes:
         balances (list[AccountBalance]): Every account and commodity whose balance on the date isn't zero.
         date (datetime.date):
+        value_in_id (None | Unset | UUID): The commodity values are in, when asked.
     """
 
     balances: list[AccountBalance]
     date: datetime.date
+    value_in_id: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -34,6 +39,14 @@ class Balances:
 
         date = self.date.isoformat()
 
+        value_in_id: None | str | Unset
+        if isinstance(self.value_in_id, Unset):
+            value_in_id = UNSET
+        elif isinstance(self.value_in_id, UUID):
+            value_in_id = str(self.value_in_id)
+        else:
+            value_in_id = self.value_in_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -42,6 +55,8 @@ class Balances:
                 "date": date,
             }
         )
+        if value_in_id is not UNSET:
+            field_dict["value_in_id"] = value_in_id
 
         return field_dict
 
@@ -59,9 +74,27 @@ class Balances:
 
         date = datetime.date.fromisoformat(d.pop("date"))
 
+        def _parse_value_in_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                value_in_id_type_0 = UUID(data)
+
+                return value_in_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        value_in_id = _parse_value_in_id(d.pop("value_in_id", UNSET))
+
         balances = cls(
             balances=balances,
             date=date,
+            value_in_id=value_in_id,
         )
 
         balances.additional_properties = d

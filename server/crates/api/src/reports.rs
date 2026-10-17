@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use axum::extract::State;
-use domain::{Amount, Month};
+use domain::{Amount, CommodityId, Month};
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use time::Date;
@@ -15,6 +15,8 @@ use utoipa_axum::routes;
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::prices::ValuationOut;
+use crate::pricing::Need;
 use crate::problem::{Path, Problem, Query};
 use crate::query::{GroupBy, KindName, Measure, QueryRequest, Row, run};
 use crate::settlements::{compute, household, money};
@@ -30,6 +32,10 @@ pub fn routes() -> OpenApiRouter<AppState> {
 pub struct BalancesParams {
     /// Balances at the end of this day.
     date: Date,
+    /// A commodity code (`USD`): each balance's value in it, too.
+    value_in: Option<String>,
+    /// The day whose prices value them. Default: `date`.
+    price_date: Option<Date>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -39,16 +45,28 @@ pub struct AccountBalance {
     /// At the commodity's precision.
     #[schema(value_type = String)]
     balance: Amount,
+    /// With `value_in`: the balance's value in it, at its precision.
+    /// Absent when no price connects them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>)]
+    value: Option<Amount>,
+    /// The price that valued it, for a balance in another commodity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    valuation: Option<ValuationOut>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Balances {
     date: Date,
+    /// The commodity values are in, when asked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value_in_id: Option<Uuid>,
     /// Every account and commodity whose balance on the date isn't zero.
     balances: Vec<AccountBalance>,
 }
 
-/// Each account's balance in each commodity at the end of a day.
+/// Each account's balance in each commodity at the end of a day, and with
+/// `value_in`, its value at prices (fetched if missing).
 #[utoipa::path(get, path = "/reports/balances", tag = "reports", security(("bearer" = [])),
     params(BalancesParams),
     responses((status = OK, body = Balances),
@@ -68,16 +86,60 @@ async fn balances(
         },
     )
     .await?;
+    let mut balances: Vec<AccountBalance> = rows
+        .into_iter()
+        .map(|r| AccountBalance {
+            account_id: r.account_id.unwrap_or_default(),
+            commodity_id: r.commodity_id,
+            balance: r.amount,
+            value: None,
+            valuation: None,
+        })
+        .collect();
+    let mut value_in_id = None;
+    if let Some(code) = &p.value_in {
+        let target = store::commodities::by_code(&mut *conn, code)
+            .await?
+            .ok_or_else(|| Problem::invalid(format!("no commodity {code}")))?;
+        let scale = u32::try_from(target.precision).map_err(|_| Problem::internal())?;
+        let date = p.price_date.unwrap_or(p.date);
+        let needs: Vec<Need> = balances
+            .iter()
+            .map(|b| Need {
+                from: b.commodity_id,
+                to: target.id,
+                date,
+            })
+            .collect();
+        let loaded = state
+            .pricing
+            .load(&mut conn, state.today(), &needs, false)
+            .await?;
+        for b in &mut balances {
+            if b.commodity_id == target.id {
+                b.value = Some(b.balance);
+                continue;
+            }
+            let Some(v) = loaded.prices.value(
+                CommodityId::from_uuid(b.commodity_id),
+                CommodityId::from_uuid(target.id),
+                date,
+            ) else {
+                continue;
+            };
+            b.value = Some(
+                v.rate
+                    .convert(b.balance, scale)
+                    .map_err(|_| Problem::internal())?,
+            );
+            b.valuation = Some(ValuationOut::new(&v, &loaded.rows));
+        }
+        value_in_id = Some(target.id);
+    }
     Ok(axum::Json(Balances {
         date: p.date,
-        balances: rows
-            .into_iter()
-            .map(|r| AccountBalance {
-                account_id: r.account_id.unwrap_or_default(),
-                commodity_id: r.commodity_id,
-                balance: r.amount,
-            })
-            .collect(),
+        value_in_id,
+        balances,
     }))
 }
 
@@ -95,8 +157,10 @@ pub struct PartyAmount {
     amount: Amount,
 }
 
-/// The household's month (design §4.3), in USD. Amounts in other
-/// commodities aren't included until prices exist.
+/// The household's month (design §4.3), in USD. Income, expenses,
+/// liquidations and savings count only amounts in USD; stipends and business
+/// funding come from the settlement, which values other commodities at
+/// prices.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct HouseholdPool {
     #[schema(value_type = String, example = "2026-06")]
@@ -183,7 +247,7 @@ async fn household_pool(
         .filter(|a| a.liquid && a.owner_id == household_id)
         .map(|a| a.id)
         .collect();
-    let c = compute(db, month).await?;
+    let c = compute(db, &state.pricing, state.today(), month).await?;
     let m = |a: Amount| money(a, c.scale);
     let liquidations = if liquid.is_empty() {
         Amount::ZERO

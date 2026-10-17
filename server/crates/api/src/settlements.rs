@@ -30,6 +30,8 @@ use crate::auth::Principal;
 use crate::common::audit;
 use crate::conventions::{IfMatch, etag};
 use crate::ledger::{book_for, party};
+use crate::prices::ValuationOut;
+use crate::pricing::{Need, Pricing};
 use crate::problem::{Json, Path, Problem, Query};
 use crate::transactions::{domain_split, new_split_from_row};
 
@@ -146,6 +148,9 @@ pub struct Line {
     kind: LineKind,
     #[schema(value_type = String)]
     amount: Amount,
+    /// For a split with no leg in USD: the price that valued it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    valuation: Option<ValuationOut>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -158,6 +163,9 @@ pub struct InTransit {
     /// The payment that cleared it by the end of the month.
     #[serde(skip_serializing_if = "Option::is_none")]
     cleared_by: Option<SplitPointer>,
+    /// For a split with no leg in USD: the price that valued it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    valuation: Option<ValuationOut>,
 }
 
 /// One edge of the settlement tree (a child and its parent) for one month.
@@ -199,8 +207,8 @@ pub struct Edge {
     lines: Option<Vec<Line>>,
 }
 
-/// A split the settlement couldn't value: neither leg is in USD (prices come
-/// later).
+/// A split the settlement couldn't value: neither leg is in USD, and no
+/// price connects its commodity to USD.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Unpriced {
     #[serde(flatten)]
@@ -342,11 +350,19 @@ pub(crate) struct Computed {
     pub(crate) scale: u32,
     pub(crate) settlement: ds::Settlement,
     unpriced: Vec<(SplitRef, Date)>,
+    /// Splits with no leg in USD, valued at a price.
+    valued: HashMap<SplitRef, ValuationOut>,
     closed: HashSet<Month>,
 }
 
-/// Every settlement item in the ledger, routed through `through`.
-pub(crate) async fn compute(db: &mut PgConnection, through: Month) -> Result<Computed, Problem> {
+/// Every settlement item in the ledger, routed through `through`. A split
+/// with no leg in USD is valued at its date's price (fetched if missing).
+pub(crate) async fn compute(
+    db: &mut PgConnection,
+    pricing: &Pricing,
+    today: Date,
+    through: Month,
+) -> Result<Computed, Problem> {
     let (household, currency) = household(db).await?;
     let scale = currency_scale(db, currency).await?;
     let parties = store::parties::all(&mut *db)
@@ -365,24 +381,57 @@ pub(crate) async fn compute(db: &mut PgConnection, through: Month) -> Result<Com
     let book = book_for(db, &splits).await?;
 
     let mut items = Vec::new();
-    let mut unpriced = Vec::new();
+    // Items with no leg in USD, and the leg to value.
+    let mut pending = Vec::new();
     for (row, split) in rows.iter().zip(&splits) {
         let source = SplitRef {
             transaction: TransactionId::from_uuid(row.split.transaction_id),
             position: usize::try_from(row.split.position).map_err(|_| Problem::internal())?,
         };
         let classified = split.classify(&book).map_err(|_| Problem::internal())?;
-        match ds::effect(split, &classified, &book, household, currency) {
-            Ok(None) => {}
-            Ok(Some((effect, amount))) => items.push(Item {
-                source,
-                date: row.date,
-                effect,
-                amount,
-                settles: split.settles,
-            }),
-            Err(SettlementError::Unpriced) => unpriced.push((source, row.date)),
+        let Some(effect) = ds::what(split, &classified, &book, household) else {
+            continue;
+        };
+        let item = |amount| Item {
+            source,
+            date: row.date,
+            effect,
+            amount,
+            settles: split.settles,
+        };
+        match ds::value(split, &book, currency) {
+            Ok(amount) => items.push(item(amount)),
+            Err(SettlementError::Unpriced) => {
+                pending.push((item(Amount::ZERO), ds::valued_leg(split, &book).clone()));
+            }
             Err(_) => return Err(Problem::internal()),
+        }
+    }
+
+    let mut unpriced = Vec::new();
+    let mut valued = HashMap::new();
+    if !pending.is_empty() {
+        let needs: Vec<Need> = pending
+            .iter()
+            .map(|(item, leg)| Need {
+                from: *leg.commodity.as_uuid(),
+                to: *currency.as_uuid(),
+                date: item.date,
+            })
+            .collect();
+        let loaded = pricing.load(db, today, &needs, false).await?;
+        for (mut item, leg) in pending {
+            match loaded.prices.value(leg.commodity, currency, item.date) {
+                Some(v) => {
+                    item.amount = v
+                        .rate
+                        .convert(leg.quantity, scale)
+                        .map_err(|_| Problem::internal())?;
+                    valued.insert(item.source, ValuationOut::new(&v, &loaded.rows));
+                    items.push(item);
+                }
+                None => unpriced.push((item.source, item.date)),
+            }
         }
     }
 
@@ -404,6 +453,7 @@ pub(crate) async fn compute(db: &mut PgConnection, through: Month) -> Result<Com
         scale,
         settlement,
         unpriced,
+        valued,
         closed,
     })
 }
@@ -456,6 +506,7 @@ fn statement_out(c: &Computed, month: Month, with_lines: bool) -> Result<Stateme
                             date: t.date,
                             amount: m(t.amount),
                             cleared_by: t.cleared_by.map(Into::into),
+                            valuation: c.valued.get(&t.source).cloned(),
                         })
                         .collect(),
                 ),
@@ -467,6 +518,7 @@ fn statement_out(c: &Computed, month: Month, with_lines: bool) -> Result<Stateme
                             date: l.date,
                             kind: l.kind.into(),
                             amount: m(l.amount),
+                            valuation: c.valued.get(&l.source).cloned(),
                         })
                         .collect()
                 }),
@@ -618,7 +670,7 @@ async fn history(
         return Err(Problem::invalid("`from` is after `to`"));
     }
     let mut conn = state.pool.acquire().await?;
-    let c = compute(&mut conn, p.to).await?;
+    let c = compute(&mut conn, &state.pricing, state.today(), p.to).await?;
     let mut out = Vec::new();
     for m in months {
         let mut st = statement_out(&c, m, false)?;
@@ -708,7 +760,7 @@ async fn statement(
     Path(month): Path<Month>,
 ) -> Result<axum::Json<Statement>, Problem> {
     let mut conn = state.pool.acquire().await?;
-    let c = compute(&mut conn, month).await?;
+    let c = compute(&mut conn, &state.pricing, state.today(), month).await?;
     let mut st = statement_out(&c, month, true)?;
     st.unpriced = unpriced_out(&c, month);
     Ok(axum::Json(st))

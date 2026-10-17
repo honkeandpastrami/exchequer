@@ -301,7 +301,9 @@ data through side channels:
 ### 4.2 What creates a claim between parties
 
 Every value is in USD, the settlement currency, **at the transaction's own date** (§3.4),
-computed in `Decimal` (§3.5).
+computed in `Decimal` (§3.5). A split with a leg in USD is worth that leg; one without is
+its account leg valued at that day's price, and the statement line shows which price. A
+split no price connects to USD is listed as unpriced and left out.
 
 | Event | Example | Claim |
 |---|---|---|

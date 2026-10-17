@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 from uuid import UUID
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..models.line_kind import LineKind
+from ..types import UNSET, Unset
+
+if TYPE_CHECKING:
+    from ..models.valuation_out import ValuationOut
+
 
 T = TypeVar("T", bound="Line")
 
@@ -23,6 +28,7 @@ class Line:
         amount (str):
         date (datetime.date):
         kind (LineKind):
+        valuation (None | Unset | ValuationOut):
     """
 
     position: int
@@ -30,9 +36,12 @@ class Line:
     amount: str
     date: datetime.date
     kind: LineKind
+    valuation: None | Unset | ValuationOut = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.valuation_out import ValuationOut  # noqa: PLC0415
+
         position = self.position
 
         transaction_id = str(self.transaction_id)
@@ -42,6 +51,14 @@ class Line:
         date = self.date.isoformat()
 
         kind = self.kind.value
+
+        valuation: dict[str, Any] | None | Unset
+        if isinstance(self.valuation, Unset):
+            valuation = UNSET
+        elif isinstance(self.valuation, ValuationOut):
+            valuation = self.valuation.to_dict()
+        else:
+            valuation = self.valuation
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -54,11 +71,15 @@ class Line:
                 "kind": kind,
             }
         )
+        if valuation is not UNSET:
+            field_dict["valuation"] = valuation
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.valuation_out import ValuationOut  # noqa: PLC0415
+
         d = dict(src_dict)
         position = d.pop("position")
 
@@ -70,12 +91,30 @@ class Line:
 
         kind = LineKind(d.pop("kind"))
 
+        def _parse_valuation(data: object) -> None | Unset | ValuationOut:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                valuation_type_0 = ValuationOut.from_dict(data)
+
+                return valuation_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | ValuationOut, data)
+
+        valuation = _parse_valuation(d.pop("valuation", UNSET))
+
         line = cls(
             position=position,
             transaction_id=transaction_id,
             amount=amount,
             date=date,
             kind=kind,
+            valuation=valuation,
         )
 
         line.additional_properties = d

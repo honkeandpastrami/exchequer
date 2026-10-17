@@ -13,8 +13,8 @@ T = TypeVar("T", bound="Unpriced")
 
 @_attrs_define
 class Unpriced:
-    """A split the settlement couldn't value: neither leg is in USD (prices come
-    later).
+    """A split the settlement couldn't value: neither leg is in USD, and no
+    price connects its commodity to USD.
 
         Attributes:
             position (int):

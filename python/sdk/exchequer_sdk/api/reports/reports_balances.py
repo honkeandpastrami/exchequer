@@ -8,18 +8,27 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.balances import Balances
 from ...models.problem import Problem
-from ...types import UNSET, Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     *,
     date: datetime.date,
+    value_in: str | Unset = UNSET,
+    price_date: datetime.date | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
 
     json_date = date.isoformat()
     params["date"] = json_date
+
+    params["value_in"] = value_in
+
+    json_price_date: str | Unset = UNSET
+    if not isinstance(price_date, Unset):
+        json_price_date = price_date.isoformat()
+    params["price_date"] = json_price_date
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -62,11 +71,16 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     date: datetime.date,
+    value_in: str | Unset = UNSET,
+    price_date: datetime.date | Unset = UNSET,
 ) -> Response[Balances | Problem]:
-    """Each account's balance in each commodity at the end of a day.
+    """Each account's balance in each commodity at the end of a day, and with
+    `value_in`, its value at prices (fetched if missing).
 
     Args:
         date (datetime.date):
+        value_in (str | Unset):
+        price_date (datetime.date | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -78,6 +92,8 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         date=date,
+        value_in=value_in,
+        price_date=price_date,
     )
 
     response = client.get_httpx_client().request(
@@ -91,11 +107,16 @@ def sync(
     *,
     client: AuthenticatedClient,
     date: datetime.date,
+    value_in: str | Unset = UNSET,
+    price_date: datetime.date | Unset = UNSET,
 ) -> Balances | Problem | None:
-    """Each account's balance in each commodity at the end of a day.
+    """Each account's balance in each commodity at the end of a day, and with
+    `value_in`, its value at prices (fetched if missing).
 
     Args:
         date (datetime.date):
+        value_in (str | Unset):
+        price_date (datetime.date | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -108,6 +129,8 @@ def sync(
     return sync_detailed(
         client=client,
         date=date,
+        value_in=value_in,
+        price_date=price_date,
     ).parsed
 
 
@@ -115,11 +138,16 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     date: datetime.date,
+    value_in: str | Unset = UNSET,
+    price_date: datetime.date | Unset = UNSET,
 ) -> Response[Balances | Problem]:
-    """Each account's balance in each commodity at the end of a day.
+    """Each account's balance in each commodity at the end of a day, and with
+    `value_in`, its value at prices (fetched if missing).
 
     Args:
         date (datetime.date):
+        value_in (str | Unset):
+        price_date (datetime.date | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -131,6 +159,8 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         date=date,
+        value_in=value_in,
+        price_date=price_date,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -142,11 +172,16 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     date: datetime.date,
+    value_in: str | Unset = UNSET,
+    price_date: datetime.date | Unset = UNSET,
 ) -> Balances | Problem | None:
-    """Each account's balance in each commodity at the end of a day.
+    """Each account's balance in each commodity at the end of a day, and with
+    `value_in`, its value at prices (fetched if missing).
 
     Args:
         date (datetime.date):
+        value_in (str | Unset):
+        price_date (datetime.date | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -160,5 +195,7 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             date=date,
+            value_in=value_in,
+            price_date=price_date,
         )
     ).parsed

@@ -3595,7 +3595,7 @@
         "tags": [
           "reports"
         ],
-        "summary": "Each account's balance in each commodity at the end of a day.",
+        "summary": "Each account's balance in each commodity at the end of a day, and with\n`value_in`, its value at prices (fetched if missing).",
         "operationId": "reports_balances",
         "parameters": [
           {
@@ -3603,6 +3603,25 @@
             "in": "query",
             "description": "Balances at the end of this day.",
             "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "value_in",
+            "in": "query",
+            "description": "A commodity code (`USD`): each balance's value in it, too.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "price_date",
+            "in": "query",
+            "description": "The day whose prices value them. Default: `date`.",
+            "required": false,
             "schema": {
               "type": "string",
               "format": "date"
@@ -5582,6 +5601,24 @@
           "commodity_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "valuation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ValuationOut",
+                "description": "The price that valued it, for a balance in another commodity."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "With `value_in`: the balance's value in it, at its precision.\nAbsent when no price connects them."
           }
         }
       },
@@ -5906,6 +5943,14 @@
           "date": {
             "type": "string",
             "format": "date"
+          },
+          "value_in_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The commodity values are in, when asked."
           }
         }
       },
@@ -6579,7 +6624,7 @@
       },
       "HouseholdPool": {
         "type": "object",
-        "description": "The household's month (design §4.3), in USD. Amounts in other\ncommodities aren't included until prices exist.",
+        "description": "The household's month (design §4.3), in USD. Income, expenses,\nliquidations and savings count only amounts in USD; stipends and business\nfunding come from the settlement, which values other commodities at\nprices.",
         "required": [
           "month",
           "currency_id",
@@ -6830,6 +6875,17 @@
               "date": {
                 "type": "string",
                 "format": "date"
+              },
+              "valuation": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ValuationOut",
+                    "description": "For a split with no leg in USD: the price that valued it."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             }
           }
@@ -7005,6 +7061,17 @@
               },
               "kind": {
                 "$ref": "#/components/schemas/LineKind"
+              },
+              "valuation": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ValuationOut",
+                    "description": "For a split with no leg in USD: the price that valued it."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             }
           }
@@ -9724,7 +9791,7 @@
             }
           }
         ],
-        "description": "A split the settlement couldn't value: neither leg is in USD (prices come\nlater)."
+        "description": "A split the settlement couldn't value: neither leg is in USD, and no\nprice connects its commodity to USD."
       },
       "ValuationOut": {
         "type": "object",

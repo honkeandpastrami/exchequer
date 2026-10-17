@@ -584,7 +584,10 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** Each account's balance in each commodity at the end of a day. */
+		/**
+		 * Each account's balance in each commodity at the end of a day, and with
+		 *     `value_in`, its value at prices (fetched if missing).
+		 */
 		get: operations['reports_balances'];
 		put?: never;
 		post?: never;
@@ -1017,6 +1020,12 @@ export interface components {
 			balance: string;
 			/** Format: uuid */
 			commodity_id: string;
+			valuation?: components['schemas']['ValuationOut'] | null;
+			/**
+			 * @description With `value_in`: the balance's value in it, at its precision.
+			 *     Absent when no price connects them.
+			 */
+			value?: string | null;
 		};
 		/**
 		 * @description Affects display only (sign convention, icon), never a split's kind.
@@ -1138,6 +1147,11 @@ export interface components {
 			balances: components['schemas']['AccountBalance'][];
 			/** Format: date */
 			date: string;
+			/**
+			 * Format: uuid
+			 * @description The commodity values are in, when asked.
+			 */
+			value_in_id?: string | null;
 		};
 		/**
 		 * Format: binary
@@ -1437,8 +1451,10 @@ export interface components {
 			unpriced: components['schemas']['Unpriced'][];
 		};
 		/**
-		 * @description The household's month (design §4.3), in USD. Amounts in other
-		 *     commodities aren't included until prices exist.
+		 * @description The household's month (design §4.3), in USD. Income, expenses,
+		 *     liquidations and savings count only amounts in USD; stipends and business
+		 *     funding come from the settlement, which values other commodities at
+		 *     prices.
 		 */
 		HouseholdPool: {
 			/** @description How much each business's net funding grew this month. */
@@ -1534,6 +1550,7 @@ export interface components {
 			cleared_by?: components['schemas']['SplitPointer'] | null;
 			/** Format: date */
 			date: string;
+			valuation?: components['schemas']['ValuationOut'] | null;
 		};
 		/**
 		 * @description Derived from who is on each side; never stored or entered.
@@ -1608,6 +1625,7 @@ export interface components {
 			/** Format: date */
 			date: string;
 			kind: components['schemas']['LineKind'];
+			valuation?: components['schemas']['ValuationOut'] | null;
 		};
 		/** @enum {string} */
 		LineKind: 'claim' | 'in_transit' | 'payment' | 'clearing';
@@ -2602,8 +2620,8 @@ export interface components {
 			statement: number;
 		};
 		/**
-		 * @description A split the settlement couldn't value: neither leg is in USD (prices come
-		 *     later).
+		 * @description A split the settlement couldn't value: neither leg is in USD, and no
+		 *     price connects its commodity to USD.
 		 */
 		Unpriced: components['schemas']['SplitPointer'] & {
 			/** Format: date */
@@ -4885,6 +4903,10 @@ export interface operations {
 			query: {
 				/** @description Balances at the end of this day. */
 				date: string;
+				/** @description A commodity code (`USD`): each balance's value in it, too. */
+				value_in?: string;
+				/** @description The day whose prices value them. Default: `date`. */
+				price_date?: string;
 			};
 			header?: never;
 			path?: never;

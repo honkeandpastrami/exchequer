@@ -17,8 +17,10 @@ T = TypeVar("T", bound="HouseholdPool")
 
 @_attrs_define
 class HouseholdPool:
-    """The household's month (design §4.3), in USD. Amounts in other
-    commodities aren't included until prices exist.
+    """The household's month (design §4.3), in USD. Income, expenses,
+    liquidations and savings count only amounts in USD; stipends and business
+    funding come from the settlement, which values other commodities at
+    prices.
 
         Attributes:
             business_funding (list[PartyAmount]): How much each business's net funding grew this month.

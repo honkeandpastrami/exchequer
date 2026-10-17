@@ -271,3 +271,95 @@ async fn missing_prices_are_fetched_in_source_order(pool: PgPool) {
     assert_eq!(r.body["errors"], json!(["first: rate-limited"]));
     assert_eq!(asked.lock().unwrap().len(), 3);
 }
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn settlement_and_balances_use_prices(pool: PgPool) {
+    let h = H::new(&pool).await;
+    let eur = fiat(&h, &pool, "EUR").await;
+    let euro_account = create(
+        &pool,
+        &h.t,
+        "/api/v1/accounts",
+        json!({ "name": "Alex Euro", "kind": "checking", "owner_id": h.alex }),
+    )
+    .await;
+    // Alex pays EUR 100 for the household.
+    let leg =
+        |side: (&str, &str)| json!({ side.0: side.1, "commodity_id": eur, "quantity": "100.00" });
+    let r = h
+        .send(
+            &pool,
+            "POST",
+            "/api/v1/transactions",
+            Some(
+                json!({ "date": "2026-06-05", "description": "x", "splits": [{
+                    "from": leg(("account_id", &euro_account)),
+                    "to": leg(("counterparty_id", &h.store)),
+                    "purpose_id": h.household,
+                }]}),
+            ),
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+
+    let statement = "/api/v1/settlements/2026-06/statement";
+    let st = h.send(&pool, "GET", statement, None).await;
+    assert_eq!(st.status, StatusCode::OK, "{}", st.body);
+    assert_eq!(st.body["unpriced"].as_array().unwrap().len(), 1);
+    let balances = "/api/v1/reports/balances?date=2026-06-30&value_in=USD";
+    let b = h.send(&pool, "GET", balances, None).await;
+    assert_eq!(b.status, StatusCode::OK, "{}", b.body);
+    let euro = |b: &Value| {
+        b["balances"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["account_id"] == json!(euro_account))
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(euro(&b.body)["balance"], "-100.00");
+    assert!(euro(&b.body).get("value").is_none(), "no price yet");
+
+    // A price on the day before: valued at it, and it says so.
+    let r = h
+        .send(
+            &pool,
+            "POST",
+            "/api/v1/prices",
+            Some(json!({ "base_id": eur, "quote_id": h.usd, "date": "2026-06-04", "rate": "1.1" })),
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    let st = h.send(&pool, "GET", statement, None).await;
+    assert!(
+        st.body["unpriced"].as_array().unwrap().is_empty(),
+        "{}",
+        st.body
+    );
+    let lines: Vec<Value> = st.body["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|e| e["lines"].as_array().unwrap().clone())
+        .collect();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    // The household owes Alex: from parent to child.
+    assert_eq!(lines[0]["amount"], "-110.00");
+    assert_eq!(lines[0]["valuation"]["rate"], "1.1");
+    assert_eq!(lines[0]["valuation"]["prices"][0]["source"], "manual");
+
+    let b = h.send(&pool, "GET", balances, None).await;
+    assert_eq!(b.body["value_in_id"], json!(h.usd));
+    assert_eq!(euro(&b.body)["value"], "-110.00");
+    assert_eq!(euro(&b.body)["valuation"]["stale"], true, "26 days old");
+    let usd_row = b.body["balances"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["commodity_id"] == json!(h.usd));
+    if let Some(row) = usd_row {
+        assert_eq!(row["value"], row["balance"]);
+        assert!(row.get("valuation").is_none());
+    }
+}

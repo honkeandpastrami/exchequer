@@ -13,7 +13,6 @@ use std::collections::{BTreeMap, HashMap};
 
 use time::Date;
 
-use crate::account::Account;
 use crate::amount::{Amount, NumberError};
 use crate::ids::{CommodityId, PartyId, TransactionId};
 use crate::month::Month;
@@ -44,7 +43,7 @@ pub enum Effect {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SettlementError {
-    /// Neither leg is in the settlement currency (USD), and prices don't exist yet.
+    /// Neither leg is in the settlement currency (USD).
     #[error("no value in the settlement currency (USD)")]
     Unpriced,
     #[error(transparent)]
@@ -63,17 +62,32 @@ pub fn effect(
     household: PartyId,
     currency: CommodityId,
 ) -> Result<Option<(Effect, Amount)>, SettlementError> {
+    let Some(effect) = what(split, classified, lookup, household) else {
+        return Ok(None);
+    };
+    Ok(Some((effect, value(split, lookup, currency)?)))
+}
+
+/// The split's settlement effect, or `None` when it moves nothing between
+/// parties.
+#[must_use]
+pub fn what(
+    split: &Split,
+    classified: &Classified,
+    lookup: &impl Lookup,
+    household: PartyId,
+) -> Option<Effect> {
     let account = |leg: &Leg| match leg.side {
         Side::Account(id) => lookup.account(id),
         Side::Counterparty(_) => None,
     };
     let (from, to) = (account(&split.from), account(&split.to));
 
-    let effect = match (classified.kind, from, to) {
+    Some(match (classified.kind, from, to) {
         (Kind::Expense, Some(a), None) | (Kind::Income, None, Some(a)) if a.liquid => {
             let purpose = split.purpose.unwrap_or(a.owner);
             if purpose == a.owner {
-                return Ok(None);
+                return None;
             }
             let (debtor, creditor) = if classified.kind == Kind::Expense {
                 (purpose, a.owner)
@@ -89,7 +103,7 @@ pub fn effect(
         (Kind::Transfer, Some(_), Some(b)) if classified.liquidation => {
             let purpose = split.purpose.unwrap_or(household);
             if purpose == b.owner {
-                return Ok(None);
+                return None;
             }
             Effect::Claim {
                 debtor: b.owner,
@@ -103,22 +117,33 @@ pub fn effect(
                 payee: b.owner,
             }
         }
-        _ => return Ok(None),
-    };
-    Ok(Some((effect, value(split, from, currency)?)))
+        _ => return None,
+    })
 }
 
-/// The split's value in `currency`: the leg on an account if it's in that
-/// currency (what the account was charged), else the other leg.
-fn value(
+/// The leg whose value counts: the one on an account (what the account was
+/// charged), the `from` leg if both are.
+#[must_use]
+pub fn valued_leg<'a>(split: &'a Split, lookup: &impl Lookup) -> &'a Leg {
+    match split.from.side {
+        Side::Account(id) if lookup.account(id).is_some() => &split.from,
+        _ => &split.to,
+    }
+}
+
+/// The split's value in `currency`: the [`valued_leg`] if it's in that
+/// currency, else the other leg. Neither is [`SettlementError::Unpriced`]:
+/// the caller may value the [`valued_leg`] at a price.
+pub fn value(
     split: &Split,
-    from: Option<&Account>,
+    lookup: &impl Lookup,
     currency: CommodityId,
 ) -> Result<Amount, SettlementError> {
-    let (first, second) = if from.is_some() {
-        (&split.from, &split.to)
+    let first = valued_leg(split, lookup);
+    let second = if std::ptr::eq(first, &split.from) {
+        &split.to
     } else {
-        (&split.to, &split.from)
+        &split.from
     };
     [first, second]
         .into_iter()
