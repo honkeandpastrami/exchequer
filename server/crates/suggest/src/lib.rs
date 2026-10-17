@@ -356,6 +356,9 @@ pub struct Row {
     pub facts: Facts,
     /// Its potential transfer matches, closest first.
     pub transfer_candidates: Vec<Candidate>,
+    /// The existing transaction it duplicates, if any: never evidence for
+    /// it, or every suggestion would echo the transaction it may replace.
+    pub duplicates: Option<Uuid>,
 }
 
 /// What kind of account a bank file says a statement is for.

@@ -121,6 +121,15 @@ struct Query<'a> {
     candidates: Vec<Uuid>,
     /// Only examples dated before this (calibration and backtests).
     before: Option<Date>,
+    /// Never this transaction: the one the row duplicates.
+    skip: Option<Uuid>,
+}
+
+impl Query<'_> {
+    /// Whether `e` may be evidence for this query.
+    fn sees(&self, e: &Ex) -> bool {
+        self.before.is_none_or(|b| e.date < b) && self.skip != Some(e.transaction)
+    }
 }
 
 /// Counts of a key's trigrams (with a space at each end) and words.
@@ -290,6 +299,7 @@ impl Model {
                 facts: Facts::default(),
                 candidates: self.candidates_of(i),
                 before: Some(e.date),
+                skip: None,
             };
             let (votes, aliases) = self.raw(&q);
             // A transfer's category and purpose don't apply.
@@ -360,6 +370,7 @@ impl Model {
                     facts: Facts::default(),
                     candidates: Vec::new(),
                     before: Some(month),
+                    skip: None,
                 })
                 .collect();
             if let Some((a, score, _)) = self.account_raw(kind, &queries) {
@@ -443,7 +454,7 @@ impl Model {
             .map(|i| (i, sims[i as usize]))
             .filter(|(i, s)| {
                 let e = &self.ex[*i as usize];
-                *s >= MIN_SIMILARITY && q.before.is_none_or(|b| e.date < b) && admit(e)
+                *s >= MIN_SIMILARITY && q.sees(e) && admit(e)
             })
             .map(|(i, s)| (i, s * s * self.context(&self.ex[i as usize], q)))
             .collect();
@@ -520,7 +531,7 @@ impl Model {
             .map(|v| {
                 v.iter()
                     .map(|i| &self.ex[*i as usize])
-                    .filter(|e| q.before.is_none_or(|b| e.date < b))
+                    .filter(|e| q.sees(e))
                     .collect()
             })
             .unwrap_or_default();
@@ -643,6 +654,7 @@ impl Model {
             facts: r.facts,
             candidates: r.transfer_candidates.iter().map(|c| c.account).collect(),
             before: None,
+            skip: r.duplicates,
         }
     }
 }
@@ -882,6 +894,7 @@ mod tests {
             raw: serde_json::Value::Null,
             facts: Facts::default(),
             transfer_candidates: Vec::new(),
+            duplicates: None,
         }
     }
 
@@ -901,6 +914,35 @@ mod tests {
             (purpose.value, purpose.confidence >= CONFIDENT),
             (Value::None, true)
         );
+    }
+
+    #[test]
+    fn a_duplicate_doesnt_echo_the_transaction_it_duplicates() {
+        // The ledger has the row already, unlabeled: the row may replace it.
+        let mut h = history();
+        let old = Uuid::from_u128(9999);
+        h.examples.push(Example {
+            transaction: old,
+            account: CARD,
+            date: date!(2026 - 01 - 10),
+            amount: Decimal::new(-463, 2),
+            description: "SQ *CORNER CAFE #0412 01/10".into(),
+            labels: Labels::default(),
+        });
+        let m = LexicalKnn.train(&h);
+        let mut r = row(Some(CARD), -463, "SQ *CORNER CAFE #0412 01/10");
+        let echoed = m.labels(std::slice::from_ref(&r))[0].counterparty.clone();
+        assert_eq!(
+            echoed.map(|g| g.value),
+            Some(Value::None),
+            "the old one wins"
+        );
+        r.duplicates = Some(old);
+        let p = &m.labels(std::slice::from_ref(&r))[0];
+        let cp = p.counterparty.as_ref().unwrap();
+        assert_eq!(cp.value, Value::Id(CAFE));
+        assert!(cp.confidence >= CONFIDENT, "{cp:?}");
+        assert!(!m.similar(&r, 5).contains(&old));
     }
 
     #[test]

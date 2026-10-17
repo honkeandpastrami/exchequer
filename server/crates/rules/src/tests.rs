@@ -42,6 +42,7 @@ fn row(account: Option<Uuid>, amount: &str, description: &str) -> Row {
         raw: serde_json::json!({ "Memo": "via app" }),
         facts: Facts::default(),
         transfer_candidates: Vec::new(),
+        duplicates: None,
     }
 }
 

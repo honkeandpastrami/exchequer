@@ -239,6 +239,7 @@ pub fn run_stack(
             facts: Facts::default(),
             // As if each period's rows were staged together.
             transfer_candidates: history.transfer_candidates(e),
+            duplicates: None,
         })
         .collect();
     let mut labels = scores();
@@ -287,6 +288,7 @@ pub fn run_stack(
         by_account.entry(e.account).or_default().push(Row {
             account: None,
             transfer_candidates: Vec::new(),
+            duplicates: None,
             ..r
         });
     }

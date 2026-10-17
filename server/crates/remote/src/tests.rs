@@ -191,6 +191,7 @@ fn row(description: &str, facts: Facts) -> Row {
         raw: serde_json::json!({ "Type": "Sale", "Card Member": "ALEX", "Reference": "998877665544" }),
         facts,
         transfer_candidates: Vec::new(),
+        duplicates: None,
     }
 }
 
@@ -409,6 +410,7 @@ fn context_shuffle(items: &mut [u32], seed: &str) {
             raw: serde_json::Value::Null,
             facts: Facts::default(),
             transfer_candidates: Vec::new(),
+            duplicates: None,
         },
         &[],
     );

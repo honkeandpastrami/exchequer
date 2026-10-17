@@ -213,6 +213,7 @@ fn guesses(method: &dyn suggest::Method, history: &History, start: Date, end: Da
             raw: Value::Null,
             facts: suggest::Facts::default(),
             transfer_candidates: history.transfer_candidates(e),
+            duplicates: None,
         })
         .collect();
     let picks = suggest::stack::labels(&[s.as_ref()], &rows, accounts);

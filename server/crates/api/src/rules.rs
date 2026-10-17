@@ -356,6 +356,7 @@ async fn dry_run(
                 raw: serde_json::Value::Null,
                 facts: Facts::default(),
                 transfer_candidates,
+                duplicates: None,
             };
             let mut item = DryRunRow {
                 transaction_id: e.transaction,

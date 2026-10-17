@@ -234,6 +234,7 @@ mod tests {
             raw: serde_json::Value::Null,
             facts,
             transfer_candidates: Vec::new(),
+            duplicates: None,
         }
     }
 

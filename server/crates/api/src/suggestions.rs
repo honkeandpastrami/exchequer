@@ -232,6 +232,7 @@ fn row(r: &RowRow, account: Option<Uuid>, transfer_candidates: Vec<Candidate>) -
         raw: r.raw.clone(),
         facts: facts(r),
         transfer_candidates,
+        duplicates: r.match_transaction_id,
     }
 }
 
