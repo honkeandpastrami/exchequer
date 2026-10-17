@@ -90,6 +90,7 @@ impl Call<'_> {
             bootstrap_token: Some(BOOTSTRAP.into()),
             zone: jiff::tz::TimeZone::get("America/New_York").unwrap(),
             suggestions: self.suggestions.unwrap_or_default(),
+            pricing: api::Pricing::default(),
         });
         let mut req = Request::builder().method(self.method).uri(&self.path);
         for (k, v) in &self.headers {

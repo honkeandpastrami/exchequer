@@ -150,8 +150,19 @@ from conversion splits after the fact, without a schema change.
 
 - Balances are stored and returned **in native commodities** first.
 - Any endpoint returning amounts accepts `?value_in=USD&price_date=…`. The server converts
-  using the most recent price on or before the date, via direct or inverse rates and, if
-  needed, one hop through a pivot currency.
+  using the most recent price on or before the date. A figure comes from **one price** (or
+  its inverse) whenever one exists: sources disagree, and chaining two can compound the
+  disagreement. Choosing among prices:
+  1. **Fresh before stale:** a price at most a few days (configurable, default 5) older
+     than the date beats any older one; only when nothing is fresh is the newest older
+     figure used, marked stale.
+  2. **Direct before derived:** one price beats a chain of two through a pivot commodity
+     (GBP→EUR→USD), and a chain within one source (one publication) beats one mixing
+     sources. A chain is a backup, and a derived figure says so.
+  3. **Source order:** manual prices first, then the configured sources in order, then
+     sources no longer configured.
+
+  `GET /prices/value?from=GBP&to=USD&date=…` shows the choice for one pair.
 - Converted figures always state **which price and which date** were used, and flag missing
   or stale prices. The server never silently invents numbers.
 

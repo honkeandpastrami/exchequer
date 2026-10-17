@@ -9,6 +9,7 @@ use axum::Router;
 use axum::body::Body;
 use axum::extract::Request;
 use axum::http::Response;
+pub use prices::Pricing;
 use sqlx::PgPool;
 pub use suggestions::Suggestions;
 use tower_http::trace::TraceLayer;
@@ -30,6 +31,7 @@ mod import_batches;
 mod imports;
 mod ledger;
 mod parties;
+mod prices;
 pub mod problem;
 mod query;
 mod reports;
@@ -52,6 +54,8 @@ pub struct AppState {
     pub zone: jiff::tz::TimeZone,
     /// The suggestion stack (design §8).
     pub suggestions: Suggestions,
+    /// How valuations choose among prices (design §3.4).
+    pub pricing: Pricing,
 }
 
 impl AppState {
@@ -100,6 +104,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .merge(tokens::routes())
         .merge(parties::routes())
         .merge(commodities::routes())
+        .merge(prices::routes())
         .merge(accounts::routes())
         .merge(counterparties::routes())
         .merge(categories::routes())

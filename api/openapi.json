@@ -3067,6 +3067,437 @@
         ]
       }
     },
+    "/api/v1/prices": {
+      "get": {
+        "tags": [
+          "prices"
+        ],
+        "summary": "List prices, newest first.",
+        "operationId": "prices_list",
+        "parameters": [
+          {
+            "name": "commodity_id",
+            "in": "query",
+            "description": "Prices with this commodity on either side.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "`manual` or `provider:<name>`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Items per page (default 100, max 500).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "`next_cursor` from the previous page. Opaque.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_Price"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "prices"
+        ],
+        "summary": "Enter a price by hand. It wins over fetched ones (design §3.4).",
+        "operationId": "prices_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewPrice"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Price"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A manual price for that pair and day exists",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/prices/value": {
+      "get": {
+        "tags": [
+          "prices"
+        ],
+        "summary": "What one commodity was worth in another at the end of a day, from\nstored prices.",
+        "operationId": "prices_value",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "A commodity code (`VTI`).",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "A commodity code (`USD`).",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "description": "At the end of this day. Default: today in the server's time zone.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValuationOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No stored price connects them",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/prices/{id}": {
+      "get": {
+        "tags": [
+          "prices"
+        ],
+        "summary": "Get one price.",
+        "operationId": "prices_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Price"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "prices"
+        ],
+        "summary": "Delete a price. A fetched one may be fetched again when next needed.",
+        "operationId": "prices_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "prices"
+        ],
+        "summary": "Change a manual price's rate.",
+        "operationId": "prices_update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PriceUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Price"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A fetched price",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Precondition Required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/query": {
       "post": {
         "tags": [
@@ -6811,6 +7242,34 @@
         },
         "additionalProperties": false
       },
+      "NewPrice": {
+        "type": "object",
+        "required": [
+          "base_id",
+          "quote_id",
+          "date",
+          "rate"
+        ],
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "quote_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rate": {
+            "type": "string",
+            "example": "1.0842"
+          }
+        },
+        "additionalProperties": false
+      },
       "NewSplit": {
         "type": "object",
         "required": [
@@ -7399,6 +7858,75 @@
           }
         }
       },
+      "Page_Price": {
+        "type": "object",
+        "description": "One page of results.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "base_id",
+                "quote_id",
+                "date",
+                "rate",
+                "source",
+                "provisional",
+                "fetched_at"
+              ],
+              "properties": {
+                "base_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "date": {
+                  "type": "string",
+                  "format": "date",
+                  "description": "At the end of this day."
+                },
+                "fetched_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "When it was entered or fetched."
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "provisional": {
+                  "type": "boolean",
+                  "description": "For a day still in progress: replaced by the close once available."
+                },
+                "quote_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "rate": {
+                  "type": "string",
+                  "description": "`1 base = rate quote`.",
+                  "example": "1.0842"
+                },
+                "source": {
+                  "type": "string",
+                  "description": "`manual`, or `provider:<name>` (`provider:tiingo`, `provider:ecb`)."
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` to get the next page; absent on the last page."
+          }
+        }
+      },
       "Page_RuleVersion": {
         "type": "object",
         "description": "One page of results.",
@@ -7789,6 +8317,110 @@
           }
         },
         "additionalProperties": false
+      },
+      "Price": {
+        "type": "object",
+        "required": [
+          "id",
+          "base_id",
+          "quote_id",
+          "date",
+          "rate",
+          "source",
+          "provisional",
+          "fetched_at"
+        ],
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "At the end of this day."
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was entered or fetched."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provisional": {
+            "type": "boolean",
+            "description": "For a day still in progress: replaced by the close once available."
+          },
+          "quote_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rate": {
+            "type": "string",
+            "description": "`1 base = rate quote`.",
+            "example": "1.0842"
+          },
+          "source": {
+            "type": "string",
+            "description": "`manual`, or `provider:<name>` (`provider:tiingo`, `provider:ecb`)."
+          }
+        }
+      },
+      "PriceUpdate": {
+        "type": "object",
+        "required": [
+          "rate"
+        ],
+        "properties": {
+          "rate": {
+            "type": "string",
+            "example": "1.0842"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PriceUsed": {
+        "type": "object",
+        "description": "A stored price as a valuation used it.",
+        "required": [
+          "id",
+          "base_id",
+          "quote_id",
+          "date",
+          "rate",
+          "source",
+          "inverted"
+        ],
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "inverted": {
+            "type": "boolean",
+            "description": "Used as `1 quote = 1/rate base`."
+          },
+          "quote_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rate": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        }
       },
       "Problem": {
         "type": "object",
@@ -8989,6 +9621,43 @@
           }
         ],
         "description": "A split the settlement couldn't value: neither leg is in USD (prices come\nlater)."
+      },
+      "ValuationOut": {
+        "type": "object",
+        "description": "What one commodity was worth in another, and which prices say so.",
+        "required": [
+          "rate",
+          "prices",
+          "derived",
+          "stale",
+          "provisional"
+        ],
+        "properties": {
+          "derived": {
+            "type": "boolean",
+            "description": "Chained through another commodity, not one price."
+          },
+          "prices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PriceUsed"
+            },
+            "description": "One price, or two chained through a pivot commodity (`derived`)."
+          },
+          "provisional": {
+            "type": "boolean",
+            "description": "Uses a price for a day still in progress."
+          },
+          "rate": {
+            "type": "string",
+            "description": "`1 from = rate to`.",
+            "example": "312.45"
+          },
+          "stale": {
+            "type": "boolean",
+            "description": "No price close enough to the date: the newest older one was used."
+          }
+        }
       },
       "Version": {
         "type": "object",

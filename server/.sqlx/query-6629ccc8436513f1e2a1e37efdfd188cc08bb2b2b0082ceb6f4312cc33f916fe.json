@@ -1,0 +1,125 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO price (id, base_id, quote_id, date, rate, source, provisional)\n           VALUES ($1, $2, $3, $4, $5::text::numeric, $6, $7)\n           RETURNING id, base_id, quote_id, date, rate::text AS \"rate!\", source, provisional,\n                     fetched_at, version",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "price",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "base_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "price",
+            "name": "base_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "quote_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "price",
+            "name": "quote_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "date",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "price",
+            "name": "date"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "rate!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "source",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "price",
+            "name": "source"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "provisional",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "price",
+            "name": "provisional"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "fetched_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "price",
+            "name": "fetched_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "price",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Date",
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "6629ccc8436513f1e2a1e37efdfd188cc08bb2b2b0082ceb6f4312cc33f916fe"
+}

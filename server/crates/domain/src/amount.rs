@@ -180,6 +180,30 @@ impl Rate {
             self.0.inverse().with_scale_round(RATE_SCALE, ROUNDING),
         ))
     }
+
+    /// `1`: a commodity in itself.
+    #[must_use]
+    pub fn one() -> Self {
+        Self(BigDecimal::from(1))
+    }
+
+    /// Two rates chained (`A→B` then `B→C` is `A→C`), rounded once to
+    /// [`RATE_SCALE`].
+    #[must_use]
+    pub fn then(&self, next: &Self) -> Self {
+        Self((&self.0 * &next.0).with_scale_round(RATE_SCALE, ROUNDING))
+    }
+
+    #[must_use]
+    pub fn is_positive(&self) -> bool {
+        self.0 > BigDecimal::zero()
+    }
+
+    /// Decimal places, ignoring trailing zeros (`1.10` has 1).
+    #[must_use]
+    pub fn significant_scale(&self) -> i64 {
+        self.0.normalized().fractional_digit_count().max(0)
+    }
 }
 
 impl FromStr for Rate {
@@ -193,6 +217,29 @@ impl FromStr for Rate {
         BigDecimal::from_str(s)
             .map(Self)
             .map_err(|_| NumberError::Parse(s.to_owned()))
+    }
+}
+
+/// JSON: a string, like [`Amount`].
+impl serde::Serialize for Rate {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Rate {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = Rate;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a decimal number as a string, e.g. \"1.0842\"")
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Rate, E> {
+                v.parse().map_err(E::custom)
+            }
+        }
+        d.deserialize_str(Visitor)
     }
 }
 

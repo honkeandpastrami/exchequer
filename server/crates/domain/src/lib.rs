@@ -14,6 +14,7 @@ pub mod party;
 pub mod report;
 pub mod settlement;
 pub mod transaction;
+pub mod valuation;
 
 pub use account::{Account, AccountKind, Counterparty, SystemCounterparty};
 pub use account_number::AccountNumber;

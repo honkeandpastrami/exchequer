@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO price (id, base_id, quote_id, date, rate, source, provisional)\n         VALUES ($1, $2, $3, $4, $5::text::numeric, $6, $7)\n         ON CONFLICT (base_id, quote_id, source, date) DO UPDATE\n         SET rate = EXCLUDED.rate, provisional = EXCLUDED.provisional, fetched_at = now(),\n             version = price.version + 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Date",
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f1351c341fd04f8c70e4e3e54c074b8f8e0cb00cc80e7ec506768f1040cf7567"
+}

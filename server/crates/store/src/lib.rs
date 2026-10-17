@@ -24,6 +24,7 @@ pub mod idempotency;
 pub mod import_batches;
 pub mod imports;
 pub mod parties;
+pub mod prices;
 pub mod rules;
 pub mod settlements;
 pub mod tags;

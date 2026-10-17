@@ -132,6 +132,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         zone: config.zone,
         suggestions: api::Suggestions::new(config.local_ai.as_deref().and_then(heuristics::method))
             .with_remote(remote),
+        pricing: api::Pricing::default(),
     };
     let app = match &config.web_dir {
         Some(dir) => api::app_with_web(state, dir),

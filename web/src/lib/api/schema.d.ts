@@ -480,6 +480,63 @@ export interface paths {
 		patch: operations['parties_update'];
 		trace?: never;
 	};
+	'/api/v1/prices': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** List prices, newest first. */
+		get: operations['prices_list'];
+		put?: never;
+		/** Enter a price by hand. It wins over fetched ones (design §3.4). */
+		post: operations['prices_create'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/prices/value': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * What one commodity was worth in another at the end of a day, from
+		 *     stored prices.
+		 */
+		get: operations['prices_value'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/prices/{id}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Get one price. */
+		get: operations['prices_get'];
+		put?: never;
+		post?: never;
+		/** Delete a price. A fetched one may be fetched again when next needed. */
+		delete: operations['prices_delete'];
+		options?: never;
+		head?: never;
+		/** Change a manual price's rate. */
+		patch: operations['prices_update'];
+		trace?: never;
+	};
 	'/api/v1/query': {
 		parameters: {
 			query?: never;
@@ -1640,6 +1697,16 @@ export interface components {
 			kind: components['schemas']['PartyKind'];
 			name: string;
 		};
+		NewPrice: {
+			/** Format: uuid */
+			base_id: string;
+			/** Format: date */
+			date: string;
+			/** Format: uuid */
+			quote_id: string;
+			/** @example 1.0842 */
+			rate: string;
+		};
 		NewSplit: {
 			/**
 			 * Format: uuid
@@ -1845,6 +1912,38 @@ export interface components {
 			next_cursor?: string | null;
 		};
 		/** @description One page of results. */
+		Page_Price: {
+			items: {
+				/** Format: uuid */
+				base_id: string;
+				/**
+				 * Format: date
+				 * @description At the end of this day.
+				 */
+				date: string;
+				/**
+				 * Format: date-time
+				 * @description When it was entered or fetched.
+				 */
+				fetched_at: string;
+				/** Format: uuid */
+				id: string;
+				/** @description For a day still in progress: replaced by the close once available. */
+				provisional: boolean;
+				/** Format: uuid */
+				quote_id: string;
+				/**
+				 * @description `1 base = rate quote`.
+				 * @example 1.0842
+				 */
+				rate: string;
+				/** @description `manual`, or `provider:<name>` (`provider:tiingo`, `provider:ecb`). */
+				source: string;
+			}[];
+			/** @description Pass as `cursor` to get the next page; absent on the last page. */
+			next_cursor?: string | null;
+		};
+		/** @description One page of results. */
 		Page_RuleVersion: {
 			items: {
 				author?: string | null;
@@ -1976,6 +2075,52 @@ export interface components {
 		PartyKind: 'household' | 'person' | 'business';
 		PartyUpdate: {
 			name?: string | null;
+		};
+		Price: {
+			/** Format: uuid */
+			base_id: string;
+			/**
+			 * Format: date
+			 * @description At the end of this day.
+			 */
+			date: string;
+			/**
+			 * Format: date-time
+			 * @description When it was entered or fetched.
+			 */
+			fetched_at: string;
+			/** Format: uuid */
+			id: string;
+			/** @description For a day still in progress: replaced by the close once available. */
+			provisional: boolean;
+			/** Format: uuid */
+			quote_id: string;
+			/**
+			 * @description `1 base = rate quote`.
+			 * @example 1.0842
+			 */
+			rate: string;
+			/** @description `manual`, or `provider:<name>` (`provider:tiingo`, `provider:ecb`). */
+			source: string;
+		};
+		PriceUpdate: {
+			/** @example 1.0842 */
+			rate: string;
+		};
+		/** @description A stored price as a valuation used it. */
+		PriceUsed: {
+			/** Format: uuid */
+			base_id: string;
+			/** Format: date */
+			date: string;
+			/** Format: uuid */
+			id: string;
+			/** @description Used as `1 quote = 1/rate base`. */
+			inverted: boolean;
+			/** Format: uuid */
+			quote_id: string;
+			rate: string;
+			source: string;
 		};
 		/** @description An error response (`application/problem+json`). */
 		Problem: {
@@ -2418,6 +2563,22 @@ export interface components {
 		Unpriced: components['schemas']['SplitPointer'] & {
 			/** Format: date */
 			date: string;
+		};
+		/** @description What one commodity was worth in another, and which prices say so. */
+		ValuationOut: {
+			/** @description Chained through another commodity, not one price. */
+			derived: boolean;
+			/** @description One price, or two chained through a pivot commodity (`derived`). */
+			prices: components['schemas']['PriceUsed'][];
+			/** @description Uses a price for a day still in progress. */
+			provisional: boolean;
+			/**
+			 * @description `1 from = rate to`.
+			 * @example 312.45
+			 */
+			rate: string;
+			/** @description No price close enough to the date: the newest older one was used. */
+			stale: boolean;
 		};
 		Version: {
 			/**
@@ -4323,6 +4484,272 @@ export interface operations {
 				};
 			};
 			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Precondition Required */
+			428: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	prices_list: {
+		parameters: {
+			query?: {
+				/** @description Prices with this commodity on either side. */
+				commodity_id?: string;
+				/** @description `manual` or `provider:<name>`. */
+				source?: string;
+				/** @description Items per page (default 100, max 500). */
+				limit?: number;
+				/** @description `next_cursor` from the previous page. Opaque. */
+				cursor?: string;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Page_Price'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	prices_create: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['NewPrice'];
+			};
+		};
+		responses: {
+			/** @description Created */
+			201: {
+				headers: {
+					ETag?: string;
+					Location?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Price'];
+				};
+			};
+			/** @description A manual price for that pair and day exists */
+			409: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	prices_value: {
+		parameters: {
+			query: {
+				/** @description A commodity code (`VTI`). */
+				from: string;
+				/** @description A commodity code (`USD`). */
+				to: string;
+				/** @description At the end of this day. Default: today in the server's time zone. */
+				date?: string;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ValuationOut'];
+				};
+			};
+			/** @description No stored price connects them */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	prices_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					ETag?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Price'];
+				};
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	prices_delete: {
+		parameters: {
+			query?: never;
+			header: {
+				/** @description ETag from your last read */
+				'If-Match': string;
+			};
+			path: {
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description No Content */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Precondition Failed */
+			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	prices_update: {
+		parameters: {
+			query?: never;
+			header: {
+				/** @description ETag from your last read */
+				'If-Match': string;
+			};
+			path: {
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['PriceUpdate'];
+			};
+		};
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					ETag?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Price'];
+				};
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Precondition Failed */
+			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description A fetched price */
 			422: {
 				headers: {
 					[name: string]: unknown;
