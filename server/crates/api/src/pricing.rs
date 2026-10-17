@@ -22,14 +22,16 @@ use crate::problem::Problem;
 /// How far back of a range prices are loaded day by day; before that,
 /// only each pair's latest.
 const WINDOW_DAYS: i64 = 31;
-/// A source isn't asked for the same pair again sooner, unless forced: a
-/// ticker it doesn't know would otherwise cost a request on every page.
+/// A source isn't asked for the same pair and days again sooner, unless
+/// forced: a ticker it doesn't know would otherwise cost a request on every
+/// page.
 const COOLDOWN: Duration = Duration::from_secs(60 * 60);
 /// A price for a day still in progress is fetched again when older.
 const PROVISIONAL_AGE: time::Duration = time::Duration::hours(1);
 
-/// When each source (by name) was last asked for a pair.
-type Asked = HashMap<(String, Uuid, Uuid), Instant>;
+/// The days each source (by name) was asked for a pair, when, and whether
+/// it answered for all of the pair.
+type Asked = HashMap<(String, Uuid, Uuid), Vec<(Date, Date, Instant, bool)>>;
 
 /// The price sources, in order, and how valuations choose among prices.
 #[derive(Clone)]
@@ -172,8 +174,14 @@ impl Pricing {
                 else {
                     continue;
                 };
-                if !self.ask(source.name(), from, to, force) {
-                    continue;
+                let days = (start, end);
+                if !force {
+                    match self.asked(source.name(), from, to, days) {
+                        // It answered: what it had is stored.
+                        Some(true) => break,
+                        Some(false) => continue,
+                        None => {}
+                    }
                 }
                 let s = Arc::clone(source);
                 let wanted = pairs.clone();
@@ -184,6 +192,7 @@ impl Pricing {
                     Ok(Err(e)) => {
                         tracing::warn!(source = source.name(), "prices: {e}");
                         errors.push(format!("{}: {e}", source.name()));
+                        self.note(source.name(), from, to, days, false);
                         continue;
                     }
                     Err(_) => return Err(Problem::internal()),
@@ -191,6 +200,7 @@ impl Pricing {
                 let (n, covered) =
                     save(db, source.name(), &commodities, &pairs, &quotes, today).await?;
                 stored += n;
+                self.note(source.name(), from, to, days, covered);
                 if covered {
                     break;
                 }
@@ -205,21 +215,40 @@ impl Pricing {
         })
     }
 
-    /// Whether to ask `source` for a pair now; if so, notes that it was.
-    fn ask(&self, source: &str, from: Uuid, to: Uuid, force: bool) -> bool {
-        let mut asked = self
-            .asked
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // Either way round is the same pair.
-        let key = (source.to_owned(), from.min(to), from.max(to));
+    /// Whether `source` was asked for all of a pair's days within the
+    /// cooldown, and if so, whether it answered.
+    fn asked(&self, source: &str, from: Uuid, to: Uuid, days: (Date, Date)) -> Option<bool> {
+        let mut asked = self.lock();
         let now = Instant::now();
-        if !force && asked.get(&key).is_some_and(|t| now - *t < COOLDOWN) {
-            return false;
-        }
-        asked.insert(key, now);
-        true
+        let before = asked.get_mut(&key(source, from, to))?;
+        before.retain(|(_, _, t, _)| now - *t < COOLDOWN);
+        let (start, end) = days;
+        before
+            .iter()
+            .rev()
+            .find(|(s, e, _, _)| *s <= start && end <= *e)
+            .map(|(_, _, _, answered)| *answered)
     }
+
+    fn note(&self, source: &str, from: Uuid, to: Uuid, days: (Date, Date), answered: bool) {
+        self.lock().entry(key(source, from, to)).or_default().push((
+            days.0,
+            days.1,
+            Instant::now(),
+            answered,
+        ));
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Asked> {
+        self.asked
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// Either way round is the same pair.
+fn key(source: &str, from: Uuid, to: Uuid) -> (String, Uuid, Uuid) {
+    (source.to_owned(), from.min(to), from.max(to))
 }
 
 /// Each pair's date range.

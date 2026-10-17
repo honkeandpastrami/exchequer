@@ -242,18 +242,23 @@ async fn missing_prices_are_fetched_in_source_order(pool: PgPool) {
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert!(asked.lock().unwrap().is_empty());
 
-    // Stale: the sources asked within the hour aren't asked again, so the
-    // fourth is. It has nothing newer either.
+    // Stale for a later day: those days weren't asked for, so they are.
+    // The third still has nothing newer.
     let r = get("from=GBP&to=USD&date=2026-07-01").await;
     assert_eq!(r.body["stale"], true);
     assert_eq!(r.body["prices"][0]["source"], "provider:third");
-    assert_eq!(
-        *asked.lock().unwrap(),
-        ["fourth GBPUSD 2026-06-26 2026-07-01"]
-    );
+    let late = [
+        "first GBPUSD 2026-06-26 2026-07-01",
+        "second GBPUSD 2026-06-26 2026-07-01",
+        "third GBPUSD 2026-06-26 2026-07-01",
+    ];
+    assert_eq!(*asked.lock().unwrap(), late);
+
+    // The same days within the hour, either way round: nobody again.
     asked.lock().unwrap().clear();
+    get("from=GBP&to=USD&date=2026-07-01").await;
     get("from=USD&to=GBP&date=2026-07-01").await;
-    assert!(asked.lock().unwrap().is_empty(), "either way round");
+    assert!(asked.lock().unwrap().is_empty());
 
     // A refresh asks anyway.
     let r = common::call(&pool, "POST", "/api/v1/prices/refresh")
