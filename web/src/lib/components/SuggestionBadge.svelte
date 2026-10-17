@@ -4,15 +4,23 @@
 
 	// A suggested value's mark (docs/ai.md): the source's hue, solid when
 	// confident, outlined when not.
-	let { suggestion }: { suggestion: Schemas['LabelSuggestion'] | Schemas['AccountSuggestion'] } =
-		$props();
+	// Compact: the percentage only, where space is short; the hue still says who.
+	let {
+		suggestion,
+		compact = false
+	}: {
+		suggestion: Schemas['LabelSuggestion'] | Schemas['AccountSuggestion'];
+		compact?: boolean;
+	} = $props();
 </script>
 
 <span
 	class="badge {suggestion.suggester.kind}"
 	class:unsure={!suggestion.confident}
 	title="{suggesterName(suggestion.suggester)} · {suggestion.reason}"
-	>{sourceNames[suggestion.suggester.kind]} {percent(suggestion.confidence)}</span
+	>{compact ? '' : `${sourceNames[suggestion.suggester.kind]} `}{percent(
+		suggestion.confidence
+	)}</span
 >
 
 <style>

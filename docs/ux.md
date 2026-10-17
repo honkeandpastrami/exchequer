@@ -56,8 +56,8 @@ these; a screen that can't is a reason to change this doc, not to make an except
   sizes or fonts. Native controls (`select`, `input`, `button`) look like the rest of the
   page, in light and dark.
 - Shared things come from shared components: amounts (`Amount`), suggestions
-  (`SuggestionBadge`), names of legs (`LegName`), failures (`Failure`). A second way of
-  showing the same thing is a bug.
+  (`SuggestionBadge`), none and unknown (`NoValue`), names of legs (`LegName`), failures
+  (`Failure`). A second way of showing the same thing is a bug.
 - Amounts: tabular figures, right-aligned in columns, sign and commodity always shown,
   never rounded for display beyond the commodity's precision. Dates in one format
   (`dates.ts`).

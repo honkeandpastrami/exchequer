@@ -5,6 +5,7 @@
 	import { all, api, ApiError, done, ok, type Schemas } from '#lib/api/client.ts';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
+	import NoValue from '#lib/components/NoValue.svelte';
 	import SuggestionBadge from '#lib/components/SuggestionBadge.svelte';
 	import { localDate } from '#lib/dates.ts';
 	import { partyKinds, rank } from '#lib/labels.ts';
@@ -50,6 +51,9 @@
 	let txs: Map<string, Schemas['Transaction']> = $state(new Map());
 	// A status, or the rows that need labels.
 	let shown = $state<Status | 'unlabeled' | ''>('');
+	// The rows the filter picked, kept while you work on them (docs/ux.md §2):
+	// a row you label stays on screen until the filter is picked again.
+	let pinned: Set<string> | null = $state(null);
 	let open: string | null = $state(null);
 	// Whether to remember each statement's number; yes unless unticked.
 	let remember: Record<number, boolean> = $state({});
@@ -66,6 +70,7 @@
 			rows = await all((query) =>
 				api.GET('/api/v1/imports/{id}/rows', { params: { path: { id }, query } })
 			);
+			if (shown) pin(shown);
 			const matched = rows.flatMap((r) => (r.match_transaction_id ? [r.match_transaction_id] : []));
 			txs = await transactionsById(matched.filter((m) => !txs.has(m)));
 		} catch (e) {
@@ -128,6 +133,16 @@
 	const setLabel = (row: Row, label: Label, value: string | null) =>
 		setRow(row, { [field[label]]: value });
 
+	const matching = (s: Status | 'unlabeled') =>
+		s === 'unlabeled' ? unlabeled(rows) : rows.filter((r) => r.status === s);
+	function pin(s: Status | 'unlabeled' | '') {
+		pinned = s ? new Set(matching(s).map(rowKey)) : null;
+	}
+	function show(s: Status | 'unlabeled' | '') {
+		shown = s;
+		pin(s);
+	}
+
 	/** A label's value on screen: yours, else a suggestion's. */
 	function valueOf(row: Row, label: Label): string | null | undefined {
 		const st = labelState(row, label);
@@ -184,6 +199,44 @@
 		return v ?? NONE;
 	}
 
+	/** A select's option for a value: an unset purpose is the owner, no category NONE. */
+	function optionOf(r: Reference, row: Row, label: Label, v: string | null): string {
+		if (v !== null) return v;
+		return label === 'purpose' ? (ownerOf(r, row) ?? '') : NONE;
+	}
+
+	/** What you'd type for a side: an account's label, a name, or "none". */
+	function typed(r: Reference, side: Side): string {
+		if (!side) return '';
+		if ('account' in side) {
+			const a = r.accounts.get(side.account);
+			return a ? accountLabel(a, r) : '';
+		}
+		return side.counterparty ? (r.counterparties.get(side.counterparty)?.name ?? '') : 'none';
+	}
+
+	/**
+	 * The suggestion a label's dropdown offers as an option of its own: an
+	 * unsure one, or one you chose something else over (docs/ux.md §1, §5).
+	 * None when it's what the field shows already.
+	 */
+	function offered(r: Reference, row: Row, label: Label): Schemas['LabelSuggestion'] | undefined {
+		const st = labelState(row, label);
+		if (st.kind === 'confident' || st.kind === 'missing') return undefined;
+		const sg = row.suggestions.find((x) => x.label === label);
+		if (!sg || st.kind === 'unsure') return sg;
+		const same =
+			label === 'counterparty'
+				? typed(r, suggestedSide(sg)) === typed(r, sideOf(row))
+				: optionOf(r, row, label, sg.value ?? null) ===
+					optionOf(r, row, label, row[field[label]] ?? null);
+		return same ? undefined : sg;
+	}
+
+	/** A suggestion's value, by name. */
+	const suggested = (r: Reference, row: Row, label: Label, sg: Schemas['LabelSuggestion']) =>
+		label === 'counterparty' ? typed(r, suggestedSide(sg)) : nameOf(r, row, label, sg.value);
+
 	/**
 	 * A typed other side: one of your accounts by its label (a transfer),
 	 * else an existing counterparty by name, else a new one.
@@ -192,7 +245,8 @@
 		const r = ref;
 		if (!r) return;
 		const wanted = name.trim();
-		if (!wanted) return;
+		// Cleared, or "none": deliberately no counterparty.
+		if (!wanted || wanted.toLowerCase() === 'none') return setLabel(row, 'counterparty', null);
 		const account = transferAccounts(r, row).find(
 			(a) => accountLabel(a, r).toLowerCase() === wanted.toLowerCase()
 		);
@@ -246,9 +300,7 @@
 	const missingAccount = $derived(imp?.statements.some((s) => !s.account_id) ?? false);
 	const blocked = $derived(unlabeled(rows));
 	const planned = $derived(plan(rows));
-	const visible = $derived(
-		shown === 'unlabeled' ? blocked : shown ? rows.filter((r) => r.status === shown) : rows
-	);
+	const visible = $derived(pinned ? rows.filter((r) => pinned?.has(rowKey(r))) : rows);
 	const allCounts = $derived(imp ? counted(totals(imp.statements)) : []);
 	const owners = $derived(
 		ref
@@ -377,32 +429,35 @@
 	</div>
 
 	<nav class="filter" aria-label="Rows to show">
-		<button class="link" aria-pressed={shown === ''} onclick={() => (shown = '')}
+		<button class="link" aria-pressed={shown === ''} onclick={() => show('')}
 			>All {rows.length}</button
 		>
 		{#each allCounts as [status, n] (status)}
-			<button class="link" aria-pressed={shown === status} onclick={() => (shown = status)}
+			<button class="link" aria-pressed={shown === status} onclick={() => show(status)}
 				>{statuses[status]} {n}</button
 			>
 		{/each}
-		{#if blocked.length}
-			<button
-				class="link"
-				aria-pressed={shown === 'unlabeled'}
-				onclick={() => (shown = 'unlabeled')}>Needs labels {blocked.length}</button
-			>
-		{/if}
+		<button class="link" aria-pressed={shown === 'unlabeled'} onclick={() => show('unlabeled')}
+			>Needs labels {blocked.length}</button
+		>
 	</nav>
 
 	<div class="list">
 		<table>
+			<colgroup>
+				<col class="c-date" />
+				<col />
+				<col class="c-amount" />
+				<col class="c-status" />
+				<col class="c-decide" />
+			</colgroup>
 			<thead>
 				<tr>
 					<th>Date</th>
 					<th>Description</th>
 					<th class="num">Amount</th>
 					<th>Status</th>
-					<th>Commit will</th>
+					<th>On commit</th>
 				</tr>
 			</thead>
 			<tbody>
@@ -411,34 +466,50 @@
 					{@const code = s ? r.commodities.get(s.commodity_id)?.code : undefined}
 					{@const tx = row.match_transaction_id ? txs.get(row.match_transaction_id) : undefined}
 					{@const key = rowKey(row)}
+					{@const labeled = row.decision === 'new' || row.decision === 'replace'}
 					<tr class:skip={row.decision === 'skip'}>
 						<td class="date">{row.date}</td>
 						<td>
-							{row.set_description ?? row.description}
-							{#if row.set_description}<span class="muted small">(bank: {row.description})</span
-								>{/if}
-							{#if row.decision === 'new' || row.decision === 'replace'}
+							<div class="text">
+								{row.set_description ?? row.description}
+								{#if row.set_description}<span class="muted small">(bank: {row.description})</span
+									>{/if}
+							</div>
+							{#if labeled}
+								<!-- One slot per label, always in the same place. -->
 								<div class="chips small">
 									{#each labels as label (label)}
 										{@const st = labelState(row, label)}
 										{@const kept =
 											row.decision === 'replace' && st.kind !== 'yours' && st.kind !== 'confident'}
-										{#if !row.not_applicable.includes(label)}
-											<span
-												class="chip"
-												class:missing={!kept && (st.kind === 'missing' || st.kind === 'unsure')}
-											>
+										{@const v = valueOf(row, label)}
+										<span class="chip">
+											{#if !row.not_applicable.includes(label)}
 												<span class="muted">{labelNames[label]}:</span>
-												{kept
-													? 'as it is'
-													: label === 'counterparty'
-														? sideName(r, sideOf(row))
-														: nameOf(r, row, label, valueOf(row, label))}
-												{#if st.kind === 'confident' || st.kind === 'unsure'}<SuggestionBadge
+												<span class="v">
+													{#if kept}
+														<span class="muted">unchanged</span>
+													{:else if v === undefined}
+														<NoValue kind="unknown" />
+													{:else if label === 'counterparty'}
+														{@const side = sideOf(row)}
+														{#if side && 'counterparty' in side && side.counterparty === null}
+															<NoValue kind="none" />
+														{:else}
+															{sideName(r, side)}
+														{/if}
+													{:else if label === 'category' && v === null}
+														<NoValue kind="none" />
+													{:else}
+														{nameOf(r, row, label, v)}
+													{/if}
+												</span>
+												{#if !kept && (st.kind === 'confident' || st.kind === 'unsure')}<SuggestionBadge
 														suggestion={st.suggestion}
+														compact
 													/>{/if}
-											</span>
-										{/if}
+											{/if}
+										</span>
 									{/each}
 								</div>
 							{/if}
@@ -472,7 +543,7 @@
 									value={row.decision}
 									onchange={(e) =>
 										setRow(row, { decision: e.currentTarget.value as Schemas['Decision'] })}
-									aria-label="Decision"
+									aria-label="On commit"
 								>
 									{#each decisionsFor(row.status) as d (d)}
 										<option value={d}>{decisionLabel(row.status, d)}</option>
@@ -481,59 +552,57 @@
 							{:else}
 								<span class="muted">Pick the account</span>
 							{/if}
-							<button class="link" onclick={() => (open = open === key ? null : key)}
-								>{open === key ? 'Close' : 'Details'}</button
+							<button
+								class="link"
+								aria-expanded={open === key}
+								onclick={() => (open = open === key ? null : key)}>Details</button
 							>
 						</td>
 					</tr>
 					{#if open === key}
 						<tr class="details">
 							<td colspan="5">
-								{#if row.decision === 'replace'}
-									<p class="small muted">
-										The transaction already there takes this row's date, amount and description, and
-										the labels set here; labels left open stay as they are.
-									</p>
-								{/if}
-								{#if row.decision === 'new' || row.decision === 'replace'}
-									<div class="labels">
-										<label class="field grow">
-											<span>Description</span>
-											<input
-												value={row.set_description ?? ''}
-												placeholder={row.description}
-												onchange={(e) =>
-													setRow(row, { set_description: e.currentTarget.value.trim() || null })}
-											/>
-										</label>
-									</div>
-									<div class="labels">
+								{#if labeled}
+									<label class="field">
+										<span>Description</span>
+										<input
+											value={row.set_description ?? ''}
+											placeholder={row.description}
+											onchange={(e) =>
+												setRow(row, { set_description: e.currentTarget.value.trim() || null })}
+										/>
+									</label>
+									<!-- Three fixed columns, each a control and one status line. -->
+									<div class="fields">
 										{#each labels as label (label)}
 											{@const st = labelState(row, label)}
+											{@const na = row.not_applicable.includes(label)}
+											{@const sg = na ? undefined : offered(r, row, label)}
+											{@const kept =
+												row.decision === 'replace' &&
+												st.kind !== 'yours' &&
+												st.kind !== 'confident'}
 											<div class="field">
 												<label for="{key}-{label}">{labelNames[label]}</label>
-												{#if row.not_applicable.includes(label)}
-													<span class="muted">Not for a transfer</span>
+												{#if na}
+													<select id="{key}-{label}" disabled>
+														<option>Not for a transfer</option>
+													</select>
 												{:else if label === 'counterparty'}
-													{@const side = sideOf(row)}
-													{@const to =
-														side && 'account' in side ? r.accounts.get(side.account) : undefined}
+													{@const settled = st.kind === 'yours' || st.kind === 'confident'}
 													<input
 														id="{key}-{label}"
 														list="{key}-sides"
-														value={st.kind === 'yours' || st.kind === 'confident'
-															? to
-																? accountLabel(to, r)
-																: row.counterparty_id
-																	? (r.counterparties.get(row.counterparty_id)?.name ?? '')
-																	: ''
+														value={settled && typed(r, sideOf(row)) !== 'none'
+															? typed(r, sideOf(row))
 															: ''}
-														placeholder={st.kind === 'yours' || st.kind === 'confident'
-															? noneNames.counterparty
-															: 'A name, or one of your accounts'}
+														placeholder={settled ? 'none' : 'A name, or one of your accounts'}
 														onchange={(e) => counterparty(row, e.currentTarget.value)}
 													/>
 													<datalist id="{key}-sides">
+														{#if sg}<option value={suggested(r, row, label, sg)}>Suggested</option
+															>{/if}
+														<option value="none">No counterparty</option>
 														{#each transferAccounts(r, row) as a (a.id)}<option
 																value={accountLabel(a, r)}>Transfer</option
 															>{/each}
@@ -552,6 +621,11 @@
 															)}
 													>
 														<option value="" disabled>Choose…</option>
+														{#if sg}
+															<option value={optionOf(r, row, label, sg.value ?? null)}
+																>{suggested(r, row, label, sg)} (suggested)</option
+															>
+														{/if}
 														{#if label === 'category'}
 															<option value={NONE}>{noneNames.category}</option>
 															{#each sorted(r.categories) as c (c.id)}<option value={c.id}
@@ -563,59 +637,30 @@
 														{/if}
 													</select>
 												{/if}
-												<span class="hint">
-													{#if st.kind === 'yours'}
-														Yours.
-														{#if row.suggestions.some((x) => x.label === label)}
-															<button class="link" onclick={() => setRow(row, { revert: [label] })}
-																>Back to the suggestion</button
-															>
-														{/if}
-													{:else if st.kind === 'confident'}
+												<span class="status">
+													{#if na}
+														&nbsp;
+													{:else if st.kind === 'yours'}
+														Your choice{#if sg}; suggested: {suggested(r, row, label, sg)}{/if}
+													{:else if st.kind === 'confident' || st.kind === 'unsure'}
 														<SuggestionBadge suggestion={st.suggestion} />
-														{st.suggestion.reason}
-													{:else if st.kind === 'unsure'}
-														{@const sg = st.suggestion}
-														<SuggestionBadge suggestion={sg} />
-														{label === 'counterparty'
-															? sideName(r, suggestedSide(sg))
-															: nameOf(r, row, label, sg.value)}? {sg.reason}
-														<button
-															class="link"
-															onclick={() =>
-																sg.transfer_account_id
-																	? setRow(row, { transfer_account_id: sg.transfer_account_id })
-																	: setLabel(row, label, sg.value ?? null)}>Accept</button
-														>
-													{:else if row.decision === 'replace'}
-														Stays as it is.
+														{#if kept}Keeps current; suggested: {suggested(
+																r,
+																row,
+																label,
+																st.suggestion
+															)}?{:else}<span title={st.suggestion.reason}
+																>{st.suggestion.reason}</span
+															>{/if}
+													{:else if kept}
+														Keeps current
 													{:else}
-														<span class="warn">Needed.</span>
-													{/if}
-													{#if label === 'counterparty' && !(st.kind === 'yours' && !row.counterparty_id && !row.transfer_account_id)}
-														<button class="link" onclick={() => setLabel(row, label, null)}
-															>{noneNames.counterparty}</button
-														>
+														<span class="warn">Pick one</span>
 													{/if}
 												</span>
 											</div>
 										{/each}
 									</div>
-								{:else if row.decision === 'match' && row.status === 'transfer_match'}
-									<p class="small muted">
-										This row and its match are the two sides of one transfer. Whichever file is
-										committed first records it, with both rows; the other file's row is then already
-										there.
-									</p>
-								{:else if row.decision === 'match' && row.status === 'transfer_duplicate'}
-									<p class="small muted">
-										This row is the other side of a transfer already in the ledger: nothing new is
-										created, and the row is kept with that transfer.
-									</p>
-								{:else if row.decision === 'match'}
-									<p class="small muted">
-										Nothing new is created: this file's row is kept with the transaction it matches.
-									</p>
 								{/if}
 								<dl class="raw">
 									{#if row.native_id}<dt>Bank ID</dt>
@@ -668,8 +713,7 @@
 		margin: var(--space-2) 0 0;
 	}
 	.line,
-	.actions,
-	.labels {
+	.actions {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
@@ -681,28 +725,59 @@
 		gap: var(--space-2);
 		font-size: var(--text-sm);
 	}
+	/* Fixed slots: a value changing never moves the others. */
 	.chips {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-1) var(--space-3);
+		display: grid;
+		grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) minmax(0, 2fr);
+		gap: var(--space-3);
 		margin-top: var(--space-1);
 	}
-	.chip.missing {
-		color: var(--color-warning);
+	/* A long value is cut short; its name and badge always show. */
+	.chip {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		min-width: 0;
+		height: calc(var(--text-sm) * var(--leading));
+		overflow: hidden;
+		white-space: nowrap;
 	}
-	.warn {
-		color: var(--color-warning);
+	.chip .v,
+	.status {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
-	.hint {
+	.fields {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--space-3);
+		margin-top: var(--space-3);
+	}
+	@media (max-width: 40rem) {
+		.chips,
+		.fields {
+			grid-template-columns: minmax(0, 1fr);
+			gap: var(--space-1);
+		}
+	}
+	.fields select,
+	.fields input,
+	.decide select,
+	.details .field > input {
+		width: 100%;
+	}
+	.status {
+		min-height: calc(var(--text-xs) * var(--leading));
 		font-size: var(--text-xs);
 		color: var(--color-text-muted);
 	}
-	.hint > * + * {
+	.status > :global(* + *) {
 		margin-left: var(--space-1);
 	}
-	.labels + .labels {
-		margin-top: var(--space-3);
-		align-items: flex-start;
+	.warn {
+		color: var(--color-warning);
 	}
 	.check {
 		display: flex;
@@ -729,6 +804,26 @@
 		font-weight: var(--weight-strong);
 		text-decoration: underline;
 	}
+	/* Fixed columns: what's in a cell never resizes the others. */
+	.list table {
+		table-layout: fixed;
+		min-width: 48rem;
+	}
+	.c-date {
+		width: 6.5rem;
+	}
+	.c-amount {
+		width: 8rem;
+	}
+	.c-status {
+		width: 10rem;
+	}
+	.c-decide {
+		width: 11rem;
+	}
+	.text {
+		overflow-wrap: anywhere;
+	}
 	.list {
 		overflow-x: auto;
 		background: var(--color-surface);
@@ -743,11 +838,11 @@
 		white-space: nowrap;
 		font-variant-numeric: var(--numeric);
 	}
-	.decide {
-		white-space: nowrap;
+	.decide button {
+		margin-top: var(--space-1);
 	}
-	.decide > * + * {
-		margin-left: var(--space-2);
+	.decide button[aria-expanded='true'] {
+		font-weight: var(--weight-strong);
 	}
 	tr.skip td {
 		color: var(--color-text-muted);
@@ -760,10 +855,6 @@
 		flex-direction: column;
 		gap: var(--space-1);
 		font-size: var(--text-sm);
-	}
-	.grow {
-		flex: 1;
-		min-width: 14rem;
 	}
 	.raw {
 		display: grid;
