@@ -1,5 +1,6 @@
-//! What the decision model is shown (questions v1, docs/ai.md): computed
-//! from the ledger, never hand-written, so it doesn't go stale.
+//! What the decision model is shown (docs/ai.md): computed from the
+//! ledger, never hand-written, so it doesn't go stale, and worded by the
+//! templates in `resources/` ([`crate::prompts`]).
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -10,6 +11,8 @@ use serde_json::{Value as Json, json};
 use suggest::{Candidate, Example, History, Label, Row, Statement, Value};
 use time::{Date, Duration};
 use uuid::Uuid;
+
+use crate::prompts::{LABELS, render};
 
 /// Similar past transactions shown per row.
 pub const SIMILAR: usize = 10;
@@ -23,15 +26,6 @@ const YEAR: Duration = Duration::days(365);
 const HALF_YEAR: Duration = Duration::days(183);
 /// Bank texts' length shown.
 const TEXT: usize = 100;
-
-// Options standing for "none" (a value), or for no answer.
-const UNKNOWN: &str = "(unknown counterparty)";
-const NO_CATEGORY: &str = "(no category)";
-/// Before an account's name, for a transfer to or from it.
-const TRANSFER: &str = "(your account) ";
-const OWNER: &str = "(the account's owner)";
-const NONE_OF_THESE: &str = "(none of these)";
-const CANNOT_TELL: &str = "(cannot tell)";
 
 /// One of your accounts, as remote AI may describe it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,15 +111,15 @@ impl Usage {
         }
     }
 
-    fn typical(&self) -> String {
+    /// The median amount and the range.
+    fn typical(&self) -> Json {
         let mut a = self.amounts.clone();
         a.sort();
         match (a.first(), a.get(a.len() / 2), a.last()) {
-            (Some(lo), Some(mid), Some(hi)) if lo == hi => money(*mid),
             (Some(lo), Some(mid), Some(hi)) => {
-                format!("{} (from {} to {})", money(*mid), money(*lo), money(*hi))
+                json!({ "median": money(*mid), "low": money(*lo), "high": money(*hi) })
             }
-            _ => String::new(),
+            _ => Json::Null,
         }
     }
 }
@@ -236,21 +230,26 @@ impl Context {
     fn counterparty(&self, v: Value) -> String {
         match v {
             Value::Account(id) => format!(
-                "{TRANSFER}{}",
+                "{} {}",
+                LABELS.your_account,
                 self.account(id)
                     .map_or_else(|| id.to_string(), |a| self.account_name(a))
             ),
-            v => self.name(v, &self.catalog.counterparties, UNKNOWN),
+            v => self.name(
+                v,
+                &self.catalog.counterparties,
+                &LABELS.unknown_counterparty,
+            ),
         }
     }
 
     fn category(&self, v: Value) -> String {
-        self.name(v, &self.catalog.categories, NO_CATEGORY)
+        self.name(v, &self.catalog.categories, &LABELS.no_category)
     }
 
     fn party(&self, v: Value) -> String {
         match v {
-            Value::None => OWNER.to_owned(),
+            Value::None => LABELS.owner.clone(),
             Value::Id(id) | Value::Account(id) => self
                 .catalog
                 .parties
@@ -364,106 +363,69 @@ impl Context {
             .collect();
         months.sort_unstable();
         months.dedup();
-        (months.len() >= 2).then(|| {
-            format!(
-                "the same amount, with similar text, in {} of the last 6 months",
-                months.len()
-            )
-        })
+        (months.len() >= 2).then(|| render("state/recurs.j2", &json!({ "months": months.len() })))
     }
 
     /// A counterparty, or one of your accounts (`row`'s potential transfer
     /// match there, if any).
     fn counterparty_option(&self, v: Value, staged: Option<&Candidate>) -> String {
-        let mut parts = Vec::new();
-        if let Value::Account(id) = v {
-            parts.push(format!(
-                "one of your accounts{}: a transfer between your accounts, not spending or income",
-                self.account(id)
-                    .map(|a| format!(" (a {})", a.kind))
-                    .unwrap_or_default()
-            ));
-            if let Some(c) = staged {
-                parts.push(format!(
-                    "a bank row of the same amount the other way is in that account on {}",
-                    c.date
-                ));
-            }
-        }
-        let Some(u) = self.counterparties.get(&v) else {
-            parts.push("no transactions in the past year".into());
-            return parts.join("; ");
-        };
-        if let Some((_, t)) = &u.latest {
-            parts.push(format!("recent bank text “{t}”"));
-        }
-        if let Value::Account(_) = v {
-            parts.push(format!("{} times in the past year", u.count));
-            return parts.join("; ");
-        }
-        parts.push(format!(
-            "usual category {}",
-            self.shares(&u.categories, 2, |v| self.category(v))
-                .join(", ")
-        ));
-        parts.push(format!(
-            "usually for {}",
-            self.shares(&u.purposes, 2, |v| self.party(v)).join(", ")
-        ));
-        parts.push(format!("usual amount {}", u.typical()));
-        parts.push(format!("{} times in the past year", u.count));
-        parts.join("; ")
-    }
-
-    fn category_option(&self, id: Uuid) -> String {
-        let Some(u) = self.categories.get(&id) else {
-            return "not used in the past year".into();
-        };
-        format!(
-            "usual counterparties {}; usual amount {}; usually for {}; {} times in the past year",
-            self.shares(&u.counterparties, 4, |v| self.counterparty(v))
-                .join(", "),
-            u.typical(),
-            self.shares(&u.purposes, 2, |v| self.party(v)).join(", "),
-            u.count
+        let transfer = v.account().map(|id| {
+            json!({
+                "kind": self.account(id).map(|a| &a.kind),
+                "staged": staged.map(|c| c.date.to_string()),
+            })
+        });
+        let usage = self.counterparties.get(&v).map(|u| {
+            json!({
+                "latest": u.latest.as_ref().map(|l| &l.1),
+                "categories": self.shares(&u.categories, 2, |v| self.category(v)),
+                "purposes": self.shares(&u.purposes, 2, |v| self.party(v)),
+                "amount": u.typical(),
+                "count": u.count,
+            })
+        });
+        render(
+            "options/counterparty.j2",
+            &json!({ "transfer": transfer, "usage": usage }),
         )
     }
 
+    fn category_option(&self, id: Uuid) -> String {
+        let usage = self.categories.get(&id).map(|u| {
+            json!({
+                "counterparties": self.shares(&u.counterparties, 4, |v| self.counterparty(v)),
+                "amount": u.typical(),
+                "purposes": self.shares(&u.purposes, 2, |v| self.party(v)),
+                "count": u.count,
+            })
+        });
+        render("options/category.j2", &json!({ "usage": usage }))
+    }
+
     fn party_option(&self, v: Value) -> String {
-        let mut parts = Vec::new();
-        if let Some(p) = v
+        let party = v
             .id()
             .and_then(|id| self.catalog.parties.iter().find(|p| p.id == id))
-        {
-            parts.push(format!("a {}", p.kind));
-        } else {
-            parts.push("not charged to anyone else: the account's owner".into());
-        }
-        if let Some(u) = self.purposes.get(&v) {
-            parts.push(format!(
-                "usual categories {}",
-                self.shares(&u.categories, 4, |v| self.category(v))
-                    .join(", ")
-            ));
-            parts.push(format!(
-                "usual counterparties {}",
-                self.shares(&u.counterparties, 4, |v| self.counterparty(v))
-                    .join(", ")
-            ));
-            parts.push(format!("{} times in the past year", u.count));
-        } else {
-            parts.push("not used in the past year".into());
-        }
-        parts.join("; ")
+            .map(|p| json!({ "kind": p.kind }));
+        let usage = self.purposes.get(&v).map(|u| {
+            json!({
+                "categories": self.shares(&u.categories, 4, |v| self.category(v)),
+                "counterparties": self.shares(&u.counterparties, 4, |v| self.counterparty(v)),
+                "count": u.count,
+            })
+        });
+        render(
+            "options/purpose.j2",
+            &json!({ "party": party, "usage": usage }),
+        )
     }
 
     /// A question over `options` (each a key, its value and its
     /// description), plus `extra` options standing for no answer.
     fn question<T>(
         name: &str,
-        instructions: &str,
         options: Vec<(String, T, String)>,
-        extra: &[(&str, &str)],
+        extra: &[(&String, &String)],
         seed: &str,
     ) -> Options<T> {
         let mut criteria: Vec<(String, String)> = Vec::new();
@@ -482,7 +444,7 @@ impl Context {
         Options {
             question: Question {
                 name: name.to_owned(),
-                instructions: instructions.to_owned(),
+                instructions: render(&format!("questions/{name}.j2"), &Json::Null),
                 options: criteria,
             },
             values,
@@ -593,9 +555,7 @@ impl Context {
             .into_iter()
             .map(|v| {
                 let d = match v {
-                    Value::None => {
-                        "unknown: some similar past transactions have no counterparty".into()
-                    }
+                    Value::None => LABELS.unknown_counterparty_means.clone(),
                     v => self.counterparty_option(
                         v,
                         v.account()
@@ -607,14 +567,10 @@ impl Context {
             .collect();
         Some(Self::question(
             "counterparty",
-            "The state describes one bank transaction, the account it's on, and similar past \
-             transactions with how they were labeled. What is on the other side of this \
-             transaction: the merchant, person or organization the money went to or came \
-             from, or another of the household's own accounts (a transfer)?",
             options,
             &[
-                (NONE_OF_THESE, "none of the counterparties listed"),
-                (CANNOT_TELL, "can't tell from what's given"),
+                (&LABELS.none_of_these, &LABELS.no_counterparty_listed),
+                (&LABELS.cannot_tell, &LABELS.cannot_tell_means),
             ],
             seed,
         ))
@@ -627,14 +583,15 @@ impl Context {
             .iter()
             .map(|(id, name)| (name.clone(), Value::Id(*id), self.category_option(*id)))
             .collect();
-        options.push((NO_CATEGORY.into(), Value::None, "no category".into()));
+        options.push((
+            LABELS.no_category.clone(),
+            Value::None,
+            LABELS.no_category_means.clone(),
+        ));
         Some(Self::question(
             "category",
-            "The state describes one bank transaction, the account it's on, and similar past \
-             transactions with how they were labeled. Which category does this transaction \
-             belong to?",
             options,
-            &[(CANNOT_TELL, "can't tell from what's given")],
+            &[(&LABELS.cannot_tell, &LABELS.cannot_tell_means)],
             seed,
         ))
     }
@@ -652,14 +609,15 @@ impl Context {
                 )
             })
             .collect();
-        options.push((OWNER.into(), Value::None, self.party_option(Value::None)));
+        options.push((
+            LABELS.owner.clone(),
+            Value::None,
+            self.party_option(Value::None),
+        ));
         Some(Self::question(
             "purpose",
-            "The state describes one bank transaction, the account it's on, and similar past \
-             transactions with how they were labeled. Whom is this transaction for: which \
-             party is it charged to?",
             options,
-            &[(CANNOT_TELL, "can't tell from what's given")],
+            &[(&LABELS.cannot_tell, &LABELS.cannot_tell_means)],
             seed,
         ))
     }
@@ -673,33 +631,31 @@ impl Context {
             .iter()
             .filter(|a| !a.archived && s.kind.is_none_or(|k| k.fits(&a.kind)))
             .map(|a| {
-                let owner = self.owner(a);
-                let mut parts = vec![format!(
-                    "a {} account of {}",
-                    a.kind,
-                    owner.map_or("?", |o| &o.name)
-                )];
-                if !a.numbers.is_empty() {
-                    parts.push(format!("numbers ending {}", a.numbers.join(", ")));
-                }
-                if let Some(u) = self.accounts.get(&a.id) {
+                let usage = self.accounts.get(&a.id).map(|u| {
                     let texts: Vec<String> = self
                         .examples
                         .iter()
                         .rev()
                         .filter(|e| e.account == a.id)
                         .take(4)
-                        .map(|e| format!("“{}”", text(&e.description)))
+                        .map(|e| text(&e.description))
                         .collect();
-                    parts.push(format!("recent bank texts {}", texts.join(", ")));
-                    parts.push(format!("usual amount {}", u.typical()));
-                    if let Some((d, _)) = &u.latest {
-                        parts.push(format!("latest transaction {d}"));
-                    }
-                } else {
-                    parts.push("no transactions in the past six months".into());
-                }
-                (self.account_name(a), a.id, parts.join("; "))
+                    json!({
+                        "texts": texts,
+                        "amount": u.typical(),
+                        "latest": u.latest.as_ref().map(|l| l.0.to_string()),
+                    })
+                });
+                let d = render(
+                    "options/account.j2",
+                    &json!({
+                        "kind": a.kind,
+                        "owner": self.owner(a).map(|o| &o.name),
+                        "numbers": a.numbers,
+                        "usage": usage,
+                    }),
+                );
+                (self.account_name(a), a.id, d)
             })
             .collect();
         if options.is_empty() {
@@ -739,12 +695,10 @@ impl Context {
             json!({ "statement": file }),
             Self::question(
                 "account",
-                "The state describes a bank statement file whose account is unknown. Which of \
-                 the household's accounts is it from?",
                 options,
                 &[
-                    (NONE_OF_THESE, "none of the accounts listed"),
-                    (CANNOT_TELL, "can't tell from what's given"),
+                    (&LABELS.none_of_these, &LABELS.no_account_listed),
+                    (&LABELS.cannot_tell, &LABELS.cannot_tell_means),
                 ],
                 &seed,
             ),

@@ -452,3 +452,9 @@ fn a_statement_is_asked_its_account() {
     assert_eq!(state["statement"]["file_name"], "activity-#.csv");
     assert_eq!(state["statement"]["account_number_ending"], "4321");
 }
+
+#[test]
+fn the_templates_parse() {
+    // Loading the labels parses every template.
+    assert_eq!(prompts::LABELS.cannot_tell, "(cannot tell)");
+}

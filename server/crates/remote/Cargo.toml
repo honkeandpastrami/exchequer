@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 heuristics = { path = "../heuristics" }
+minijinja = { version = "3.0.1", default-features = false, features = ["builtins", "macros", "multi_template", "serde"] }
 outbound = { path = "../outbound" }
 rust_decimal = "1.43.0"
 serde_json = "1.0.154"

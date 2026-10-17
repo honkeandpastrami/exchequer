@@ -1,0 +1,4 @@
+{#- A usual amount: the median, and its range when it varies. #}
+{% macro amount(a) -%}
+{{ a.median }}{% if a.low != a.high %} (from {{ a.low }} to {{ a.high }}){% endif %}
+{%- endmacro %}

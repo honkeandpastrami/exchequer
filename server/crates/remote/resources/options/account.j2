@@ -1,0 +1,11 @@
+{#- One of your accounts, by its last six months (`usage`). #}
+{% from "macros.j2" import amount %}
+a {{ kind }} account of {{ owner or "?" }};
+{% if numbers %}numbers ending {{ numbers|join(", ") }};{% endif %}
+{% if not usage %}
+  no transactions in the past six months
+{% else %}
+  recent bank texts {% for t in usage.texts %}“{{ t }}”{% if not loop.last %}, {% endif %}{% endfor %};
+  usual amount {{ amount(usage.amount) }}
+  {%- if usage.latest %}; latest transaction {{ usage.latest }}{% endif %}
+{% endif %}

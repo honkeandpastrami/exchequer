@@ -1,0 +1,22 @@
+{#- A counterparty, or one of your accounts (`transfer`, with the date of the
+    row's potential transfer match there, if any), and its past year
+    (`usage`). #}
+{% from "macros.j2" import amount %}
+{% if transfer %}
+  one of your accounts{% if transfer.kind %} (a {{ transfer.kind }}){% endif %}:
+  a transfer between your accounts, not spending or income;
+  {% if transfer.staged %}
+    a bank row of the same amount the other way is in that account on {{ transfer.staged }};
+  {% endif %}
+{% endif %}
+{% if not usage %}
+  no transactions in the past year
+{% else %}
+  {% if usage.latest %}recent bank text “{{ usage.latest }}”;{% endif %}
+  {% if not transfer %}
+    usual category {{ usage.categories|join(", ") }};
+    usually for {{ usage.purposes|join(", ") }};
+    usual amount {{ amount(usage.amount) }};
+  {% endif %}
+  {{ usage.count }} times in the past year
+{% endif %}

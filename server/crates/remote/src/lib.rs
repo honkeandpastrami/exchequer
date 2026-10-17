@@ -23,6 +23,7 @@ use suggest::{Guess, History, Identity, Kind, Proposal, Row, Statement, Suggeste
 use uuid::Uuid;
 
 mod context;
+mod prompts;
 #[cfg(test)]
 mod tests;
 

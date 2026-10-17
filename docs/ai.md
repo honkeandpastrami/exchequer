@@ -296,6 +296,11 @@ way for the same row. *Cannot tell* and *none of these* give no suggestion, so t
 never forced to choose; a new counterparty is never suggested, since it can't be offered.
 An answer that isn't one of the options is dropped.
 
+The wording (each question's instructions, how descriptions are phrased, the names of the
+fixed options) is in Jinja templates in
+[`server/crates/remote/resources/`](../server/crates/remote/resources/), built into the
+server; the code only computes what fills them.
+
 **What it's shown,** per row:
 
 - the transaction: its bank text normalized, date and weekday, amount and direction, the

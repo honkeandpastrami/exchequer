@@ -1,0 +1,9 @@
+{#- A party (none: the account's owner), by its past year (`usage`). #}
+{% if party %}a {{ party.kind }};{% else %}not charged to anyone else: the account's owner;{% endif %}
+{% if not usage %}
+  not used in the past year
+{% else %}
+  usual categories {{ usage.categories|join(", ") }};
+  usual counterparties {{ usage.counterparties|join(", ") }};
+  {{ usage.count }} times in the past year
+{% endif %}

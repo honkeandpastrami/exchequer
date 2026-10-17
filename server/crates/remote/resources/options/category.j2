@@ -1,0 +1,10 @@
+{#- A category, by its past year (`usage`). #}
+{% from "macros.j2" import amount %}
+{% if not usage %}
+  not used in the past year
+{% else %}
+  usual counterparties {{ usage.counterparties|join(", ") }};
+  usual amount {{ amount(usage.amount) }};
+  usually for {{ usage.purposes|join(", ") }};
+  {{ usage.count }} times in the past year
+{% endif %}
