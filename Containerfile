@@ -47,4 +47,7 @@ COPY --from=web /src/web/build /web
 USER 65532:65532
 ENV EXCHEQUER_BIND=0.0.0.0:7438 EXCHEQUER_WEB_DIR=/web
 EXPOSE 7438
+# Up and reaching the database; the image has no shell, so the binary checks.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD ["/exchequer-server", "healthcheck"]
 ENTRYPOINT ["/exchequer-server"]

@@ -1,5 +1,5 @@
-//! `exchequer-server`: runs the API, or prints its OpenAPI document or schema
-//! version.
+//! `exchequer-server`: runs the API, prints its OpenAPI document or schema
+//! version, or checks a running server's health.
 
 use std::io::IsTerminal;
 use std::process::ExitCode;
@@ -29,6 +29,10 @@ enum Command {
     /// Print the newest schema migration this binary knows. A restore checks a
     /// dump against it (deploy/exchequer-backup).
     SchemaVersion,
+    /// Exit 0 if the server at `EXCHEQUER_BIND` answers `/healthz` with 200
+    /// (up, and reaching its database); 1 otherwise. The container's health
+    /// check: the image has no shell or curl.
+    Healthcheck,
 }
 
 #[tokio::main]
@@ -51,6 +55,13 @@ async fn main() -> ExitCode {
             println!("{}", store::schema_version());
             ExitCode::SUCCESS
         }
+        Command::Healthcheck => match healthcheck().await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("unhealthy: {err}");
+                ExitCode::FAILURE
+            }
+        },
         Command::Serve => {
             tracing_subscriber::fmt()
                 .with_env_filter(
@@ -131,6 +142,37 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     tracing::info!("stopped");
     Ok(())
+}
+
+/// `GET /healthz` on this container's own server, with a plain HTTP/1.0
+/// request: a wildcard bind address is reached on loopback.
+async fn healthcheck() -> Result<(), Box<dyn std::error::Error>> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let bind = std::env::var("EXCHEQUER_BIND").unwrap_or_else(|_| config::DEFAULT_BIND.into());
+    let mut addr: std::net::SocketAddr = bind.parse()?;
+    if addr.ip().is_unspecified() {
+        addr.set_ip(match addr {
+            std::net::SocketAddr::V4(_) => std::net::Ipv4Addr::LOCALHOST.into(),
+            std::net::SocketAddr::V6(_) => std::net::Ipv6Addr::LOCALHOST.into(),
+        });
+    }
+    let status = tokio::time::timeout(Duration::from_secs(5), async {
+        let mut stream = tokio::net::TcpStream::connect(addr).await?;
+        stream
+            .write_all(b"GET /healthz HTTP/1.0\r\nHost: localhost\r\n\r\n")
+            .await?;
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await?;
+        Ok::<_, std::io::Error>(String::from_utf8_lossy(&response).into_owned())
+    })
+    .await??;
+    let line = status.lines().next().unwrap_or_default();
+    if line.split(' ').nth(1) == Some("200") {
+        Ok(())
+    } else {
+        Err(format!("{addr}: {line}").into())
+    }
 }
 
 /// Resolves on Ctrl-C or SIGTERM (`podman stop`).

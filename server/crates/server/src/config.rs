@@ -123,6 +123,9 @@ impl DbConfig {
     }
 }
 
+/// Where the server listens unless `EXCHEQUER_BIND` says otherwise.
+pub const DEFAULT_BIND: &str = "127.0.0.1:7438";
+
 impl Config {
     pub fn from_env() -> Result<Self, ConfigError> {
         Self::from_lookup(|name| std::env::var(name).ok())
@@ -187,7 +190,7 @@ impl Config {
             (_, None, _) => return Err(ConfigError::Missing("EXCHEQUER_REMOTE_AI_DEPLOYMENT")),
             (_, _, None) => return Err(ConfigError::Missing("REMOTE_AI_KEY_FILE")),
         };
-        let bind = parsed("EXCHEQUER_BIND", "127.0.0.1:7438")?;
+        let bind = parsed("EXCHEQUER_BIND", DEFAULT_BIND)?;
         let port = parsed("DB_PORT", "5432")?;
         Ok(Self {
             bind: bind.parse().map_err(|_| ConfigError::Invalid {

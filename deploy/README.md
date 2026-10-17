@@ -89,6 +89,11 @@ Run these as the (non-root) user that will own the service, from a clone of this
 The API applies schema migrations at startup. `GET /healthz` and `GET /version` need no
 token.
 
+Podman checks the API's health every 30 seconds (`exchequer-server healthcheck`, which asks
+`/healthz`: up and reaching the database). `podman ps` shows it, and
+`podman healthcheck run exchequer-api` runs it now. After three failures in a row the
+container is killed and systemd restarts it; `journalctl --user -u exchequer-api` has why.
+
 The web app is served at `/` by the same container: open `http://127.0.0.1:7438/` and
 sign in with a token (kept in that browser until you sign out).
 

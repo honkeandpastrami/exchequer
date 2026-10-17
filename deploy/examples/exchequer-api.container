@@ -13,6 +13,14 @@ Image=ghcr.io/honkeandpastrami/exchequer-server:latest
 AutoUpdate=registry
 Network=exchequer.network
 PublishPort=127.0.0.1:7438:7438
+# Healthy once it answers /healthz and reaches the database (`podman ps`
+# shows it); the unit counts as started only then, and three failures in a
+# row restart it.
+HealthCmd=/exchequer-server healthcheck
+HealthInterval=30s
+HealthStartPeriod=60s
+HealthOnFailure=kill
+Notify=healthy
 Secret=exchequer_db_password
 Secret=exchequer_bootstrap_token
 Environment=EXCHEQUER_BIND=0.0.0.0:7438
@@ -28,6 +36,9 @@ Environment=BOOTSTRAP_TOKEN_FILE=/run/secrets/exchequer_bootstrap_token
 #Environment=EXCHEQUER_REMOTE_AI_ENDPOINT=https://<resource>.services.ai.azure.com
 #Environment=EXCHEQUER_REMOTE_AI_DEPLOYMENT=<deployment name>
 #Environment=REMOTE_AI_KEY_FILE=/run/secrets/exchequer_remote_ai_key
+
+[Service]
+Restart=on-failure
 
 [Install]
 WantedBy=default.target

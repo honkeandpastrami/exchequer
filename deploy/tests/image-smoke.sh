@@ -35,4 +35,6 @@ fi
 # The web app is served at / (design §13).
 curl -sf http://127.0.0.1:7438/ | grep -q '_app/immutable'
 test "$($run inspect -f '{{.State.Running}}' exchequer-smoke)" = true
+# The container's health check (the image has no shell or curl).
+$run exec exchequer-smoke /exchequer-server healthcheck
 $run run --rm "$backup" sh -c 'command -v exchequer-backup && pg_dump --version && pg_restore --version'
