@@ -455,8 +455,27 @@ async fn commit_rechecks_and_is_all_or_nothing(pool: PgPool) {
         json!(1)
     );
 
-    // A closed month refuses the whole commit.
+    // A near duplicate is a guess: commit waits for your decision, even
+    // the default one.
     label_none(&pool, &h, &id).await;
+    let r = commit(&pool, &h, &id, &read(&pool, &h, &id).await.etag()).await;
+    assert_eq!(
+        (r.status, &r.body["type"]),
+        (
+            StatusCode::CONFLICT,
+            &json!("urn:exchequer:problem:decisions-missing")
+        ),
+        "{}",
+        r.body
+    );
+    assert_eq!(
+        read(&pool, &h, &id).await.body["readiness"]["undecided"],
+        json!(1)
+    );
+    let r = set_row(&pool, &h, &id, 2, json!({ "decision": "match" })).await;
+    assert_eq!(r.body["decided"], json!(true), "{}", r.body);
+
+    // A closed month refuses the whole commit.
     let now = read(&pool, &h, &id).await;
     h.put_params(
         &pool,
@@ -579,6 +598,7 @@ async fn a_row_can_replace_the_transaction_it_matches(pool: PgPool) {
         r.body
     );
     label_none(&pool, &h, &id).await;
+    set_row(&pool, &h, &id, 0, json!({ "decision": "match" })).await;
     let r = commit(&pool, &h, &id, &read(&pool, &h, &id).await.etag()).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_eq!(

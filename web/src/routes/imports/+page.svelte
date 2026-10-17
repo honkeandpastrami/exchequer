@@ -71,27 +71,23 @@
 		await load();
 	}
 
-	/** One import, as it is now: refused if it needs work since. */
+	/** One import, as it is now; the server refuses it if it needs work since. */
 	async function commitOne(imp: Schemas['Import']) {
 		committing = true;
 		notices = [];
 		failure = null;
 		try {
 			const r = await api.GET('/api/v1/imports/{id}', { params: { path: { id: imp.id } } });
-			const now = ok(r);
-			if (now.readiness.state === 'needs_work') {
-				notices = [`${name(imp)}: needs work since it was listed.`];
-			} else {
-				const c = await api.POST('/api/v1/imports/{id}/commit', {
-					params: {
-						path: { id: imp.id },
-						header: { 'If-Match': r.response.headers.get('etag') ?? '' }
-					}
-				});
-				notices = [
-					`${name(imp)}: ${c.data ? committedSummary(c.data) : (c.error?.detail ?? c.error?.title ?? 'not committed')}.`
-				];
-			}
+			ok(r);
+			const c = await api.POST('/api/v1/imports/{id}/commit', {
+				params: {
+					path: { id: imp.id },
+					header: { 'If-Match': r.response.headers.get('etag') ?? '' }
+				}
+			});
+			notices = [
+				`${name(imp)}: ${c.data ? committedSummary(c.data) : `not committed, ${c.error?.detail ?? c.error?.title}`}.`
+			];
 		} catch (e) {
 			failure = e;
 		}

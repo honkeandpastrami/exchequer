@@ -131,6 +131,16 @@ async fn two_files_two_sides_one_transfer(pool: PgPool) {
     let counts = &read(&pool, &h, &card).await.body["statements"][0]["counts"];
     assert_eq!(counts["transfer_match"], json!(1));
 
+    // A match is a guess until you approve it; approving one side approves
+    // the other.
+    assert_eq!(
+        read(&pool, &h, &checking).await.body["readiness"]["undecided"],
+        json!(1)
+    );
+    let r = set_row(&pool, &h, &card, 0, json!({ "decision": "match" })).await;
+    assert_eq!(r.body["decided"], json!(true), "{}", r.body);
+    assert_eq!(rows(&pool, &h, &checking).await[0]["decided"], json!(true));
+
     // Committing either side records the one transfer, dated and described
     // as the side the money left.
     let r = commit(&pool, &h, &card).await;
@@ -410,6 +420,7 @@ async fn both_sides_in_one_file(pool: PgPool) {
         "{}",
         r.body
     );
+    set_row(&pool, &h, &id, 0, json!({ "decision": "match" })).await;
     let r = commit(&pool, &h, &id).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_eq!(

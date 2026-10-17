@@ -511,13 +511,18 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    **Readiness.** Each staged import says how close it is to committing (`readiness`):
    - `needs_work` (red): a statement has no account; a new row has a label that is
      neither chosen nor confidently suggested; or a near-duplicate or transfer match is
-     still on its default decision. Each comes with a count.
+     still on its default decision. Each comes with a count. A near-duplicate or
+     transfer match is a guess, so it waits for your decision: choosing one, even the
+     default, settles it (both sides of a transfer match share it). Commit refuses
+     exactly these (409: `labels-missing`, `decisions-missing`, or no account), so every
+     client and page follows the same rule.
    - `suggested` (yellow): it would commit, but it relies on confident AI suggestions
      (local or remote) or a suggested account that you haven't confirmed.
    - `ready` (green): it commits exactly as shown. A rule's suggestion counts as yours.
 
-   The web app's Imports list can commit any import that isn't `needs_work`, one at a
-   time. **Commit N ready** (`POST /imports/commit-ready {ids}`) commits the `ready` ones
+   The web app shows the same mark and reasons on the Imports list and on an import's
+   review, where its rows to label or decide are one filter away; either page can
+   commit any import that isn't `needs_work`, through the one commit endpoint. **Commit N ready** (`POST /imports/commit-ready {ids}`) commits the `ready` ones
    that were listed. It goes oldest first, each import on its own, and checks each one
    again just before its turn, since committing one changes the others. Each import comes
    back committed or skipped, with the reason: gone, not ready, changed since it was

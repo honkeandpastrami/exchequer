@@ -2081,6 +2081,32 @@ async fn carry_out(
             if n > 10 { "; …" } else { "" }
         )));
     }
+    // A near-duplicate or transfer match is a guess: it needs your decision,
+    // even if it's the default. With the two checks above, commit refuses
+    // exactly what [`readiness`] calls `needs_work`.
+    let undecided: Vec<String> = rows
+        .iter()
+        .filter(|r| {
+            r.decision.is_none()
+                && RowStatus::parse(&r.status)
+                    .is_ok_and(|s| matches!(s, RowStatus::NearDuplicate | RowStatus::TransferMatch))
+        })
+        .map(|r| format!("statement {} row {}", r.statement, r.position))
+        .collect();
+    if !undecided.is_empty() {
+        let n = undecided.len();
+        return Err(Problem::new(
+            StatusCode::CONFLICT,
+            "decisions-missing",
+            "Rows need a decision",
+        )
+        .detail(format!(
+            "{n} {} your decision (a near duplicate or transfer match is a guess): {}{}",
+            if n == 1 { "row needs" } else { "rows need" },
+            undecided[..n.min(10)].join("; "),
+            if n > 10 { "; …" } else { "" }
+        )));
+    }
     let mut outcomes = Vec::new();
 
     let mut out = Committed {

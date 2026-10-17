@@ -256,7 +256,16 @@ class Importer:
             if (
                 r.status_code == 409
                 and isinstance(r.parsed, Problem)
-                and r.parsed.type_.endswith(":labels-missing")
+                and r.parsed.type_.endswith(":decisions-missing")
+                and not self.yes
+            ):
+                # A near duplicate or transfer match waits for your decision.
+                self.ui.say(f"  {r.parsed.detail}; [r]eview the rows to decide")
+                continue
+            if (
+                r.status_code == 409
+                and isinstance(r.parsed, Problem)
+                and r.parsed.type_.endswith((":labels-missing", ":decisions-missing"))
             ):
                 # Labels are chosen in the web app's review (design §8).
                 self.ui.say(f"  left staged ({imp.id}): {r.parsed.detail}")
@@ -322,7 +331,8 @@ class Importer:
             prompt = "    " + ", ".join(f"[{KEYS[d]}]{LABELS[d][1:]}" for d in options) + "?"
             picked = self.ui.key(prompt, "".join(KEYS[d] for d in options), KEYS[current])
             decision = next(d for d in options if KEYS[d] == picked)
-            if decision != current:
+            # Taking the default is a decision too: a guess needs one.
+            if decision != current or not r.decided:
                 try:
                     ok(
                         imports_set_row.sync_detailed(

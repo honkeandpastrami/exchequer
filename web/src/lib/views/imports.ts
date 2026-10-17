@@ -203,5 +203,15 @@ export function suggestedSide(s: Suggestion): Side {
 		: { counterparty: s.value ?? null };
 }
 
-/** Rows commit refuses until their labels are settled. */
-export const unlabeled = (rows: Schemas['StagedRow'][]) => rows.filter((r) => r.missing.length);
+/** New rows commit refuses until their labels are settled. */
+export const unlabeled = (rows: Schemas['StagedRow'][]) =>
+	rows.filter((r) => r.decision === 'new' && r.missing.length);
+
+/** A guess, so a decision only you can make: a near duplicate or transfer match left on its default. */
+export const undecided = (rows: Schemas['StagedRow'][]) =>
+	rows.filter(
+		(r) =>
+			r.decision !== undefined &&
+			!r.decided &&
+			(r.status === 'near_duplicate' || r.status === 'transfer_match')
+	);

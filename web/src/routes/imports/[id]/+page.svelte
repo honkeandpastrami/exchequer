@@ -23,12 +23,16 @@
 		labelState,
 		noneNames,
 		plan,
+		readinessNames,
+		readinessTones,
+		readinessWhy,
 		rowKey,
 		sideOf,
 		statementName,
 		statuses,
 		suggestedSide,
 		totals,
+		undecided,
 		unlabeled,
 		type Side
 	} from '#lib/views/imports.ts';
@@ -52,8 +56,9 @@
 	let etag = '';
 	let rows: Row[] = $state([]);
 	let txs: Map<string, Schemas['Transaction']> = $state(new Map());
-	// A status, or the rows that need labels.
-	let shown = $state<Status | 'unlabeled' | ''>('');
+	// A status, or the rows that need labels or a decision.
+	type Shown = Status | 'unlabeled' | 'undecided' | '';
+	let shown = $state<Shown>('');
 	// The rows the filter picked, kept while you work on them (docs/ux.md §2):
 	// a row you label stays on screen until the filter is picked again.
 	let pinned: Set<string> | null = $state(null);
@@ -111,9 +116,9 @@
 		open = rowKey(row);
 		await bring([row]);
 	}
-	function showUnlabeled() {
-		show('unlabeled');
-		bring(matching('unlabeled'));
+	function showOnly(s: 'unlabeled' | 'undecided') {
+		show(s);
+		bring(matching(s));
 	}
 	// Another import is another page's worth of state.
 	$effect(() => {
@@ -175,19 +180,30 @@
 				body
 			});
 			const updated = ok(r);
-			etag = r.response.headers.get('etag') ?? '';
 			rows = rows.map((x) => (rowKey(x) === rowKey(updated) ? updated : x));
+			// A transfer match's other side shares the decision, and the
+			// import's readiness follows: both come from the server.
+			if ('decision' in body && updated.transfer_match) await load();
+			else {
+				const i = await api.GET('/api/v1/imports/{id}', { params: { path: { id } } });
+				imp = ok(i);
+				etag = i.response.headers.get('etag') ?? '';
+			}
 		});
 
 	const setLabel = (row: Row, label: Label, value: string | null) =>
 		setRow(row, { [field[label]]: value });
 
-	const matching = (s: Status | 'unlabeled') =>
-		s === 'unlabeled' ? unlabeled(rows) : rows.filter((r) => r.status === s);
-	function pin(s: Status | 'unlabeled' | '') {
+	const matching = (s: Exclude<Shown, ''>) =>
+		s === 'unlabeled'
+			? unlabeled(rows)
+			: s === 'undecided'
+				? undecided(rows)
+				: rows.filter((r) => r.status === s);
+	function pin(s: Shown) {
 		pinned = s ? new Set(matching(s).map(rowKey)) : null;
 	}
-	function show(s: Status | 'unlabeled' | '') {
+	function show(s: Shown) {
 		shown = s;
 		pin(s);
 	}
@@ -362,8 +378,8 @@
 		});
 	}
 
-	const missingAccount = $derived(imp?.statements.some((s) => !s.account_id) ?? false);
 	const blocked = $derived(unlabeled(rows));
+	const toDecide = $derived(undecided(rows));
 	const planned = $derived(plan(rows));
 	const visible = $derived(pinned ? rows.filter((r) => pinned?.has(rowKey(r))) : rows);
 	const allCounts = $derived(imp ? counted(totals(imp.statements)) : []);
@@ -485,7 +501,7 @@
 	{#if failure}<Failure error={failure} />{/if}
 
 	<div class="actions">
-		<button disabled={busy || missingAccount || blocked.length > 0} onclick={commit}>
+		<button disabled={busy || i.readiness.state === 'needs_work'} onclick={commit}>
 			Commit: {planned.new} new, {planned.match} already there or transfer matches, {planned.replace}
 			replacing, {planned.skip} not imported
 		</button>
@@ -493,12 +509,17 @@
 			>{refreshing ? 'Refreshing…' : 'Refresh suggestions'}</button
 		>
 		<button class="quiet" onclick={discard}>Discard</button>
-		{#if missingAccount}<span class="muted small">Every statement needs an account first.</span
-			>{:else if blocked.length}<span class="small warn"
-				>{blocked.length} new {blocked.length === 1 ? 'row needs' : 'rows need'} labels:
-				<button class="link" onclick={showUnlabeled}>show them</button></span
-			>{/if}
 	</div>
+	<p class="readiness">
+		<Mark tone={readinessTones[i.readiness.state]} label={readinessNames[i.readiness.state]} />
+		{#each readinessWhy(i.readiness) as why (why)}<span class="small why">· {why}</span>{/each}
+		{#if blocked.length}<button class="link small" onclick={() => showOnly('unlabeled')}
+				>show the rows that need labels</button
+			>{/if}
+		{#if toDecide.length}<button class="link small" onclick={() => showOnly('undecided')}
+				>show the matches to decide</button
+			>{/if}
+	</p>
 
 	<nav class="filter" aria-label="Rows to show">
 		<button class="link" aria-pressed={shown === ''} onclick={() => show('')}
@@ -511,6 +532,9 @@
 		{/each}
 		<button class="link" aria-pressed={shown === 'unlabeled'} onclick={() => show('unlabeled')}
 			>Needs labels {blocked.length}</button
+		>
+		<button class="link" aria-pressed={shown === 'undecided'} onclick={() => show('undecided')}
+			>To decide {toDecide.length}</button
 		>
 	</nav>
 
@@ -612,12 +636,14 @@
 						</td>
 						<td class="decide">
 							{#if decisionsFor(row.status).length}
+								{@const guess = toDecide.includes(row)}
 								<select
-									value={row.decision}
+									value={guess ? '' : row.decision}
 									onchange={(e) =>
 										setRow(row, { decision: e.currentTarget.value as Schemas['Decision'] })}
 									aria-label="On commit"
 								>
+									{#if guess}<option value="" disabled>Choose…</option>{/if}
 									{#each decisionsFor(row.status) as d (d)}
 										<option value={d}>{decisionLabel(row.status, d)}</option>
 									{/each}
@@ -875,6 +901,15 @@
 	}
 	.warn {
 		color: var(--color-warning);
+	}
+	.readiness {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--space-2);
+	}
+	.why {
+		color: var(--color-text-muted);
 	}
 	.check {
 		display: flex;
