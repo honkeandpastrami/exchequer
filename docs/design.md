@@ -77,7 +77,7 @@ Where outside data comes from:
 | **Split** | One movement inside a transaction | A **from-leg** and a **to-leg**, each `(account or counterparty, commodity, quantity)`; an outside leg may leave the counterparty unknown (none, never a placeholder name), plus **`purpose`** (a Party: *who is this money for?*), `category`, `bill`, and an optional own description. Purpose and category apply only to income/expense and liquidations, never to transfers or conversions. |
 | **Category / Tag** | Classification | A category is the *class* of an income or expense (Groceries, Salary), never where the money went. Tags are free-form (trips, projects). There are **no budgets**: owner and purpose do the job budgets were often used for. |
 | **Settlement** | One month's closing | `(month, status: open/closed, closed_at)`, the month's **stipend per person** and **funder per business** (set by the client before closing), plus links to the transfers that paid it. Amounts are always computed live; nothing is frozen (§4.4). |
-| **Price** | `1 BASE = rate QUOTE` on a date | Sources: `provider:<name>`, `manual`, or `implied` (derived from a conversion split). Records `fetched_at`. Covers FX and security quotes alike. |
+| **Price** | `1 BASE = rate QUOTE` on a date | Sources: `provider:<name>` or `manual`. Records `fetched_at`, and whether it's *provisional* (a day still in progress). Covers FX and security quotes alike. |
 | **Bill** | A recurring *expectation* | Schedule, amount *phases*, matching hints, and an explicit **lifecycle** (start, optional end). **Finite by default**: status is derived, and "probably ended" is a real state. Entered by hand or learned (§9.1). |
 | **Recurrence** | A template that generates transactions | Only *materialized* when a client calls an endpoint, never by a timer. |
 | **RuleScript** | The import conditions | One Rhai script stored as **append-only versions** `(version, source, author, created_at, note)`. The newest valid version is active (§8). |
@@ -126,7 +126,7 @@ A split moves `qty_from` of commodity A out of one side and `qty_to` of commodit
 other. The ledger has one invariant:
 
 > If A = B, then `qty_from = qty_to`. If A ≠ B, the split is a **conversion**, and its
-> implied rate `qty_from / qty_to` is recorded as an `implied` price.
+> implied rate is `qty_from / qty_to`, derived from the split, not stored as a price.
 
 | Event | Splits | Kind |
 |---|---|---|
@@ -192,9 +192,10 @@ replaced or dropped without touching valuation:
 
 A price is asked of the next source when one doesn't cover the pair, fails, is
 rate-limited or has nothing; the first that answers is recorded (`provider:<name>`), so a
-source's prices outlive it. A source isn't asked for the same pair again within an hour
-(a ticker it doesn't know would otherwise cost a request on every page), except by
-`POST /prices/refresh`. Only commodity codes and dates are sent.
+source's prices outlive it. Within an hour, a source isn't asked for the same pair and days
+again (a ticker it doesn't know would otherwise cost a request on every page), except by
+`POST /prices/refresh` (also on Setup → Prices, and `exchequer prices refresh`). Only
+commodity codes and dates are sent.
 
 A source that needs a key has its own secret, `exchequer_<source>_api_key`, read as
 `<SOURCE>_API_KEY_FILE`; adding a source adds a secret, never a shared one. Which sources
@@ -223,10 +224,11 @@ computation, AI prompts and clients. A float touching one of these values is a b
 - **Ledger amounts are exact.** An amount with more decimals than its commodity's precision
   is rejected, never rounded silently.
 - **Conversions** compute at full precision and round **once**, at the end, to the target
-  commodity's precision, using one documented mode (`ROUND_HALF_EVEN`). Reports sum unrounded
-  converted values and round the total, so a column never disagrees with its total.
-- **Implied prices** are divisions, stored at the fixed rate scale and marked as derived.
-  They are used for valuation only, never to rewrite a stored amount.
+  commodity's precision, using one documented mode (`ROUND_HALF_EVEN`). A total is the sum of
+  the rounded values shown, so a column always adds up to its total.
+- **Derived rates** (an inverse, a chain of two prices, a conversion's implied rate) are
+  rounded once to the fixed rate scale. They are used for valuation only, never to rewrite
+  a stored amount.
 
 **Scope:** the rule is about money: amounts, quantities, prices, rates and the transactions
 that carry them. Anything else may use floats, as long as a float never becomes stored data:
