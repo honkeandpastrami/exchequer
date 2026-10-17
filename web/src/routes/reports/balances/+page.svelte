@@ -188,10 +188,6 @@
 				</tbody>
 			</table>
 		</section>
-		<p class="muted note">
-			Balances at the end of each {bucket}, in {code ?? 'one commodity'} only; other commodities aren't
-			converted. Credit cards and loans count as negative.
-		</p>
 	{:else}
 		<p class="muted">No balances in this range.</p>
 	{/if}
@@ -228,8 +224,5 @@
 	}
 	.total {
 		font-weight: var(--weight-strong);
-	}
-	.note {
-		font-size: var(--text-sm);
 	}
 </style>

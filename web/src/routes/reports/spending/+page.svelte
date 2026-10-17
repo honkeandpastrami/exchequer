@@ -154,12 +154,6 @@
 				</tbody>
 			</table>
 		</section>
-		<p class="muted note">
-			{kind === 'expense'
-				? 'Money out reads positive; refunds reduce it.'
-				: 'Money in reads positive.'} In {code ?? 'one commodity'} only. Category links show every transaction
-			in the category, whoever it was for.
-		</p>
 	{:else}
 		<p class="muted">Nothing in this range.</p>
 	{/if}
@@ -203,8 +197,5 @@
 	.total,
 	.sum td {
 		font-weight: var(--weight-strong);
-	}
-	.note {
-		font-size: var(--text-sm);
 	}
 </style>

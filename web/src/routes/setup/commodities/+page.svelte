@@ -143,10 +143,6 @@
 			{/each}
 		</tbody>
 	</table>
-	<p class="muted note">
-		Decimals are how many places an amount may have (2 for USD, 0 for JPY). They can only go up:
-		lowering them could invalidate amounts already stored.
-	</p>
 {:else if s.failure}
 	<Failure error={s.failure} />
 {:else}
@@ -162,10 +158,6 @@
 		margin-bottom: var(--space-4);
 	}
 	.small,
-	.note {
-		font-size: var(--text-sm);
-		color: var(--color-text-muted);
-	}
 	.precision {
 		width: 5rem;
 	}

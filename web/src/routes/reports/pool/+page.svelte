@@ -128,8 +128,7 @@
 			{/each}
 		</section>
 	</div>
-	<p class="muted note">
-		In {code ?? 'the household currency'} only; amounts in other commodities aren't included.
+	<p>
 		<a href={resolve('/settlement/[month]', { month })}>Settlement statement</a>
 	</p>
 {:catch error}
@@ -183,11 +182,8 @@
 		margin: var(--space-2) 0 0;
 		font-size: var(--text-sm);
 	}
-	.hint,
-	.note {
-		font-size: var(--text-sm);
-	}
 	.hint {
 		margin-top: 0;
+		font-size: var(--text-sm);
 	}
 </style>

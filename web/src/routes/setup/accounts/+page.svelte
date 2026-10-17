@@ -289,12 +289,6 @@
 			</table>
 		</section>
 	{/each}
-	<p class="muted note">
-		Liquid accounts hold spendable money; activity inside investment accounts is never shared. An
-		account's owner can't change once it has been created. Numbers are the ones bank files name the
-		account by (a card may have two: one for purchases, one for payments); only their last four are
-		ever shown, and number changes are saved at once.
-	</p>
 {:else if s.failure}
 	<Failure error={s.failure} />
 {:else}
@@ -379,8 +373,5 @@
 	}
 	.actions > * + * {
 		margin-left: var(--space-3);
-	}
-	.note {
-		font-size: var(--text-sm);
 	}
 </style>

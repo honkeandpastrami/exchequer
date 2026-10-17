@@ -112,10 +112,6 @@
 			{/each}
 		</tbody>
 	</table>
-	<p class="muted note">
-		Settlement statements and the household pool are in USD. A party's kind can't change once it has
-		been created.
-	</p>
 {:else if s.failure}
 	<Failure error={s.failure} />
 {:else}
@@ -124,9 +120,6 @@
 
 <style>
 	.intro,
-	.note {
-		font-size: var(--text-sm);
-	}
 	.add {
 		display: flex;
 		flex-wrap: wrap;

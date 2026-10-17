@@ -227,9 +227,6 @@
 				{/each}
 			</tbody>
 		</table>
-		<p class="muted note">
-			The ledger column is today's ledger for that date: editing transactions changes it.
-		</p>
 	{/if}
 {:else if failure}
 	<Failure error={failure} />
@@ -239,10 +236,6 @@
 
 <style>
 	.intro,
-	.note {
-		font-size: var(--text-sm);
-		max-width: 50rem;
-	}
 	.check {
 		display: flex;
 		flex-wrap: wrap;

@@ -90,3 +90,6 @@ these; a screen that can't is a reason to change this doc, not to make an except
 - Works with the keyboard alone, and in dark mode.
 - Focus is always visible; every control has a label.
 - Short text: a label or a one-line hint, not a paragraph. Explanations go in the docs.
+- No footnotes. A page doesn't end with notes on how it works, what it leaves out or why;
+  if the user needs to know something, the screen shows it where it applies (a label, a
+  column, a disabled control), and otherwise it belongs in the docs.
