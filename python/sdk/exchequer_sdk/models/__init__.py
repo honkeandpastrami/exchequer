@@ -29,6 +29,7 @@ from .counterparty import Counterparty
 from .created_token import CreatedToken
 from .credit_limit import CreditLimit
 from .decision import Decision
+from .decision_suggestion import DecisionSuggestion
 from .dry_run import DryRun
 from .dry_run_change import DryRunChange
 from .dry_run_request import DryRunRequest
@@ -179,6 +180,7 @@ __all__ = (
     "CreatedToken",
     "CreditLimit",
     "Decision",
+    "DecisionSuggestion",
     "DryRun",
     "DryRunChange",
     "DryRunRequest",

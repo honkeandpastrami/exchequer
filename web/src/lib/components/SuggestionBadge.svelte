@@ -9,7 +9,8 @@
 		suggestion,
 		compact = false
 	}: {
-		suggestion: Schemas['LabelSuggestion'] | Schemas['AccountSuggestion'];
+		suggestion:
+			Schemas['LabelSuggestion'] | Schemas['AccountSuggestion'] | Schemas['DecisionSuggestion'];
 		compact?: boolean;
 	} = $props();
 </script>
@@ -41,6 +42,9 @@
 	}
 	.remote {
 		--hue: var(--color-suggest-remote);
+	}
+	.match {
+		--hue: var(--color-suggest-match);
 	}
 	.unsure {
 		background: transparent;

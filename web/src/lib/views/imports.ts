@@ -98,7 +98,7 @@ export function readinessWhy(r: Readiness): string[] {
 	return [
 		r.no_account && several(r.no_account, 'statement has no account', 'statements have no account'),
 		r.unlabeled && several(r.unlabeled, 'row needs labels', 'rows need labels'),
-		r.undecided && several(r.undecided, 'match to decide', 'matches to decide'),
+		r.undecided && several(r.undecided, 'row needs a decision', 'rows need a decision'),
 		r.suggested_accounts &&
 			several(r.suggested_accounts, 'suggested account', 'suggested accounts'),
 		r.suggested_rows &&
@@ -159,7 +159,8 @@ export const noneNames: Record<Label, string> = {
 export const sourceNames: Record<Schemas['SuggesterKind'], string> = {
 	rule: 'Rule',
 	local: 'Local AI',
-	remote: 'Remote AI'
+	remote: 'Remote AI',
+	match: 'Matching'
 };
 
 export type LabelState =
@@ -207,11 +208,6 @@ export function suggestedSide(s: Suggestion): Side {
 export const unlabeled = (rows: Schemas['StagedRow'][]) =>
 	rows.filter((r) => r.decision === 'new' && r.missing.length);
 
-/** A guess, so a decision only you can make: a near duplicate or transfer match left on its default. */
+/** Rows whose decision is neither yours nor confidently suggested. */
 export const undecided = (rows: Schemas['StagedRow'][]) =>
-	rows.filter(
-		(r) =>
-			r.decision !== undefined &&
-			!r.decided &&
-			(r.status === 'near_duplicate' || r.status === 'transfer_match')
-	);
+	rows.filter((r) => r.suggested_decision && !r.decided && !r.suggested_decision.confident);

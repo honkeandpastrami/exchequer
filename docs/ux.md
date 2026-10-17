@@ -45,9 +45,9 @@ these; a screen that can't is a reason to change this doc, not to make an except
 
 ## 5. Suggestions
 
-- A suggestion shows its source by color (rules, local AI, remote AI; `tokens.css`) and its
-  confidence by fill: solid when confident, outlined when not. A user's own choice has no
-  color.
+- A suggestion shows its source by color (rules, matching, local AI, remote AI;
+  `tokens.css`) and its confidence by fill: solid when confident, outlined when not. A
+  user's own choice has no color.
 - Hovering or tapping it says why (the rule, the similar transactions, the model and its
   probability).
 - Accepting a suggestion and choosing a value yourself are the same control (the field's

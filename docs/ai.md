@@ -16,6 +16,8 @@ When a bank file is staged (design §6), suggestions are made in two passes:
    suggested together, as one proposal per row, since they depend on each other: the
    counterparty mostly decides the category, and the two together with the account
    mostly decide the purpose. Each label still gets its own confidence.
+3. **Each row's decision** — what committing does with it: add it as new, or keep it with
+   what's already there. Matching suggests it (see [Matching](#matching)).
 
 Bills and tags are not suggested yet.
 
@@ -38,15 +40,33 @@ transfer, never an expense plus an income.
 - **Transfer match.** When a row is settled as a transfer to an account (yours, or a
   confident suggestion) and one of its potential transfer matches is in that account and
   open (or settled as the transfer back), the two are a transfer match: committed as one
-  transfer, by whichever file is committed first, with both bank rows. This pairing is a
-  rule, not a guess (`import::matching`): one-to-one, rows agreeing on both sides first,
-  then the closest dates. A counterparty you chose, or a decision you made on a row, rules
+  transfer, by whichever file is committed first, with both bank rows. The pairing is
+  logic (`import::matching`): one-to-one, rows agreeing on both sides first, then the
+  closest dates; merging them is matching's suggestion, as sure as the dates are close. A counterparty you chose, or a decision you made on a row, rules
   it out; *Keep separate transactions* splits a pair.
 - **Transfer duplicate.** When the transfer is already in the ledger (committed from the
   other account), its other side is a transfer duplicate: kept with that transfer,
   nothing new created, unless you add it as new.
 - One-sided transactions already in the ledger are never turned into transfers
   afterwards: a transfer is recorded as one when its first side is committed.
+
+## Matching
+
+Every row's decision is a suggestion, made by **matching**: logic, like the rules, and a
+level of its own (kind `match`). It suggests the decision a row's status calls for, as
+sure as what it found:
+
+| Row | Suggests | Confidence |
+|---|---|---|
+| New: nothing like it | *Add as new* | 1.0 |
+| Duplicate: the same bank row, imported before | *Already there* | 1.0 |
+| Transfer duplicate or transfer match | *Already there* / *Merge into one transfer* | 1.0, less 0.03 a day apart |
+| Near duplicate: the same amount a few days apart | *Already there* | the descriptions' likeness, less 0.06 a day apart; **never above 0.89** |
+
+A near duplicate may be another, identical purchase, so it's never confident: it always
+waits for your decision. Choosing a decision, even the suggested one, makes it yours. A
+transfer match's two sides share one decision. Calibrating matching is a new version of
+it (`matching` v1 now).
 
 ## The stack
 
@@ -357,7 +377,7 @@ Each suggestion keeps:
 - the **value** (an account, counterparty, category or party — or "none");
 - its **confidence**, stored per mille (an integer: 900 is 0.9);
 - a short **reason** (e.g. the past transaction it resembles);
-- **the exact system that made it**, a *suggester*: its kind (rule, local, remote), name
+- **the exact system that made it**, a *suggester*: its kind (rule, local, remote, match), name
   and version, plus whatever else identifies it — the rules' version, the data a local
   model learned from, the remote model's version as the service reports it and the
   version of the questions asked. When a model is upgraded or replaced, every suggestion
@@ -384,6 +404,9 @@ shows the suggester and the reason.
 - **Transfers.** A transfer match names its other side (account, date, text, and file if
   it's another), linked to that row, and committing makes the two one transfer (*Merge
   into one transfer*); *Keep separate transactions* splits them. A transfer duplicate names the transfer it's the other side of.
+- **A row's decision.** *On commit* shows matching's suggestion with its badge and reason.
+  A confident one is selected; an unsure one (every near duplicate) asks *Choose…*, with
+  the suggestion marked. Picking any option makes it yours.
 
 ## Commit
 
@@ -394,14 +417,16 @@ Commit is refused while information is missing:
 
 - a statement has no account (neither its own nor a confident suggestion);
 - a row that will become a new transaction has a label that is neither yours nor
-  confidently suggested.
+  confidently suggested;
+- a row's decision is neither yours nor confidently suggested.
 
-The web app disables *Commit* and lists the rows that need labels. The server enforces
-the same rule (`409`, problem type `urn:exchequer:problem:labels-missing`, naming the
-rows), so the command line leaves such an import staged, to finish in the web app.
+The web app marks such an import *Needs work*, disables *Commit* and links the rows that
+need labels or a decision. The server enforces the same rule (`409`, problem types
+`urn:exchequer:problem:labels-missing` and `…:decisions-missing`, naming the rows), so
+the command line leaves such an import staged, to finish in the web app.
 
-On commit, every suggestion for a committed row, and every statement's suggested
-account, is recorded with what was actually committed (`suggestion_outcome`). This
+On commit, every suggestion for a committed row, its decision included, and every
+statement's suggested account, is recorded with what was actually committed (`suggestion_outcome`). This
 measures each suggester — how often a confident suggestion was kept, an old model
 against its replacement — and doesn't depend on the ledger: it stays if the
 transactions are later edited or undone.

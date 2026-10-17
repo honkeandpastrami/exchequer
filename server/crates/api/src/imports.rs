@@ -21,7 +21,7 @@ use sqlx::PgConnection;
 use store::audit::Action;
 use store::imports::{
     CONFIDENT, Fingerprint, ImportRow, ImportedRow, Matchable, NearCandidate, Outcome, RowKey,
-    RowRow, StatementRow, SuggesterRow, SuggestionRow,
+    RowRow, StatementRow, StatusUpdate, SuggesterRow, SuggestionRow,
 };
 use time::{Date, OffsetDateTime};
 use utoipa::{IntoParams, ToSchema};
@@ -230,6 +230,8 @@ pub enum SuggesterKind {
     Rule,
     Local,
     Remote,
+    /// Matching: what's already in the ledger or other staged files.
+    Match,
 }
 
 /// The exact system that made a suggestion.
@@ -255,6 +257,7 @@ impl TryFrom<SuggesterRow> for Suggester {
                 "rule" => SuggesterKind::Rule,
                 "local" => SuggesterKind::Local,
                 "remote" => SuggesterKind::Remote,
+                "match" => SuggesterKind::Match,
                 _ => return Err(Problem::internal()),
             },
             name: r.name,
@@ -279,6 +282,19 @@ pub struct LabelSuggestion {
     confidence: i16,
     /// Whether it's confident enough (at least 900) to be committed unless
     /// you choose otherwise.
+    confident: bool,
+    reason: String,
+    suggester: Suggester,
+}
+
+/// What matching suggests committing does with a row.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct DecisionSuggestion {
+    decision: Decision,
+    /// Per mille: 900 is 0.9.
+    confidence: i16,
+    /// Whether it's confident enough (at least 900) to be committed unless
+    /// you choose otherwise. A near duplicate never is.
     confident: bool,
     reason: String,
     suggester: Suggester,
@@ -332,8 +348,8 @@ pub struct Readiness {
     /// New rows with a label neither chosen nor confidently suggested.
     /// Needs work.
     unlabeled: u32,
-    /// Near duplicates and transfer matches left on their default decision.
-    /// Needs work.
+    /// Rows whose decision is neither yours nor confidently suggested (a
+    /// near duplicate never is). Needs work.
     undecided: u32,
     /// Statements whose account is a confident suggestion, not yet chosen.
     suggested_accounts: u32,
@@ -367,6 +383,10 @@ pub struct StagedRow {
     decision: Option<Decision>,
     /// Whether `decision` is the client's choice rather than the default.
     decided: bool,
+    /// What matching suggests `decision` be; absent while the statement has
+    /// no account.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    suggested_decision: Option<DecisionSuggestion>,
     /// The new transaction's description, if not the bank's.
     #[serde(skip_serializing_if = "Option::is_none")]
     set_description: Option<String>,
@@ -777,6 +797,9 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
     let rows =
         store::imports::rows(&mut *db, import_id, Some(statement), None, None, i64::MAX).await?;
     let mut matched: HashMap<i32, (RowStatus, Uuid)> = HashMap::new();
+    // What each candidate match found: days apart and, for a near
+    // duplicate, how alike.
+    let mut found: HashMap<(i32, Uuid), (i32, Option<i32>)> = HashMap::new();
     let account = s.effective_account();
     if let Some(account) = account {
         let fps: Vec<String> = rows.iter().map(|r| r.fingerprint.clone()).collect();
@@ -817,6 +840,10 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
                 .await?,
             ),
         ] {
+            for c in &candidates {
+                let sim = (status == RowStatus::NearDuplicate).then_some(c.similarity);
+                found.insert((c.position, c.transaction_id), (c.days_apart, sim));
+            }
             let done: HashSet<i32> = matched.keys().copied().collect();
             let taken: HashSet<Uuid> = matched.values().map(|m| m.1).collect();
             for (position, t) in one_to_one(near(candidates), &done, &taken) {
@@ -824,7 +851,8 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
             }
         }
     }
-    let statuses: Vec<(i32, String, Option<Uuid>)> = rows
+    let small = |n: i32| i16::try_from(n).ok();
+    let statuses: Vec<StatusUpdate> = rows
         .iter()
         .map(|r| {
             let (status, t) = match (account, matched.get(&r.position)) {
@@ -832,7 +860,16 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
                 (Some(_), Some((status, t))) => (*status, Some(*t)),
                 (Some(_), None) => (RowStatus::New, None),
             };
-            (r.position, status.as_str().to_owned(), t)
+            let (days, similarity) = t
+                .and_then(|t| found.get(&(r.position, t)))
+                .map_or((None, None), |(d, sim)| (small(*d), sim.and_then(small)));
+            StatusUpdate {
+                position: r.position,
+                status: status.as_str().to_owned(),
+                transaction: t,
+                days,
+                similarity,
+            }
         })
         .collect();
     store::imports::set_statuses(&mut *db, import_id, statement, &statuses).await?;
@@ -1115,6 +1152,96 @@ fn decision_of(r: &RowRow) -> Result<Option<Decision>, Problem> {
     })
 }
 
+// ------------------------------------------------ Matching, suggesting ----
+// A row's decision is a suggestion (design §6.7, docs/ai.md): matching is
+// logic, like the rules, and as sure as what it found.
+
+/// The matcher's name and version: a new version when its calibration
+/// changes.
+const MATCHER: (&str, &str) = ("matching", "1");
+/// A near duplicate is never sure enough to commit unseen: it may be
+/// another, identical purchase.
+const NEAR_MOST: i32 = 890;
+
+/// What matching suggests for a row.
+#[derive(Debug, Clone)]
+struct Guess {
+    decision: Decision,
+    confidence: i16,
+    reason: String,
+}
+
+impl Guess {
+    const fn confident(&self) -> bool {
+        self.confidence >= CONFIDENT
+    }
+}
+
+fn apart(days: i32) -> String {
+    match days {
+        0 => "the same day".to_owned(),
+        1 => "a day apart".to_owned(),
+        d => format!("{d} days apart"),
+    }
+}
+
+/// What matching suggests committing does with a row, and how sure it is;
+/// `None` while its statement has no account. `pair_date`: a transfer
+/// match's other side's.
+fn guess(r: &RowRow, pair_date: Option<Date>) -> Result<Option<Guess>, Problem> {
+    let status = RowStatus::parse(&r.status)?;
+    let Some(decision) = Decision::default_for(status) else {
+        return Ok(None);
+    };
+    // The two sides of a transfer: surer the closer they're dated.
+    let transfer = |days: Option<i32>, what: &str| match days {
+        Some(d) => ((1000 - 30 * d).max(0), format!("{what}, {}", apart(d))),
+        None => (500, what.to_owned()),
+    };
+    let (confidence, reason) = match status {
+        RowStatus::NeedsAccount => return Ok(None),
+        RowStatus::New => (1000, "nothing like it in the ledger".to_owned()),
+        RowStatus::Duplicate => (1000, "this bank row was imported before".to_owned()),
+        RowStatus::TransferDuplicate => transfer(
+            r.match_days.map(i32::from),
+            "the transfer is already recorded",
+        ),
+        RowStatus::TransferMatch => transfer(
+            pair_date.map(|p| i32::try_from((r.date - p).whole_days().abs()).unwrap_or(i32::MAX)),
+            "the other side of a transfer",
+        ),
+        RowStatus::NearDuplicate => match (r.match_days, r.match_similarity) {
+            (Some(d), Some(sim)) => {
+                let (d, sim) = (i32::from(d), i32::from(sim));
+                (
+                    (sim * 89 / 100 - 60 * d).clamp(0, NEAR_MOST),
+                    format!(
+                        "the same amount, {}, descriptions {}% alike",
+                        apart(d),
+                        sim / 10
+                    ),
+                )
+            }
+            _ => (0, "the same amount, a few days apart".to_owned()),
+        },
+    };
+    Ok(Some(Guess {
+        decision,
+        confidence: i16::try_from(confidence).unwrap_or(0),
+        reason,
+    }))
+}
+
+/// The matcher, as the API shows a suggester.
+async fn matcher(db: &mut PgConnection) -> Result<Suggester, Problem> {
+    let id = matcher_id(db).await?;
+    known(&suggesters(db, [id]).await?, id)
+}
+
+async fn matcher_id(db: &mut PgConnection) -> Result<Uuid, Problem> {
+    Ok(store::imports::suggester(db, "match", MATCHER.0, MATCHER.1, &json!({})).await?)
+}
+
 /// How close an import is to committing ([`Readiness`]). `statements`
 /// are its own.
 async fn readiness(
@@ -1127,12 +1254,17 @@ async fn readiness(
     let keys: Vec<(i16, i32)> = rows.iter().map(|r| (r.statement, r.position)).collect();
     let suggestions = store::imports::suggestions(&mut *db, id, &keys).await?;
     let by = suggesters(db, suggestions.iter().map(|s| s.suggester_id)).await?;
-    let pairs: HashMap<RowKey, Option<Uuid>> = {
+    let pairs: HashMap<RowKey, (Option<Uuid>, Date)> = {
         let keys: Vec<RowKey> = rows.iter().filter_map(pair_key).collect();
         store::imports::pair_rows(&mut *db, &keys)
             .await?
             .into_iter()
-            .map(|p| ((p.import_id, p.statement, p.position), p.account_id))
+            .map(|p| {
+                (
+                    (p.import_id, p.statement, p.position),
+                    (p.account_id, p.date),
+                )
+            })
             .collect()
     };
     let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
@@ -1160,9 +1292,8 @@ async fn readiness(
         let Some(decision) = decision_of(r)? else {
             continue;
         };
-        if matches!(status, RowStatus::NearDuplicate | RowStatus::TransferMatch)
-            && r.decision.is_none()
-        {
+        let pair = pair_key(r).and_then(|k| pairs.get(&k).copied());
+        if r.decision.is_none() && !guess(r, pair.map(|p| p.1))?.is_some_and(|g| g.confident()) {
             out.undecided += 1;
         }
         let labeled = match decision {
@@ -1179,16 +1310,16 @@ async fn readiness(
                 .iter()
                 .find(|s| s.position == r.statement)
                 .and_then(StatementRow::effective_account),
-            pair_account: pair_key(r).and_then(|k| pairs.get(&k).copied().flatten()),
+            pair_account: pair.and_then(|p| p.0),
         };
         let l = labels(r, &suggestions, &cx);
         if decision == Decision::New && !l.missing.is_empty() {
             out.unlabeled += 1;
         }
-        if l.suggested_by
-            .iter()
-            .any(|s| by.get(s).is_some_and(|s| s.kind != SuggesterKind::Rule))
-        {
+        if l.suggested_by.iter().any(|s| {
+            by.get(s)
+                .is_some_and(|s| matches!(s.kind, SuggesterKind::Local | SuggesterKind::Remote))
+        }) {
             out.suggested_rows += 1;
         }
     }
@@ -1218,6 +1349,7 @@ async fn shown(
         .collect();
     let accounts = suggestions::accounts(db).await?;
     let pairs = pairs(db, &rows).await?;
+    let matcher = matcher(db).await?;
     rows.into_iter()
         .map(|r| {
             let mine: Vec<SuggestionRow> = all
@@ -1231,7 +1363,7 @@ async fn shown(
                 account: statements.get(&r.statement).copied().flatten(),
                 pair_account: pair.as_ref().map(|p| p.account_id),
             };
-            staged_row(r, &mine, &by, &cx, pair)
+            staged_row(r, &mine, &by, &matcher, &cx, pair)
         })
         .collect()
 }
@@ -1273,10 +1405,19 @@ fn staged_row(
     r: RowRow,
     suggestions: &[SuggestionRow],
     by: &HashMap<Uuid, Suggester>,
+    matcher: &Suggester,
     cx: &Context,
     transfer_match: Option<TransferMatch>,
 ) -> Result<StagedRow, Problem> {
     let status = RowStatus::parse(&r.status)?;
+    let suggested_decision =
+        guess(&r, transfer_match.as_ref().map(|m| m.date))?.map(|g| DecisionSuggestion {
+            decision: g.decision,
+            confidence: g.confidence,
+            confident: g.confident(),
+            reason: g.reason,
+            suggester: matcher.clone(),
+        });
     let chosen = r.decision.as_deref().map(Decision::parse).transpose()?;
     let decision = decision_of(&r)?;
     let l = labels(&r, suggestions, cx);
@@ -1310,6 +1451,7 @@ fn staged_row(
         },
         decision,
         decided: chosen.is_some(),
+        suggested_decision,
         set_description: r.set_description,
         counterparty_id: l.counterparty,
         transfer_account_id: l.transfer,
@@ -1505,6 +1647,8 @@ async fn upload(
                 pair_import_id: None,
                 pair_statement: None,
                 pair_position: None,
+                match_days: None,
+                match_similarity: None,
             });
         }
         let account_id = resolve(&mut tx, s.account.as_ref(), p.account_id).await?;
@@ -2081,17 +2225,20 @@ async fn carry_out(
             if n > 10 { "; …" } else { "" }
         )));
     }
-    // A near-duplicate or transfer match is a guess: it needs your decision,
-    // even if it's the default. With the two checks above, commit refuses
+    // Every decision is yours or a confident suggestion of matching's (a
+    // near duplicate never is). With the two checks above, commit refuses
     // exactly what [`readiness`] calls `needs_work`.
-    let undecided: Vec<String> = rows
+    let mut guesses = Vec::new();
+    for r in &rows {
+        let pair_date = pair_key(r).and_then(|k| pairs.get(&k)).map(|p| p.date);
+        if let Some(g) = guess(r, pair_date)? {
+            guesses.push((r, g));
+        }
+    }
+    let undecided: Vec<String> = guesses
         .iter()
-        .filter(|r| {
-            r.decision.is_none()
-                && RowStatus::parse(&r.status)
-                    .is_ok_and(|s| matches!(s, RowStatus::NearDuplicate | RowStatus::TransferMatch))
-        })
-        .map(|r| format!("statement {} row {}", r.statement, r.position))
+        .filter(|(r, g)| r.decision.is_none() && !g.confident())
+        .map(|(r, _)| format!("statement {} row {}", r.statement, r.position))
         .collect();
     if !undecided.is_empty() {
         let n = undecided.len();
@@ -2101,13 +2248,29 @@ async fn carry_out(
             "Rows need a decision",
         )
         .detail(format!(
-            "{n} {} your decision (a near duplicate or transfer match is a guess): {}{}",
+            "{n} {} your decision (matching isn't sure): {}{}",
             if n == 1 { "row needs" } else { "rows need" },
             undecided[..n.min(10)].join("; "),
             if n > 10 { "; …" } else { "" }
         )));
     }
+    let matcher = matcher_id(tx).await?;
     let mut outcomes = Vec::new();
+    for (r, g) in &guesses {
+        let committed = decision_of(r)?.ok_or_else(Problem::internal)?;
+        outcomes.push(Outcome {
+            suggester_id: matcher,
+            label: "decision".to_owned(),
+            suggested: None,
+            confidence: g.confidence,
+            committed: None,
+            transaction_id: None,
+            decisions: Some((
+                g.decision.as_str().to_owned(),
+                committed.as_str().to_owned(),
+            )),
+        });
+    }
 
     let mut out = Committed {
         import_batch_id: None,
@@ -2245,6 +2408,7 @@ async fn carry_out(
                         confidence: sg.confidence,
                         committed,
                         transaction_id: Some(t.id()),
+                        decisions: None,
                     });
                 }
                 t.id()
@@ -2317,6 +2481,7 @@ async fn carry_out(
                 confidence: a.confidence,
                 committed: s.effective_account(),
                 transaction_id: None,
+                decisions: None,
             });
         }
     }

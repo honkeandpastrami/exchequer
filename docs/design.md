@@ -509,16 +509,17 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    batch of its own. Uploaded files aren't kept; only each row's parsed raw form is.
 
    **Readiness.** Each staged import says how close it is to committing (`readiness`):
-   - `needs_work` (red): a statement has no account; a new row has a label that is
-     neither chosen nor confidently suggested; or a near-duplicate or transfer match is
-     still on its default decision. Each comes with a count. A near-duplicate or
-     transfer match is a guess, so it waits for your decision: choosing one, even the
-     default, settles it (both sides of a transfer match share it). Commit refuses
-     exactly these (409: `labels-missing`, `decisions-missing`, or no account), so every
-     client and page follows the same rule.
+   - `needs_work` (red): a statement has no account; a new row has a label, or a row
+     its decision, that is neither chosen nor confidently suggested. Each comes with a
+     count. A row's decision is matching's suggestion (docs/ai.md): sure of a new row
+     or an exact duplicate, as sure as the dates are close for a transfer, and never
+     sure of a near duplicate, which waits for you. Commit refuses exactly these (409:
+     `labels-missing`, `decisions-missing`, or no account), so every client and page
+     follows the same rule.
    - `suggested` (yellow): it would commit, but it relies on confident AI suggestions
      (local or remote) or a suggested account that you haven't confirmed.
-   - `ready` (green): it commits exactly as shown. A rule's suggestion counts as yours.
+   - `ready` (green): it commits exactly as shown. A suggestion from logic (the rules,
+     matching) counts as yours.
 
    The web app shows the same mark and reasons on the Imports list and on an import's
    review, where its rows to label or decide are one filter away; either page can

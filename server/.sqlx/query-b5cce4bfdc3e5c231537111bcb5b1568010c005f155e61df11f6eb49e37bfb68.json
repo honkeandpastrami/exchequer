@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE staged_row r SET status = u.status, match_transaction_id = u.match,\n                match_days = u.days, match_similarity = u.similarity,\n                decision = CASE WHEN r.status <> u.status\n                                 AND u.status IN ('duplicate', 'near_duplicate',\n                                                  'transfer_duplicate')\n                                 AND r.decision IS DISTINCT FROM 'skip'\n                                THEN NULL ELSE r.decision END\n         FROM unnest($3::int4[], $4::text[], $5::uuid[], $6::int2[], $7::int2[])\n              AS u(position, status, match, days, similarity)\n         WHERE r.import_id = $1 AND r.statement = $2 AND r.position = u.position",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2",
+        "Int4Array",
+        "TextArray",
+        "UuidArray",
+        "Int2Array",
+        "Int2Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b5cce4bfdc3e5c231537111bcb5b1568010c005f155e61df11f6eb49e37bfb68"
+}

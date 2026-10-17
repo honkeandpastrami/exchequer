@@ -517,7 +517,7 @@
 				>show the rows that need labels</button
 			>{/if}
 		{#if toDecide.length}<button class="link small" onclick={() => showOnly('undecided')}
-				>show the matches to decide</button
+				>show the rows that need a decision</button
 			>{/if}
 	</p>
 
@@ -534,7 +534,7 @@
 			>Needs labels {blocked.length}</button
 		>
 		<button class="link" aria-pressed={shown === 'undecided'} onclick={() => show('undecided')}
-			>To decide {toDecide.length}</button
+			>Needs a decision {toDecide.length}</button
 		>
 	</nav>
 
@@ -636,18 +636,36 @@
 						</td>
 						<td class="decide">
 							{#if decisionsFor(row.status).length}
-								{@const guess = toDecide.includes(row)}
+								{@const sd = row.suggested_decision}
+								{@const unsure = !row.decided && !!sd && !sd.confident}
 								<select
-									value={guess ? '' : row.decision}
+									value={unsure ? '' : row.decision}
 									onchange={(e) =>
 										setRow(row, { decision: e.currentTarget.value as Schemas['Decision'] })}
 									aria-label="On commit"
 								>
-									{#if guess}<option value="" disabled>Choose…</option>{/if}
+									{#if unsure}<option value="" disabled>Choose…</option>{/if}
 									{#each decisionsFor(row.status) as d (d)}
-										<option value={d}>{decisionLabel(row.status, d)}</option>
+										<option value={d}
+											>{decisionLabel(row.status, d)}{!row.decided && sd?.decision === d
+												? ' (suggested)'
+												: ''}</option
+										>
 									{/each}
 								</select>
+								{#if sd}
+									<div class="status">
+										{#if row.decided}
+											Your choice{#if sd.decision !== row.decision}; suggested: {decisionLabel(
+													row.status,
+													sd.decision
+												)}{/if}
+										{:else}
+											<SuggestionBadge suggestion={sd} />
+											<span title={sd.reason}>{sd.reason}</span>
+										{/if}
+									</div>
+								{/if}
 							{:else}
 								<span class="muted">Pick the account</span>
 							{/if}

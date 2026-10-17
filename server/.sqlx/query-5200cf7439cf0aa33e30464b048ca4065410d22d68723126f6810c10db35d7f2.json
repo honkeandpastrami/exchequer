@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,\n                status, match_transaction_id, decision, set_description, counterparty_id,\n                transfer_account_id, category_id, purpose_id, chosen, pair_import_id,\n                pair_statement, pair_position\n         FROM staged_row\n         WHERE import_id = $1\n           AND ($2::int2 IS NULL OR statement = $2)\n           AND ($3::text IS NULL OR status = $3)\n           AND ($4::int2 IS NULL OR (statement, position) > ($4, $5::int4))\n         ORDER BY statement, position LIMIT $6",
+  "query": "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,\n                status, match_transaction_id, decision, set_description, counterparty_id,\n                transfer_account_id, category_id, purpose_id, chosen, pair_import_id,\n                pair_statement, pair_position, match_days, match_similarity\n         FROM staged_row\n         WHERE import_id = $1\n           AND ($2::int2 IS NULL OR statement = $2)\n           AND ($3::text IS NULL OR status = $3)\n           AND ($4::int2 IS NULL OR (statement, position) > ($4, $5::int4))\n         ORDER BY statement, position LIMIT $6",
   "describe": {
     "columns": [
       {
@@ -222,6 +222,28 @@
             "name": "pair_position"
           }
         }
+      },
+      {
+        "ordinal": 20,
+        "name": "match_days",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "match_days"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "match_similarity",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "match_similarity"
+          }
+        }
       }
     ],
     "parameters": {
@@ -254,8 +276,10 @@
       false,
       true,
       true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "f3311be6f64381aefee160c0ed0cf5e00eb1fdb3dc94e29935bcb9b7442650e7"
+  "hash": "5200cf7439cf0aa33e30464b048ca4065410d22d68723126f6810c10db35d7f2"
 }

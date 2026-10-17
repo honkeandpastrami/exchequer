@@ -365,6 +365,22 @@ async fn rows_like_recorded_transactions_are_near_duplicates(pool: PgPool) {
         r.body["statements"][0]["counts"]["near_duplicate"],
         json!(2)
     );
+    // A near duplicate is never sure: the same text on the same day is 89%.
+    let s = &all[1]["suggested_decision"];
+    assert_eq!(
+        (
+            &s["decision"],
+            &s["confidence"],
+            &s["confident"],
+            &s["reason"]
+        ),
+        (
+            &json!("match"),
+            &json!(890),
+            &json!(false),
+            &json!("the same amount, the same day, descriptions 100% alike")
+        )
+    );
     // Whether they're the same is yours to say; the new row needs labels.
     let ready = &r.body["readiness"];
     assert_eq!(

@@ -330,6 +330,39 @@ async fn decisions_labels_and_transfers(pool: PgPool) {
         ]
     );
     assert_eq!(all[2]["match_transaction_id"], json!(pay));
+    // Each decision is matching's suggestion: sure of a new row, less of a
+    // transfer recorded four days off.
+    let suggested = |r: &Value| {
+        let s = &r["suggested_decision"];
+        (
+            s["decision"].clone(),
+            s["confidence"].clone(),
+            s["confident"].clone(),
+            s["reason"].clone(),
+            s["suggester"]["kind"].clone(),
+        )
+    };
+    assert_eq!(
+        suggested(&all[0]),
+        (
+            json!("new"),
+            json!(1000),
+            json!(true),
+            json!("nothing like it in the ledger"),
+            json!("match")
+        )
+    );
+    assert_eq!(
+        suggested(&all[2]),
+        (
+            json!("match"),
+            json!(880),
+            json!(false),
+            json!("the transfer is already recorded, 4 days apart"),
+            json!("match")
+        )
+    );
+    set_row(&pool, &h, &id, 2, json!({ "decision": "match" })).await;
 
     // Can't match a row with nothing to match; skip one coffee, label the other.
     let r = set_row(&pool, &h, &id, 0, json!({ "decision": "match" })).await;

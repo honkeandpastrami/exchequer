@@ -6341,6 +6341,37 @@
           "replace"
         ]
       },
+      "DecisionSuggestion": {
+        "type": "object",
+        "description": "What matching suggests committing does with a row.",
+        "required": [
+          "decision",
+          "confidence",
+          "confident",
+          "reason",
+          "suggester"
+        ],
+        "properties": {
+          "confidence": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Per mille: 900 is 0.9."
+          },
+          "confident": {
+            "type": "boolean",
+            "description": "Whether it's confident enough (at least 900) to be committed unless\nyou choose otherwise. A near duplicate never is."
+          },
+          "decision": {
+            "$ref": "#/components/schemas/Decision"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "suggester": {
+            "$ref": "#/components/schemas/Suggester"
+          }
+        }
+      },
       "DryRun": {
         "type": "object",
         "required": [
@@ -8290,6 +8321,17 @@
                 "status": {
                   "$ref": "#/components/schemas/RowStatus"
                 },
+                "suggested_decision": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/DecisionSuggestion",
+                      "description": "What matching suggests `decision` be; absent while the statement has\nno account."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "suggestions": {
                   "type": "array",
                   "items": {
@@ -8813,7 +8855,7 @@
           "undecided": {
             "type": "integer",
             "format": "int32",
-            "description": "Near duplicates and transfer matches left on their default decision.\nNeeds work.",
+            "description": "Rows whose decision is neither yours nor confidently suggested (a\nnear duplicate never is). Needs work.",
             "minimum": 0
           },
           "unlabeled": {
@@ -9562,6 +9604,17 @@
           "status": {
             "$ref": "#/components/schemas/RowStatus"
           },
+          "suggested_decision": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DecisionSuggestion",
+                "description": "What matching suggests `decision` be; absent while the statement has\nno account."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "suggestions": {
             "type": "array",
             "items": {
@@ -9796,7 +9849,8 @@
         "enum": [
           "rule",
           "local",
-          "remote"
+          "remote",
+          "match"
         ]
       },
       "Tag": {

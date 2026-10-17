@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE staged_row r SET status = u.status, match_transaction_id = NULL,\n                                 match_days = NULL, match_similarity = NULL,\n                                 pair_import_id = u.pi, pair_statement = u.ps,\n                                 pair_position = u.pp\n         FROM unnest($1::uuid[], $2::int2[], $3::int4[], $4::text[], $5::uuid[], $6::int2[],\n                     $7::int4[]) AS u(i, s, p, status, pi, ps, pp)\n         WHERE r.import_id = u.i AND r.statement = u.s AND r.position = u.p",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Int2Array",
+        "Int4Array",
+        "TextArray",
+        "UuidArray",
+        "Int2Array",
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4f9d249802441e0d1aaedf598c2c855692c627c85ab013345a9f24222a72bd7f"
+}

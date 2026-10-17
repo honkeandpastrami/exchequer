@@ -23,8 +23,8 @@ class Readiness:
             confirmed; `needs_work` needs you first.
         suggested_accounts (int): Statements whose account is a confident suggestion, not yet chosen.
         suggested_rows (int): Rows that would take a confident AI suggestion.
-        undecided (int): Near duplicates and transfer matches left on their default decision.
-            Needs work.
+        undecided (int): Rows whose decision is neither yours nor confidently suggested (a
+            near duplicate never is). Needs work.
         unlabeled (int): New rows with a label neither chosen nor confidently suggested.
             Needs work.
     """

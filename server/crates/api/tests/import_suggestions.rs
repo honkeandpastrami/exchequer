@@ -187,11 +187,13 @@ async fn a_suggested_account_counts_only_when_confident(pool: PgPool) {
     }
     let r = commit(&pool, &h, &id).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
-    let (label, suggested, committed, confidence): (String, Uuid, Uuid, i16) =
-        sqlx::query_as("SELECT label, suggested, committed, confidence FROM suggestion_outcome")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let (label, suggested, committed, confidence): (String, Uuid, Uuid, i16) = sqlx::query_as(
+        "SELECT label, suggested, committed, confidence FROM suggestion_outcome
+             WHERE label = 'account'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(
         (label.as_str(), suggested, committed, confidence),
         (
@@ -369,7 +371,9 @@ async fn confident_labels_are_committed_unless_you_choose(pool: PgPool) {
     );
     // Each suggestion is recorded with what was committed.
     let mut outcomes: Vec<(String, i16, bool)> = sqlx::query_as(
-        "SELECT label, confidence, suggested IS NOT DISTINCT FROM committed
+        "SELECT label, confidence,
+                (suggested IS NOT DISTINCT FROM committed
+                 AND suggested_decision IS NOT DISTINCT FROM committed_decision)
          FROM suggestion_outcome ORDER BY label, confidence",
     )
     .fetch_all(&pool)
@@ -383,6 +387,9 @@ async fn confident_labels_are_committed_unless_you_choose(pool: PgPool) {
             ("category".into(), 1000, false),
             ("counterparty".into(), 930, true),
             ("counterparty".into(), 1000, true),
+            // Matching's: both rows added as new, as suggested.
+            ("decision".into(), 1000, true),
+            ("decision".into(), 1000, true),
             ("purpose".into(), 1000, true),
         ]
     );

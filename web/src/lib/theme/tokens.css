@@ -59,6 +59,7 @@
 	--color-suggest-rule: #6b46c1;
 	--color-suggest-local: #2b6cb0;
 	--color-suggest-remote: #b83280;
+	--color-suggest-match: #0f766e;
 	--color-on-suggest: #ffffff;
 
 	/* Chart series, in order. */
@@ -97,6 +98,8 @@
 		--color-suggest-rule: #a68ae8;
 		--color-suggest-local: #6aa6e8;
 		--color-suggest-remote: #e06aa8;
+		--color-suggest-match: #4fc1b5;
+		--color-suggest-match: #4fc1b5;
 		--color-on-suggest: #0c1612;
 		--chart-1: #5cb595;
 		--chart-2: #e0a84a;

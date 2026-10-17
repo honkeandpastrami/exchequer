@@ -89,6 +89,10 @@ pub struct RowRow {
     pub pair_import_id: Option<Uuid>,
     pub pair_statement: Option<i16>,
     pub pair_position: Option<i32>,
+    /// What matching found: days between the row and its match, and how
+    /// alike their descriptions are (thousandths).
+    pub match_days: Option<i16>,
+    pub match_similarity: Option<i16>,
 }
 
 /// How many of a statement's rows have each status.
@@ -349,7 +353,7 @@ pub async fn rows(
         "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,
                 status, match_transaction_id, decision, set_description, counterparty_id,
                 transfer_account_id, category_id, purpose_id, chosen, pair_import_id,
-                pair_statement, pair_position
+                pair_statement, pair_position, match_days, match_similarity
          FROM staged_row
          WHERE import_id = $1
            AND ($2::int2 IS NULL OR statement = $2)
@@ -367,6 +371,17 @@ pub async fn rows(
     .await
 }
 
+/// A row's status, as [`set_statuses`] sets it.
+#[derive(Debug, Clone)]
+pub struct StatusUpdate {
+    pub position: i32,
+    pub status: String,
+    /// The transaction it matches.
+    pub transaction: Option<Uuid>,
+    pub days: Option<i16>,
+    pub similarity: Option<i16>,
+}
+
 /// Sets each row's status and match, by position, in one statement.
 /// A row found in the ledger after all (a duplicate of some kind) starts
 /// over at that status's default: a decision made before was about
@@ -375,25 +390,31 @@ pub async fn set_statuses(
     db: impl PgExecutor<'_>,
     import_id: Uuid,
     statement: i16,
-    rows: &[(i32, String, Option<Uuid>)],
+    rows: &[StatusUpdate],
 ) -> Result<(), sqlx::Error> {
-    let positions: Vec<i32> = rows.iter().map(|r| r.0).collect();
-    let statuses: Vec<String> = rows.iter().map(|r| r.1.clone()).collect();
-    let matches: Vec<Option<Uuid>> = rows.iter().map(|r| r.2).collect();
+    let positions: Vec<i32> = rows.iter().map(|r| r.position).collect();
+    let statuses: Vec<String> = rows.iter().map(|r| r.status.clone()).collect();
+    let matches: Vec<Option<Uuid>> = rows.iter().map(|r| r.transaction).collect();
+    let days: Vec<Option<i16>> = rows.iter().map(|r| r.days).collect();
+    let similarity: Vec<Option<i16>> = rows.iter().map(|r| r.similarity).collect();
     sqlx::query!(
         "UPDATE staged_row r SET status = u.status, match_transaction_id = u.match,
+                match_days = u.days, match_similarity = u.similarity,
                 decision = CASE WHEN r.status <> u.status
                                  AND u.status IN ('duplicate', 'near_duplicate',
                                                   'transfer_duplicate')
                                  AND r.decision IS DISTINCT FROM 'skip'
                                 THEN NULL ELSE r.decision END
-         FROM unnest($3::int4[], $4::text[], $5::uuid[]) AS u(position, status, match)
+         FROM unnest($3::int4[], $4::text[], $5::uuid[], $6::int2[], $7::int2[])
+              AS u(position, status, match, days, similarity)
          WHERE r.import_id = $1 AND r.statement = $2 AND r.position = u.position",
         import_id,
         statement,
         &positions,
         &statuses,
         &matches as &[Option<Uuid>],
+        &days as &[Option<i16>],
+        &similarity as &[Option<i16>],
     )
     .execute(db)
     .await?;
@@ -620,6 +641,7 @@ pub async fn set_pairs(
     let pair_positions: Vec<Option<i32>> = rows.iter().map(|r| r.2.map(|p| p.2)).collect();
     sqlx::query!(
         "UPDATE staged_row r SET status = u.status, match_transaction_id = NULL,
+                                 match_days = NULL, match_similarity = NULL,
                                  pair_import_id = u.pi, pair_statement = u.ps,
                                  pair_position = u.pp
          FROM unnest($1::uuid[], $2::int2[], $3::int4[], $4::text[], $5::uuid[], $6::int2[],
@@ -1001,6 +1023,8 @@ pub struct Outcome {
     pub confidence: i16,
     pub committed: Option<Uuid>,
     pub transaction_id: Option<Uuid>,
+    /// For a `decision`: what was suggested, and what was committed.
+    pub decisions: Option<(String, String)>,
 }
 
 pub async fn add_outcomes(db: impl PgExecutor<'_>, items: &[Outcome]) -> Result<(), sqlx::Error> {
@@ -1011,11 +1035,20 @@ pub async fn add_outcomes(db: impl PgExecutor<'_>, items: &[Outcome]) -> Result<
     let confidences: Vec<i16> = items.iter().map(|o| o.confidence).collect();
     let committed: Vec<Option<Uuid>> = items.iter().map(|o| o.committed).collect();
     let transactions: Vec<Option<Uuid>> = items.iter().map(|o| o.transaction_id).collect();
+    let suggested_decisions: Vec<Option<String>> = items
+        .iter()
+        .map(|o| o.decisions.as_ref().map(|d| d.0.clone()))
+        .collect();
+    let committed_decisions: Vec<Option<String>> = items
+        .iter()
+        .map(|o| o.decisions.as_ref().map(|d| d.1.clone()))
+        .collect();
     sqlx::query!(
         "INSERT INTO suggestion_outcome (id, suggester_id, label, suggested, confidence,
-                                         committed, transaction_id)
+                                         committed, transaction_id, suggested_decision,
+                                         committed_decision)
          SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::text[], $4::uuid[], $5::int2[],
-                              $6::uuid[], $7::uuid[])",
+                              $6::uuid[], $7::uuid[], $8::text[], $9::text[])",
         &ids,
         &suggesters,
         &labels,
@@ -1023,6 +1056,8 @@ pub async fn add_outcomes(db: impl PgExecutor<'_>, items: &[Outcome]) -> Result<
         &confidences,
         &committed as &[Option<Uuid>],
         &transactions as &[Option<Uuid>],
+        &suggested_decisions as &[Option<String>],
+        &committed_decisions as &[Option<String>],
     )
     .execute(db)
     .await?;

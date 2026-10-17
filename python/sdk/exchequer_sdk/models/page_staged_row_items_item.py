@@ -14,6 +14,7 @@ from ..models.row_status import RowStatus
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.decision_suggestion import DecisionSuggestion
     from ..models.label_suggestion import LabelSuggestion
     from ..models.page_staged_row_items_item_raw import PageStagedRowItemsItemRaw
     from ..models.transfer_match import TransferMatch
@@ -50,6 +51,7 @@ class PageStagedRowItemsItem:
         native_id (None | str | Unset): The bank's own ID for the row, if it has one.
         purpose_id (None | Unset | UUID): Who the money was for; absent, the account's owner.
         set_description (None | str | Unset): The new transaction's description, if not the bank's.
+        suggested_decision (DecisionSuggestion | None | Unset):
         transfer_account_id (None | Unset | UUID): The other side when it's one of your accounts: the row is a transfer,
             whose category and purpose don't apply (unless it's a liquidation).
             A transfer match's is its other side's account.
@@ -75,11 +77,13 @@ class PageStagedRowItemsItem:
     native_id: None | str | Unset = UNSET
     purpose_id: None | Unset | UUID = UNSET
     set_description: None | str | Unset = UNSET
+    suggested_decision: DecisionSuggestion | None | Unset = UNSET
     transfer_account_id: None | Unset | UUID = UNSET
     transfer_match: None | TransferMatch | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.decision_suggestion import DecisionSuggestion  # noqa: PLC0415
         from ..models.transfer_match import TransferMatch  # noqa: PLC0415
 
         amount = self.amount
@@ -170,6 +174,14 @@ class PageStagedRowItemsItem:
         else:
             set_description = self.set_description
 
+        suggested_decision: dict[str, Any] | None | Unset
+        if isinstance(self.suggested_decision, Unset):
+            suggested_decision = UNSET
+        elif isinstance(self.suggested_decision, DecisionSuggestion):
+            suggested_decision = self.suggested_decision.to_dict()
+        else:
+            suggested_decision = self.suggested_decision
+
         transfer_account_id: None | str | Unset
         if isinstance(self.transfer_account_id, Unset):
             transfer_account_id = UNSET
@@ -218,6 +230,8 @@ class PageStagedRowItemsItem:
             field_dict["purpose_id"] = purpose_id
         if set_description is not UNSET:
             field_dict["set_description"] = set_description
+        if suggested_decision is not UNSET:
+            field_dict["suggested_decision"] = suggested_decision
         if transfer_account_id is not UNSET:
             field_dict["transfer_account_id"] = transfer_account_id
         if transfer_match is not UNSET:
@@ -227,6 +241,7 @@ class PageStagedRowItemsItem:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.decision_suggestion import DecisionSuggestion  # noqa: PLC0415
         from ..models.label_suggestion import LabelSuggestion  # noqa: PLC0415
         from ..models.page_staged_row_items_item_raw import PageStagedRowItemsItemRaw  # noqa: PLC0415
         from ..models.transfer_match import TransferMatch  # noqa: PLC0415
@@ -379,6 +394,23 @@ class PageStagedRowItemsItem:
 
         set_description = _parse_set_description(d.pop("set_description", UNSET))
 
+        def _parse_suggested_decision(data: object) -> DecisionSuggestion | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                suggested_decision_type_0 = DecisionSuggestion.from_dict(data)
+
+                return suggested_decision_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(DecisionSuggestion | None | Unset, data)
+
+        suggested_decision = _parse_suggested_decision(d.pop("suggested_decision", UNSET))
+
         def _parse_transfer_account_id(data: object) -> None | Unset | UUID:
             if data is None:
                 return data
@@ -433,6 +465,7 @@ class PageStagedRowItemsItem:
             native_id=native_id,
             purpose_id=purpose_id,
             set_description=set_description,
+            suggested_decision=suggested_decision,
             transfer_account_id=transfer_account_id,
             transfer_match=transfer_match,
         )

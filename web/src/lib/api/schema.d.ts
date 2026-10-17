@@ -1324,6 +1324,22 @@ export interface components {
 		 * @enum {string}
 		 */
 		Decision: 'match' | 'new' | 'skip' | 'replace';
+		/** @description What matching suggests committing does with a row. */
+		DecisionSuggestion: {
+			/**
+			 * Format: int32
+			 * @description Per mille: 900 is 0.9.
+			 */
+			confidence: number;
+			/**
+			 * @description Whether it's confident enough (at least 900) to be committed unless
+			 *     you choose otherwise. A near duplicate never is.
+			 */
+			confident: boolean;
+			decision: components['schemas']['Decision'];
+			reason: string;
+			suggester: components['schemas']['Suggester'];
+		};
 		DryRun: {
 			/**
 			 * Format: int32
@@ -2081,6 +2097,7 @@ export interface components {
 				/** Format: int32 */
 				statement: number;
 				status: components['schemas']['RowStatus'];
+				suggested_decision?: components['schemas']['DecisionSuggestion'] | null;
 				/** @description At most one per label, confident or not. */
 				suggestions: components['schemas']['LabelSuggestion'][];
 				/**
@@ -2264,8 +2281,8 @@ export interface components {
 			suggested_rows: number;
 			/**
 			 * Format: int32
-			 * @description Near duplicates and transfer matches left on their default decision.
-			 *     Needs work.
+			 * @description Rows whose decision is neither yours nor confidently suggested (a
+			 *     near duplicate never is). Needs work.
 			 */
 			undecided: number;
 			/**
@@ -2566,6 +2583,7 @@ export interface components {
 			/** Format: int32 */
 			statement: number;
 			status: components['schemas']['RowStatus'];
+			suggested_decision?: components['schemas']['DecisionSuggestion'] | null;
 			/** @description At most one per label, confident or not. */
 			suggestions: components['schemas']['LabelSuggestion'][];
 			/**
@@ -2654,7 +2672,7 @@ export interface components {
 		 * @description Which level of the suggestion stack made a suggestion (docs/ai.md).
 		 * @enum {string}
 		 */
-		SuggesterKind: 'rule' | 'local' | 'remote';
+		SuggesterKind: 'rule' | 'local' | 'remote' | 'match';
 		Tag: {
 			/** Format: uuid */
 			id: string;
