@@ -6,7 +6,7 @@ Requires=exchequer-db.service
 After=exchequer-db.service
 
 [Container]
-ContainerName=exchequer-api
+ContainerName=exchequer-server
 # The newest release (see deploy/README.md, "Updating").
 Image=ghcr.io/honkeandpastrami/exchequer-server:latest
 # podman-auto-update.timer pulls a new release and restarts the API on it.

@@ -46,8 +46,8 @@ cp "$1" "$copy/$name"
 
 max=$(podman run --rm "$registry/exchequer-server:latest" schema-version)
 
-systemctl --user stop exchequer-api.service
-stopped="the API is stopped (systemctl --user start exchequer-api.service)"
+systemctl --user stop exchequer-server.service
+stopped="the API is stopped (systemctl --user start exchequer-server.service)"
 
 if [ -n "$safety" ]; then
     # After stopping the API, so nothing changes between this dump and the restore.
@@ -65,5 +65,5 @@ podman run --rm --network exchequer --secret exchequer_db_password \
     exchequer-backup restore --replace "/backups/$name" "$max" ||
     die "the restore failed; $stopped"
 
-systemctl --user start exchequer-api.service
+systemctl --user start exchequer-server.service
 echo "the API is running again"

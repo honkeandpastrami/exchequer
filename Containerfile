@@ -2,7 +2,7 @@
 # static build at / next to the API (design §13, §15).
 #   podman build -t exchequer-server .
 # Runs as an unprivileged user; configure it with the env vars in
-# deploy/examples/exchequer-api.container. The version comes from git tags:
+# deploy/examples/exchequer-server.container. The version comes from git tags:
 #   podman build --build-arg EXCHEQUER_VERSION="$(deploy/version)" -t exchequer-server .
 
 FROM docker.io/library/node:26-slim AS web

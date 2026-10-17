@@ -705,7 +705,7 @@ A thin client built on the generated SDK; it never imports server code.
 
 ## 14. Component: deployment and operations
 
-- Two quadlets, `exchequer-api.container` and `exchequer-db.container`, on a private podman
+- Two quadlets, `exchequer-server.container` and `exchequer-db.container`, on a private podman
   network. The API publishes only to localhost or a reverse proxy. Examples live in
   `deploy/examples/`; each operator keeps their real units privately.
 - Schema migrations run once at startup. `/healthz` and `/version` endpoints. Logs go to
@@ -742,7 +742,7 @@ Environment=POSTGRES_PASSWORD_FILE=/run/secrets/exchequer_db_password
 Network=exchequer.network
 # no PublishPort: reachable only on the private network
 
-# exchequer-api.container
+# exchequer-server.container
 [Container]
 Secret=exchequer_db_password
 Secret=exchequer_bootstrap_token

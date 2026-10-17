@@ -9,7 +9,7 @@ since paths and schedules are yours.
 |---|---|
 | `exchequer.network` | Private network shared by the three containers |
 | `exchequer-db.volume`, `exchequer-db.container` | PostgreSQL 17, no published port |
-| `exchequer-api.container` | The API, published on `127.0.0.1:7438` |
+| `exchequer-server.container` | The API, published on `127.0.0.1:7438` |
 | `exchequer-backup.container`, `exchequer-backup.timer` | Daily `pg_dump` to a local drive |
 | `../exchequer-backup`, `../backup.Containerfile` | The dump/restore script, and the backup image that carries it |
 | `../build-images` | Builds both images from a checkout, as a fallback to the released ones |
@@ -38,7 +38,7 @@ Run these as the (non-root) user that will own the service, from a clone of this
 
    Optionally, for remote AI ([`docs/ai.md`](../docs/ai.md#remote-ai)), the Azure AI
    Foundry resource's key, pasted on stdin; then uncomment the remote AI lines in
-   `exchequer-api.container`:
+   `exchequer-server.container`:
 
    ```sh
    podman secret create exchequer_remote_ai_key -
@@ -60,13 +60,13 @@ Run these as the (non-root) user that will own the service, from a clone of this
       deploy/examples/*.container ~/.config/containers/systemd/
    cp deploy/examples/exchequer-backup.timer ~/.config/systemd/user/
    systemctl --user daemon-reload
-   systemctl --user start exchequer-api.service      # starts the database too
+   systemctl --user start exchequer-server.service      # starts the database too
    systemctl --user enable --now exchequer-backup.timer
    loginctl enable-linger "$USER"                    # keep running after logout
    ```
 
    The API and database start at boot on their own (their `[Install]` sections).
-   If `start` fails, `journalctl --user -u exchequer-db -u exchequer-api` says why.
+   If `start` fails, `journalctl --user -u exchequer-db -u exchequer-server` says why.
 
 5. Check it answers:
 
@@ -91,8 +91,8 @@ token.
 
 Podman checks the API's health every 30 seconds (`exchequer-server healthcheck`, which asks
 `/healthz`: up and reaching the database). `podman ps` shows it, and
-`podman healthcheck run exchequer-api` runs it now. After three failures in a row the
-container is killed and systemd restarts it; `journalctl --user -u exchequer-api` has why.
+`podman healthcheck run exchequer-server` runs it now. After three failures in a row the
+container is killed and systemd restarts it; `journalctl --user -u exchequer-server` has why.
 
 The web app is served at `/` by the same container: open `http://127.0.0.1:7438/` and
 sign in with a token (kept in that browser until you sign out).
