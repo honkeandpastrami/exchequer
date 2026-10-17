@@ -517,20 +517,16 @@
 						<td class="num"><Amount value={row.amount} {code} /></td>
 						<td>
 							{statuses[row.status]}
+							<!-- The match on one line, cut short; Details shows it whole. -->
 							{#if row.transfer_match}
 								{@const m = row.transfer_match}
 								{@const a = r.accounts.get(m.account_id)}
-								<div class="small">
+								<div class="small match">
 									with {a ? accountLabel(a, r) : '?'}: {m.date}
 									{m.description}
-									{#if m.import_id !== i.id}
-										(in <a href={resolve('/imports/[id]', { id: m.import_id })}
-											>{m.file_name ?? 'another import'}</a
-										>){/if}
 								</div>
-							{/if}
-							{#if row.match_transaction_id}
-								<div class="small">
+							{:else if row.match_transaction_id}
+								<div class="small match">
 									of <a href={resolve('/transactions/[id]', { id: row.match_transaction_id })}
 										>{tx ? `${tx.date} ${tx.description}` : 'a transaction'}</a
 									>
@@ -562,6 +558,25 @@
 					{#if open === key}
 						<tr class="details">
 							<td colspan="5">
+								{#if row.transfer_match}
+									{@const m = row.transfer_match}
+									{@const a = r.accounts.get(m.account_id)}
+									<p class="matches">
+										{statuses[row.status]} with {a ? accountLabel(a, r) : '?'}: {m.date}
+										{m.description}
+										{#if m.import_id !== i.id}
+											(in <a href={resolve('/imports/[id]', { id: m.import_id })}
+												>{m.file_name ?? 'another import'}</a
+											>){/if}
+									</p>
+								{:else if row.match_transaction_id}
+									<p class="matches">
+										{statuses[row.status]} of
+										<a href={resolve('/transactions/[id]', { id: row.match_transaction_id })}
+											>{tx ? `${tx.date} ${tx.description}` : 'a transaction'}</a
+										>
+									</p>
+								{/if}
 								{#if labeled}
 									<label class="field">
 										<span>Description</span>
@@ -743,11 +758,16 @@
 		white-space: nowrap;
 	}
 	.chip .v,
+	.match,
 	.status {
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.matches {
+		margin: 0 0 var(--space-3);
+		overflow-wrap: anywhere;
 	}
 	.fields {
 		display: grid;
