@@ -204,16 +204,29 @@ async fn a_pair_can_be_split_and_a_lone_transfer_committed(pool: PgPool) {
         json!({ "transfer_account_id": h.alex_credit }),
     )
     .await;
-    // Not the same transfer, you say: each row is new again.
+    // Not the same transfer, you say: both sides are added as new, and stay
+    // a potential match, so you can change your mind.
     let r = set_row(&pool, &h, &checking, 0, json!({ "decision": "new" })).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_eq!(
         (status(&r.body), &r.body["decided"]),
-        ((&json!("new"), &json!("new")), &json!(true))
+        ((&json!("transfer_match"), &json!("new")), &json!(true))
     );
     assert_eq!(
         status(&rows(&pool, &h, &card).await[0]),
-        (&json!("new"), &json!("new"))
+        (&json!("transfer_match"), &json!("new"))
+    );
+    // Back to one transfer, from either side.
+    let r = set_row(&pool, &h, &card, 0, json!({ "decision": "match" })).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(
+        status(&rows(&pool, &h, &checking).await[0]),
+        (&json!("transfer_match"), &json!("match"))
+    );
+    set_row(&pool, &h, &checking, 0, json!({ "decision": "new" })).await;
+    assert_eq!(
+        status(&rows(&pool, &h, &card).await[0]),
+        (&json!("transfer_match"), &json!("new"))
     );
     // Still a transfer to the card, alone: committed as one.
     set_row(&pool, &h, &checking, 1, json!({ "decision": "skip" })).await;

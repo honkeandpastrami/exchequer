@@ -446,7 +446,9 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
 7. **Commit** is all or nothing. Each row has a decision (`PATCH
    /imports/{id}/rows/{statement}/{position}`): `match` (the default for duplicates,
    near-duplicates, transfer matches and transfer duplicates), `new` (the default for new
-   rows; never for a duplicate; for a transfer match, it splits the pair), `replace` (a
+   rows; never for a duplicate; for a transfer match, both sides are added as new and stay
+   a potential match, so `match` brings the pair back; the two sides always share the
+   decision), `replace` (a
    duplicate or near-duplicate whose bank row should win: the
    matched transaction keeps its ID, notes, tags and batch and takes the row's date,
    amount and description, and the labels set in review; it must be one split between

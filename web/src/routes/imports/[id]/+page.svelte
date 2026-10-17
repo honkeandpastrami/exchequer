@@ -818,8 +818,9 @@
 	.c-status {
 		width: 10rem;
 	}
+	/* Room for the longest decision, "Not the same transfer". */
 	.c-decide {
-		width: 11rem;
+		width: 13.5rem;
 	}
 	.text {
 		overflow-wrap: anywhere;

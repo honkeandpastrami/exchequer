@@ -791,9 +791,12 @@ fn pair_of(r: &Matchable) -> Option<RowKey> {
 /// Works out transfer matches among the rows of every staged import (design
 /// §6.4): two rows that will become new transactions, in two of your
 /// accounts, with opposite amounts a few days apart, one settled as a
-/// transfer to the other's account ([`import::matching`]). A row you
-/// decided on (made new, skipped) isn't matched. Touches and returns the
-/// imports whose rows changed.
+/// transfer to the other's account ([`import::matching`]). A skipped row
+/// isn't matched; a pair you said isn't one (both sides `new`) stays a pair,
+/// so you can change your mind. The two sides always agree: if one is `new`
+/// (a pair just formed with a row added as new before), both are, so no
+/// bank row is recorded twice. Touches and returns the imports whose rows
+/// changed.
 async fn rematch(db: &mut PgConnection) -> Result<HashSet<Uuid>, Problem> {
     let rows = store::imports::matchable(&mut *db).await?;
     let open = |r: &Matchable| matches!(r.status.as_str(), "new" | "transfer_match");
@@ -807,12 +810,13 @@ async fn rematch(db: &mut PgConnection) -> Result<HashSet<Uuid>, Problem> {
                 date: r.date,
                 amount: r.amount,
                 side: side(r),
-                eligible: open(r) && r.decision.is_none(),
+                eligible: open(r) && r.decision.as_deref() != Some("skip"),
             })
         })
         .collect();
     let pairs = transfer_matches(&staged);
     let mut changes = Vec::new();
+    let mut agree = Vec::new();
     let mut changed = HashSet::new();
     for r in &rows {
         let pair = pairs.get(&key(r)).copied();
@@ -829,11 +833,25 @@ async fn rematch(db: &mut PgConnection) -> Result<HashSet<Uuid>, Problem> {
             changed.insert(r.import_id);
         }
     }
+    let declined = |r: &Matchable| r.decision.as_deref() == Some(Decision::New.as_str());
+    let by_key: HashMap<RowKey, &Matchable> = rows.iter().map(|r| (key(r), r)).collect();
+    for r in rows.iter().filter(|r| open(r) && declined(r)) {
+        let Some(p) = pairs.get(&key(r)).and_then(|k| by_key.get(k)) else {
+            continue;
+        };
+        if !declined(p) && p.decision.as_deref() != Some(Decision::Skip.as_str()) {
+            agree.push(key(p));
+            changed.insert(p.import_id);
+        }
+    }
     if !changes.is_empty() {
         store::imports::set_pairs(&mut *db, &changes).await?;
-        for id in &changed {
-            store::imports::touch(&mut *db, *id).await?;
-        }
+    }
+    for k in agree {
+        store::imports::set_pair_decision(&mut *db, k, Some(Decision::New.as_str())).await?;
+    }
+    for id in &changed {
+        store::imports::touch(&mut *db, *id).await?;
     }
     Ok(changed)
 }
@@ -1630,6 +1648,17 @@ async fn set_row(
     store::imports::set_decision(&mut *tx, id, &row)
         .await
         .map_err(|e| write_error(e, String::new))?;
+    // One transfer with its match, or not: the other side decides the same.
+    if req.decision.is_some()
+        && row.status == RowStatus::TransferMatch.as_str()
+        && row.decision.as_deref() != Some(Decision::Skip.as_str())
+        && let Some(k) = pair_key(&row)
+    {
+        store::imports::set_pair_decision(&mut *tx, k, row.decision.as_deref()).await?;
+        if k.0 != id {
+            store::imports::touch(&mut *tx, k.0).await?;
+        }
+    }
     // A transfer chosen, or a decision made, may make or split a transfer
     // match.
     rematch(&mut tx).await?;

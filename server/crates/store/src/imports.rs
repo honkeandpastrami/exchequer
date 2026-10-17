@@ -368,6 +368,9 @@ pub async fn rows(
 }
 
 /// Sets each row's status and match, by position, in one statement.
+/// A row found in the ledger after all (a duplicate of some kind) starts
+/// over at that status's default: a decision made before was about
+/// something else. A skip stays.
 pub async fn set_statuses(
     db: impl PgExecutor<'_>,
     import_id: Uuid,
@@ -378,7 +381,12 @@ pub async fn set_statuses(
     let statuses: Vec<String> = rows.iter().map(|r| r.1.clone()).collect();
     let matches: Vec<Option<Uuid>> = rows.iter().map(|r| r.2).collect();
     sqlx::query!(
-        "UPDATE staged_row r SET status = u.status, match_transaction_id = u.match
+        "UPDATE staged_row r SET status = u.status, match_transaction_id = u.match,
+                decision = CASE WHEN r.status <> u.status
+                                 AND u.status IN ('duplicate', 'near_duplicate',
+                                                  'transfer_duplicate')
+                                 AND r.decision IS DISTINCT FROM 'skip'
+                                THEN NULL ELSE r.decision END
          FROM unnest($3::int4[], $4::text[], $5::uuid[]) AS u(position, status, match)
          WHERE r.import_id = $1 AND r.statement = $2 AND r.position = u.position",
         import_id,
@@ -624,6 +632,27 @@ pub async fn set_pairs(
         &pair_imports as &[Option<Uuid>],
         &pair_statements as &[Option<i16>],
         &pair_positions as &[Option<i32>],
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// The other side of a transfer match takes the same decision: both rows
+/// are one transfer, or neither is. A skipped row keeps its skip.
+pub async fn set_pair_decision(
+    db: impl PgExecutor<'_>,
+    key: RowKey,
+    decision: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE staged_row SET decision = $4
+         WHERE import_id = $1 AND statement = $2 AND position = $3
+           AND status = 'transfer_match' AND decision IS DISTINCT FROM 'skip'",
+        key.0,
+        key.1,
+        key.2,
+        decision,
     )
     .execute(db)
     .await?;

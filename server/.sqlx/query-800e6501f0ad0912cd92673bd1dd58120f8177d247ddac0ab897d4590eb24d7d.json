@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE staged_row SET decision = $4\n         WHERE import_id = $1 AND statement = $2 AND position = $3\n           AND status = 'transfer_match' AND decision IS DISTINCT FROM 'skip'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "800e6501f0ad0912cd92673bd1dd58120f8177d247ddac0ab897d4590eb24d7d"
+}
