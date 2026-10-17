@@ -98,7 +98,10 @@ export const labelNames: Record<Label, string> = {
 	purpose: 'For'
 };
 
-/** What choosing "none" means for each label. */
+/**
+ * What choosing "none" means for each label. A purpose has no such choice:
+ * unset, it's the account's owner, shown by name.
+ */
 export const noneNames: Record<Label, string> = {
 	counterparty: 'Unknown',
 	category: 'No category',

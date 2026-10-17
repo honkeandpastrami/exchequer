@@ -154,8 +154,15 @@
 		return accountsByOwner(r).filter((a) => !a.archived && a.id !== own);
 	}
 
-	function nameOf(r: Reference, label: Label, value: string | null | undefined): string {
+	/** The owner of a row's account: who an unset purpose means (design §4.1). */
+	function ownerOf(r: Reference, row: Row): string | undefined {
+		const own = imp?.statements.find((s) => s.position === row.statement)?.account_id;
+		return own ? r.accounts.get(own)?.owner_id : undefined;
+	}
+
+	function nameOf(r: Reference, row: Row, label: Label, value: string | null | undefined): string {
 		if (value === undefined) return '?';
+		if (value === null && label === 'purpose') value = ownerOf(r, row) ?? null;
 		if (value === null) return noneNames[label];
 		const named =
 			label === 'counterparty'
@@ -166,10 +173,15 @@
 		return named?.name ?? '?';
 	}
 
-	/** A select's value: an ID, NONE, or '' while missing. */
-	function selected(row: Row, label: Label): string {
+	/**
+	 * A select's value: an ID, NONE, or '' while missing. An unset purpose
+	 * is the account's owner, picked by name like any other.
+	 */
+	function selected(r: Reference, row: Row, label: Label): string {
 		const v = valueOf(row, label);
-		return v === undefined || labelState(row, label).kind === 'unsure' ? '' : (v ?? NONE);
+		if (v === undefined || labelState(row, label).kind === 'unsure') return '';
+		if (v === null && label === 'purpose') return ownerOf(r, row) ?? '';
+		return v ?? NONE;
 	}
 
 	/**
@@ -421,7 +433,7 @@
 													? 'as it is'
 													: label === 'counterparty'
 														? sideName(r, sideOf(row))
-														: nameOf(r, label, valueOf(row, label))}
+														: nameOf(r, row, label, valueOf(row, label))}
 												{#if st.kind === 'confident' || st.kind === 'unsure'}<SuggestionBadge
 														suggestion={st.suggestion}
 													/>{/if}
@@ -531,7 +543,7 @@
 												{:else}
 													<select
 														id="{key}-{label}"
-														value={selected(row, label)}
+														value={selected(r, row, label)}
 														onchange={(e) =>
 															setLabel(
 																row,
@@ -540,8 +552,8 @@
 															)}
 													>
 														<option value="" disabled>Choose…</option>
-														<option value={NONE}>{noneNames[label]}</option>
 														{#if label === 'category'}
+															<option value={NONE}>{noneNames.category}</option>
 															{#each sorted(r.categories) as c (c.id)}<option value={c.id}
 																	>{c.name}</option
 																>{/each}
@@ -567,7 +579,7 @@
 														<SuggestionBadge suggestion={sg} />
 														{label === 'counterparty'
 															? sideName(r, suggestedSide(sg))
-															: nameOf(r, label, sg.value)}? {sg.reason}
+															: nameOf(r, row, label, sg.value)}? {sg.reason}
 														<button
 															class="link"
 															onclick={() =>

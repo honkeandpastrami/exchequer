@@ -102,8 +102,12 @@
 		{#if p.purpose}
 			<label class="field">
 				<span>For</span>
-				<select bind:value={split.purpose}>
-					<option value="">Default</option>
+				<!-- No purpose picked: the default party, shown by name like any other. -->
+				<select
+					value={split.purpose || p.defaultPurpose || ''}
+					onchange={(e) => (split.purpose = e.currentTarget.value)}
+				>
+					{#if !split.purpose && !p.defaultPurpose}<option value="" disabled>Choose…</option>{/if}
 					{#each owners as o (o.id)}<option value={o.id}>{o.name}</option>{/each}
 				</select>
 			</label>

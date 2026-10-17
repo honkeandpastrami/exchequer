@@ -23,7 +23,7 @@ const acct = (id: string, owner: string, liquid = true): Schemas['Account'] => (
 	numbers: []
 });
 const ref: Reference = {
-	parties: new Map(),
+	parties: new Map([['p-home', { id: 'p-home', name: 'Home', kind: 'household' }]]),
 	commodities: new Map([
 		['usd', { id: 'usd', code: 'USD', kind: 'fiat', precision: 2 }],
 		['eur', { id: 'eur', code: 'EUR', kind: 'fiat', precision: 2 }]
@@ -55,6 +55,7 @@ describe('editor preview', () => {
 			liquidation: false,
 			category: true,
 			purpose: true,
+			defaultPurpose: 'p-alex',
 			settles: false
 		});
 		expect(preview(split('Grocer', 'alex'), ref).kind).toBe('income');
@@ -67,11 +68,14 @@ describe('editor preview', () => {
 		expect(preview(split('broker', 'alex'), ref)).toMatchObject({
 			liquidation: true,
 			category: true,
-			purpose: true
+			purpose: true,
+			defaultPurpose: 'p-home'
 		});
+		expect(preview(split('Grocer', 'sam'), ref).defaultPurpose).toBe('p-sam');
 		expect(preview(split('broker', 'Grocer'), ref)).toMatchObject({
 			category: true,
-			purpose: false
+			purpose: false,
+			defaultPurpose: null
 		});
 		expect(preview(split('alex', 'alex', { converted: true, toCommodity: 'eur' }), ref).kind).toBe(
 			'conversion'

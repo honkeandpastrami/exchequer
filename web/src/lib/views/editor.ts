@@ -43,6 +43,8 @@ export type Preview = {
 	liquidation: boolean;
 	category: boolean;
 	purpose: boolean;
+	/** Who the split is for while no purpose is picked (design §4.1). */
+	defaultPurpose: string | null;
 	settles: boolean;
 };
 
@@ -110,6 +112,7 @@ export function preview(s: SplitDraft, ref: Reference): Preview {
 		liquidation: false,
 		category: false,
 		purpose: false,
+		defaultPurpose: null,
 		settles: false
 	};
 	const account = (l: LegDraft) =>
@@ -136,11 +139,19 @@ export function preview(s: SplitDraft, ref: Reference): Preview {
 	const liquidation = kind === 'transfer' && !!a && !!b && !a.liquid && b.liquid;
 	const flow = kind === 'expense' || kind === 'income';
 	const liquid = (a ?? b)?.liquid ?? false;
+	const purpose = liquidation || (flow && liquid);
+	// A liquidation is for the household; income or spending, for the account's owner.
+	const household = [...ref.parties.values()].find((p) => p.kind === 'household');
 	return {
 		kind,
 		liquidation,
 		category: liquidation || flow,
-		purpose: liquidation || (flow && liquid),
+		purpose,
+		defaultPurpose: !purpose
+			? null
+			: liquidation
+				? (household?.id ?? null)
+				: ((a ?? b)?.owner_id ?? null),
 		settles: kind === 'transfer' && !!a && !!b && a.liquid && b.liquid && a.owner_id !== b.owner_id
 	};
 }
