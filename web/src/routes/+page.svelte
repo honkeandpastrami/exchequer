@@ -86,7 +86,7 @@
 									{/each}
 								</td>
 								{#if valued}
-									<td class="num"><Worth worth={sec.worth} code={SETTLEMENT_CODE} /></td>
+									<td class="num"><Worth worth={sec.worth} code={SETTLEMENT_CODE} total /></td>
 								{/if}
 								<td></td>
 							</tr>
@@ -102,7 +102,7 @@
 									{/each}
 								</td>
 								{#if valued && g.netWorth}
-									<td class="num"><Worth worth={g.netWorth} code={SETTLEMENT_CODE} /></td>
+									<td class="num"><Worth worth={g.netWorth} code={SETTLEMENT_CODE} total /></td>
 								{/if}
 								<td></td>
 							</tr>
