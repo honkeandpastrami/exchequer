@@ -327,13 +327,16 @@ pub(crate) async fn account(
 }
 
 /// Suggests the labels of a statement's rows, replacing what was suggested
-/// before; labels you chose are facts, never suggested.
+/// before; labels you chose are facts, never suggested. With `keep`, a
+/// confident suggestion stays too, and counts as a fact for the rest. True
+/// if a suggestion changed.
 pub(crate) async fn labels(
     db: &mut PgConnection,
     levels: &[Arc<dyn Suggester>],
     import_id: Uuid,
     statement: i16,
-) -> Result<(), Problem> {
+    keep: bool,
+) -> Result<bool, Problem> {
     let (_, s) = store::imports::statements(&mut *db, &[import_id])
         .await?
         .into_iter()
@@ -342,12 +345,24 @@ pub(crate) async fn labels(
     let account = s.effective_account();
     let staged =
         store::imports::rows(&mut *db, import_id, Some(statement), None, None, i64::MAX).await?;
+    let keys: Vec<(i16, i32)> = staged.iter().map(|r| (statement, r.position)).collect();
+    let before = store::imports::suggestions(&mut *db, import_id, &keys).await?;
+    let kept: Vec<&SuggestionRow> = before
+        .iter()
+        .filter(|s| keep && s.confidence >= store::imports::CONFIDENT)
+        .collect();
     let mut candidates = candidates(db, import_id, statement).await?;
     let rows: Vec<Row> = staged
         .iter()
         .map(|r| {
             let c = candidates.remove(&r.position).unwrap_or_default();
-            row(r, account, c)
+            let mut row = row(r, account, c);
+            for k in kept.iter().filter(|k| k.position == r.position) {
+                if let Some(l) = Label::ALL.into_iter().find(|l| l.as_str() == k.label) {
+                    row.facts.set(l, kept_value(k, l));
+                }
+            }
+            row
         })
         .collect();
     let accounts = accounts(db).await?;
@@ -359,10 +374,16 @@ pub(crate) async fn labels(
     .await
     .map_err(|_| Problem::internal())?;
     let mut ids: Vec<Option<Uuid>> = vec![None; levels.len()];
-    let mut items = Vec::new();
+    let mut items: Vec<SuggestionRow> = kept.into_iter().cloned().collect();
     for (r, p) in staged.iter().zip(picks) {
         for l in Label::ALL {
             let Some(pick) = p.get(l) else { continue };
+            if items
+                .iter()
+                .any(|k| k.position == r.position && k.label == l.as_str())
+            {
+                continue;
+            }
             let id = match ids[pick.level] {
                 Some(id) => id,
                 None => {
@@ -383,6 +404,22 @@ pub(crate) async fn labels(
             });
         }
     }
-    store::imports::set_suggestions(db, import_id, statement, &items).await?;
-    Ok(())
+    let sorted = |v: &[SuggestionRow]| {
+        let mut v = v.to_vec();
+        v.sort_by(|a, b| (a.position, &a.label).cmp(&(b.position, &b.label)));
+        v
+    };
+    let changed = sorted(&before) != sorted(&items);
+    if changed {
+        store::imports::set_suggestions(db, import_id, statement, &items).await?;
+    }
+    Ok(changed)
+}
+
+/// A stored suggestion's value, as a fact.
+fn kept_value(s: &SuggestionRow, label: Label) -> Value {
+    match (label, s.account_id) {
+        (Label::Counterparty, Some(a)) => Value::Account(a),
+        _ => s.value.into(),
+    }
 }

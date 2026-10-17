@@ -423,7 +423,8 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      match of each other. Matched one-to-one (`import::matching`): agreeing pairs first,
      then the closest dates. A chosen counterparty, or a decision made on a row, rules it
      out. Worked out again across all staged imports whenever one changes (upload, a
-     statement's account, a row, discard, commit).
+     statement's account, a row, discard, commit, refresh), after their open labels are
+     suggested again (§8), so a pair can form from either side's new suggestion.
    - *Transfer duplicate* (`transfer_duplicate`): the transfer is already in the ledger,
      from the other account: a one-split transfer between the account and another of
      yours, the same amount the same way, within 5 days, holding no bank row of this
@@ -523,8 +524,11 @@ takes, the API) is in [`docs/ai.md`](ai.md).
 - **A stack of three levels,** tried in order: rules → local AI → remote AI. A level runs
   while a label is still below **0.9 confidence**; labels already settled (by an earlier
   level at ≥ 0.9, or by you) are given to the next level as facts. Below 0.9 everywhere,
-  the best suggestion is kept but shown as unsure. Re-running suggestions on request is
-  for later (#11).
+  the best suggestion is kept but shown as unsure. **Suggesting again:** the whole stack
+  runs again for the labels that aren't yours or confident, on every other staged import
+  when a file is uploaded or committed, and on one import on request (`POST
+  /imports/{id}/refresh`, which also works its statuses out again). Your labels and
+  confident suggestions stay.
 - **Every suggestion names the exact system that made it** (`suggester`: kind, name,
   version, details), with a confidence stored per mille (no float is stored, §3.5) and a
   reason. On commit, each suggestion is recorded with what was committed

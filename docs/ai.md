@@ -64,8 +64,13 @@ for a label, the most confident suggestion any level made is kept, marked as uns
 
 Suggestions are made when a file is uploaded: first the account of each statement that has
 none, then every row's labels. Changing a statement's account suggests its rows' labels
-again, with the new account as context. A label you set yourself is never overwritten: it's
-given to every level as a fact.
+again, with the new account as context. The whole stack runs again, for the labels that
+aren't yours or confidently suggested, on every other staged import whenever a file is
+uploaded or committed (its rows may be their potential transfer matches, and the ledger
+the levels learn from may have changed), and on one import on request (`POST
+/imports/{id}/refresh`, **Refresh suggestions** in review). A label you set yourself is
+never overwritten: it's given to every level as a fact; so is a confident suggestion, when
+suggesting again.
 
 Every level implements the same interface (`suggest::Suggester`): given rows, with the
 labels already settled as facts, it proposes the others, each with a confidence and a

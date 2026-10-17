@@ -285,6 +285,22 @@
 		busy = false;
 	}
 
+	// Suggestions, statuses and transfer matches worked out again; yours stay.
+	let refreshing = $state(false);
+	async function refresh() {
+		refreshing = true;
+		notice = '';
+		await serial(async () => {
+			ok(
+				await api.POST('/api/v1/imports/{id}/refresh', {
+					params: { path: { id }, header: { 'If-Match': etag } }
+				})
+			);
+			await load();
+		});
+		refreshing = false;
+	}
+
 	async function discard() {
 		if (!confirm('Discard this import? Nothing of it enters the ledger.')) return;
 		await serial(async () => {
@@ -420,6 +436,9 @@
 			Commit: {planned.new} new, {planned.match} already there or transfer matches, {planned.replace}
 			replacing, {planned.skip} skipped
 		</button>
+		<button class="quiet" disabled={busy || refreshing} onclick={refresh}
+			>{refreshing ? 'Refreshing…' : 'Refresh suggestions'}</button
+		>
 		<button class="quiet" onclick={discard}>Discard</button>
 		{#if missingAccount}<span class="muted small">Every statement needs an account first.</span
 			>{:else if blocked.length}<span class="small warn"

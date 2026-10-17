@@ -4,6 +4,7 @@
 //! committed or discarded.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use axum::Extension;
 use axum::body::Bytes;
@@ -49,6 +50,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(set_statement))
         .routes(routes!(set_row))
         .routes(routes!(commit))
+        .routes(routes!(refresh))
         .layer(DefaultBodyLimit::max(MAX_FILE))
 }
 
@@ -872,21 +874,57 @@ async fn matched(db: &mut PgConnection) -> Result<Matched, Problem> {
         .collect())
 }
 
-/// After the ledger changed: works out the rows of every other staged
-/// import again, and touches those whose rows changed.
-async fn refresh_others(db: &mut PgConnection, except: Uuid) -> Result<(), Problem> {
-    let before = matched(db).await?;
-    let mut statements: Vec<(Uuid, i16)> = before
-        .keys()
-        .filter(|k| k.0 != except)
+/// Every staged statement but `except`'s, as (import, statement).
+async fn staged_statements(
+    db: &mut PgConnection,
+    except: Option<Uuid>,
+) -> Result<Vec<(Uuid, i16)>, Problem> {
+    let mut statements: Vec<(Uuid, i16)> = matched(db)
+        .await?
+        .into_keys()
+        .filter(|k| Some(k.0) != except)
         .map(|k| (k.0, k.1))
         .collect();
     statements.sort_unstable();
     statements.dedup();
+    Ok(statements)
+}
+
+/// Suggests these statements' labels again where they aren't yours or
+/// confidently suggested (design §8), and touches the imports whose
+/// suggestions changed.
+async fn resuggest(
+    db: &mut PgConnection,
+    levels: &[Arc<dyn suggest::Suggester>],
+    statements: &[(Uuid, i16)],
+) -> Result<HashSet<Uuid>, Problem> {
+    let mut changed = HashSet::new();
+    for (import, statement) in statements {
+        if suggestions::labels(db, levels, *import, *statement, true).await? {
+            changed.insert(*import);
+        }
+    }
+    for id in &changed {
+        store::imports::touch(&mut *db, *id).await?;
+    }
+    Ok(changed)
+}
+
+/// After the ledger changed: works out the rows of every other staged
+/// import again, suggests their open labels again, and touches those whose
+/// rows changed.
+async fn refresh_others(
+    db: &mut PgConnection,
+    levels: &[Arc<dyn suggest::Suggester>],
+    except: Uuid,
+) -> Result<(), Problem> {
+    let before = matched(db).await?;
+    let statements = staged_statements(db, Some(except)).await?;
     for (import, statement) in &statements {
         restatus(db, *import, *statement).await?;
     }
-    let mut touched = rematch(db).await?;
+    let mut touched = resuggest(db, levels, &statements).await?;
+    touched.extend(rematch(db).await?);
     let after = matched(db).await?;
     for (k, v) in &after {
         if before.get(k) != Some(v) && !touched.contains(&k.0) {
@@ -1328,8 +1366,12 @@ async fn upload(
     // Labels once every statement is in: each sees the others' rows as
     // potential transfer matches.
     for position in positions {
-        suggestions::labels(&mut tx, &levels, id, position).await?;
+        suggestions::labels(&mut tx, &levels, id, position, false).await?;
     }
+    // The other staged imports' rows now see this one's as potential
+    // transfer matches.
+    let others = staged_statements(&mut tx, Some(id)).await?;
+    resuggest(&mut tx, &levels, &others).await?;
     rematch(&mut tx).await?;
     let created = one(&mut tx, id).await?;
     audit(
@@ -1447,7 +1489,7 @@ async fn set_statement(
     restatus(&mut tx, id, position).await?;
     // The account is context for the rows' labels.
     let levels = state.suggestions.levels(&mut tx).await?;
-    suggestions::labels(&mut tx, &levels, id, position).await?;
+    suggestions::labels(&mut tx, &levels, id, position, false).await?;
     rematch(&mut tx).await?;
     store::imports::touch(&mut *tx, id).await?;
     let after = one(&mut tx, id).await?;
@@ -1462,6 +1504,61 @@ async fn set_statement(
             &json!({ "statement": position, "account_id": req.account_id,
                       "remember_number": req.remember_number }),
         ),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(respond(StatusCode::OK, &after))
+}
+
+/// Work an import out again without uploading it again: its rows' statuses
+/// against the ledger, the suggestions that aren't confident (the
+/// statement's account, then each row's labels; yours and confident ones
+/// stay) and transfer matches across every staged import.
+#[utoipa::path(post, path = "/imports/{id}/refresh", tag = "imports", security(("bearer" = [])),
+    params(("id" = Uuid, Path), ("If-Match" = String, Header, description = "ETag from your last read")),
+    responses((status = OK, body = Import, headers(("ETag" = String))),
+              (status = NOT_FOUND, body = Problem, content_type = "application/problem+json"),
+              (status = PRECONDITION_FAILED, body = Problem, content_type = "application/problem+json")))]
+async fn refresh(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    IfMatch(version): IfMatch,
+) -> Result<Response, Problem> {
+    let mut tx = state.pool.begin().await?;
+    let current = store::imports::lock(&mut *tx, id)
+        .await?
+        .ok_or_else(Problem::not_found)?;
+    if current != version {
+        return Err(Problem::stale());
+    }
+    let import = store::imports::get(&mut *tx, id)
+        .await?
+        .ok_or_else(Problem::not_found)?;
+    let levels = state.suggestions.levels(&mut tx).await?;
+    let statements = store::imports::statements(&mut *tx, &[id]).await?;
+    for (_, s) in &statements {
+        if s.suggestion
+            .as_ref()
+            .is_none_or(|a| a.confidence < store::imports::CONFIDENT)
+        {
+            suggestions::account(&mut tx, &levels, id, import.file_name.as_deref(), s).await?;
+        }
+        restatus(&mut tx, id, s.position).await?;
+    }
+    let positions: Vec<(Uuid, i16)> = statements.iter().map(|(_, s)| (id, s.position)).collect();
+    resuggest(&mut tx, &levels, &positions).await?;
+    rematch(&mut tx).await?;
+    store::imports::touch(&mut *tx, id).await?;
+    let after = one(&mut tx, id).await?;
+    audit(
+        &mut tx,
+        principal,
+        Action::Update,
+        "staged_import",
+        id,
+        None,
+        Some(&json!({ "refresh": true })),
     )
     .await?;
     tx.commit().await?;
@@ -2044,7 +2141,8 @@ async fn commit(
     store::imports::delete(&mut *tx, id).await?;
     // The ledger changed: other staged imports' rows may now be duplicates,
     // and their transfer matches with this one's rows are gone.
-    refresh_others(&mut tx, id).await?;
+    let levels = state.suggestions.levels(&mut tx).await?;
+    refresh_others(&mut tx, &levels, id).await?;
     audit(
         &mut tx,
         principal,

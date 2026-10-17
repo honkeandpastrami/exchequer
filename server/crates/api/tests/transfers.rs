@@ -427,3 +427,106 @@ async fn both_sides_in_one_file(pool: PgPool) {
         .unwrap();
     assert_eq!((n, fps), (1, 2));
 }
+
+/// Settles the card's deposit as a transfer from checking, once a payment
+/// from checking is staged; the payment itself is left open.
+const DEPOSIT_RULE: &str = r#"
+fn classify(row, s) {
+    for c in row.transfer_candidates {
+        if c.account == "Alex · Alex Checking" && row.description.contains("FROM CHECKING") {
+            s.transfer("Alex · Alex Checking");
+        }
+    }
+}
+"#;
+
+async fn put_rules(pool: &PgPool, h: &H, script: &str) {
+    let etag = h.send(pool, "GET", "/api/v1/rules", None).await.etag();
+    let r = call(pool, "PUT", "/api/v1/rules")
+        .token(&h.t)
+        .if_match(&etag)
+        .json(json!({ "source": script }))
+        .send()
+        .await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn an_upload_suggests_the_other_staged_imports_again(pool: PgPool) {
+    let h = H::new(&pool).await;
+    put_rules(&pool, &h, DEPOSIT_RULE).await;
+    // Staged alone, the deposit sees no payment, and nothing settles it.
+    let card = upload(&pool, &h, &h.alex_credit, CARD).await;
+    let before = read(&pool, &h, &card).await.etag();
+    assert_eq!(
+        status(&rows(&pool, &h, &card).await[0]),
+        (&json!("new"), &json!("new"))
+    );
+    // The payment's upload suggests the deposit again: now it's settled as
+    // the transfer, and the two are matched.
+    let checking = upload(&pool, &h, &h.alex_checking, CHECKING).await;
+    let deposit = &rows(&pool, &h, &card).await[0];
+    assert_eq!(
+        (
+            status(deposit),
+            &deposit["suggestions"][0]["transfer_account_id"]
+        ),
+        (
+            (&json!("transfer_match"), &json!("match")),
+            &json!(h.alex_checking)
+        ),
+        "{deposit}"
+    );
+    assert_eq!(deposit["transfer_match"]["import_id"], json!(checking));
+    assert_ne!(read(&pool, &h, &card).await.etag(), before);
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn refresh_suggests_again_but_keeps_your_labels(pool: PgPool) {
+    let h = H::new(&pool).await;
+    let card = upload(&pool, &h, &h.alex_credit, CARD).await;
+    let checking = upload(&pool, &h, &h.alex_checking, CHECKING).await;
+    let r = set_row(
+        &pool,
+        &h,
+        &checking,
+        1,
+        json!({ "counterparty_id": h.store }),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    // A rule written after both files were staged changes nothing yet.
+    put_rules(&pool, &h, DEPOSIT_RULE).await;
+    assert_eq!(
+        status(&rows(&pool, &h, &card).await[0]),
+        (&json!("new"), &json!("new"))
+    );
+    let stale = read(&pool, &h, &card).await.etag();
+    let refresh = |etag: String| {
+        let pool = pool.clone();
+        let (t, card) = (h.t.clone(), card.clone());
+        async move {
+            call(&pool, "POST", format!("/api/v1/imports/{card}/refresh"))
+                .token(&t)
+                .if_match(&etag)
+                .send()
+                .await
+        }
+    };
+    let r = refresh(stale.clone()).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_ne!(r.etag(), stale);
+    assert_eq!(
+        status(&rows(&pool, &h, &card).await[0]),
+        (&json!("transfer_match"), &json!("match"))
+    );
+    // Your choice on the other import is still yours.
+    let coffee = &rows(&pool, &h, &checking).await[1];
+    assert_eq!(
+        (&coffee["counterparty_id"], &coffee["chosen"]),
+        (&json!(h.store), &json!(["counterparty"])),
+        "{coffee}"
+    );
+    // A stale version is refused.
+    assert_eq!(refresh(stale).await.status, StatusCode::PRECONDITION_FAILED);
+}

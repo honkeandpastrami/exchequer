@@ -364,6 +364,28 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v1/imports/{id}/refresh': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Work an import out again without uploading it again: its rows' statuses
+		 *     against the ledger, the suggestions that aren't confident (the
+		 *     statement's account, then each row's labels; yours and confident ones
+		 *     stay) and transfer matches across every staged import.
+		 */
+		post: operations['imports_refresh'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/imports/{id}/rows': {
 		parameters: {
 			query?: never;
@@ -3883,6 +3905,50 @@ export interface operations {
 			};
 			/** @description A row breaks a ledger rule */
 			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	imports_refresh: {
+		parameters: {
+			query?: never;
+			header: {
+				/** @description ETag from your last read */
+				'If-Match': string;
+			};
+			path: {
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					ETag?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Import'];
+				};
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Precondition Failed */
+			412: {
 				headers: {
 					[name: string]: unknown;
 				};
