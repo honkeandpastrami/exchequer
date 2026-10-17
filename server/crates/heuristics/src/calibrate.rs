@@ -71,7 +71,7 @@ impl Curve {
                 clippy::cast_sign_loss,
                 reason = "clamped to [0, 500]"
             )]
-            return (score.clamp(0.0, 1.0) * 500.0).round() as u16;
+            return (score.clamp(0.0, 1.0) * crate::params::UNCALIBRATED).round() as u16;
         }
         self.steps
             .iter()

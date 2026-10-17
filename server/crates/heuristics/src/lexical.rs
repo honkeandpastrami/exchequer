@@ -37,6 +37,11 @@ use uuid::Uuid;
 
 use crate::calibrate::Curve;
 use crate::normalize;
+use crate::params::{
+    ALIAS, CALIBRATION_ROWS, CALIBRATION_STATEMENT_ROWS, CALIBRATION_STATEMENTS, CANDIDATE, K,
+    MIN_SIMILARITY, OPPOSITE_DIRECTION, OTHER_ACCOUNT, PRIOR, RECENCY_DAYS, SAME_AMOUNT,
+    SAME_MAGNITUDE, SAME_OWNER, STATEMENT_ROWS,
+};
 
 pub struct LexicalKnn;
 
@@ -53,26 +58,6 @@ impl Method for LexicalKnn {
         Box::new(Model::train(self, history))
     }
 }
-
-/// Neighbors that vote.
-const K: usize = 15;
-/// Less similar texts don't count as neighbors.
-const MIN_SIMILARITY: f32 = 0.3;
-/// Added to the votes' total weight: what a lone neighbor can't outweigh.
-const PRIOR: f32 = 0.5;
-/// The latest rows with the same text that alias memory looks at.
-const ALIAS: usize = 5;
-/// How much more a transfer to an account counts when the row has a
-/// potential transfer match there.
-const CANDIDATE: f32 = 2.0;
-/// Rows of a statement that vote on its account.
-const STATEMENT_ROWS: usize = 40;
-/// Calibration: the latest labeled transactions suggested again.
-const CALIBRATION_ROWS: usize = 2000;
-/// Calibration: the latest statements (an account's month) suggested an
-/// account, and how many of each one's rows vote.
-const CALIBRATION_STATEMENTS: usize = 150;
-const CALIBRATION_STATEMENT_ROWS: usize = 20;
 
 /// A labeled transaction, ready to compare.
 struct Ex {
@@ -468,23 +453,23 @@ impl Model {
         let account = match q.account {
             None => 1.0,
             Some(a) if a == e.account => 1.0,
-            Some(_) if q.owner.is_some() && q.owner == e.owner => 0.7,
-            Some(_) => 0.5,
+            Some(_) if q.owner.is_some() && q.owner == e.owner => SAME_OWNER,
+            Some(_) => OTHER_ACCOUNT,
         };
         let direction = if q.amount.is_sign_positive() == e.amount.is_sign_positive() {
             1.0
         } else {
-            0.15
+            OPPOSITE_DIRECTION
         };
         let amount = if q.amount.abs() == e.amount.abs() {
-            1.5
+            SAME_AMOUNT
         } else if magnitude(q.amount) == magnitude(e.amount) {
-            1.15
+            SAME_MAGNITUDE
         } else {
             1.0
         };
         let days = (q.date - e.date).whole_days().max(0) as f32;
-        let recency = 1.0 / (1.0 + days / 730.0);
+        let recency = 1.0 / (1.0 + days / RECENCY_DAYS);
         let candidate = match e.labels.counterparty {
             Value::Account(a) if q.candidates.contains(&a) => CANDIDATE,
             _ => 1.0,

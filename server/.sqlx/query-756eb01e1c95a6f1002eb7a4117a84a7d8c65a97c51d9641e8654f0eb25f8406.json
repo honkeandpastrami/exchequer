@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT r.import_id, r.statement, r.position, i.file_name, i.file_sha256,\n                  coalesce(st.account_id,\n                           CASE WHEN st.account_confidence >= 900\n                                THEN st.suggested_account_id END) AS account_id,\n                  r.date, r.amount, r.description, r.set_description, r.fingerprint, r.raw\n           FROM unnest($1::uuid[], $2::int2[], $3::int4[]) AS u(i, s, p)\n           JOIN staged_row r\n             ON r.import_id = u.i AND r.statement = u.s AND r.position = u.p\n           JOIN staged_statement st\n             ON st.import_id = r.import_id AND st.position = r.statement\n           JOIN staged_import i ON i.id = r.import_id",
+  "query": "SELECT r.import_id, r.statement, r.position, i.file_name, i.file_sha256,\n                  coalesce(st.account_id,\n                           CASE WHEN st.account_confidence >= $4\n                                THEN st.suggested_account_id END) AS account_id,\n                  r.date, r.amount, r.description, r.set_description, r.fingerprint, r.raw\n           FROM unnest($1::uuid[], $2::int2[], $3::int4[]) AS u(i, s, p)\n           JOIN staged_row r\n             ON r.import_id = u.i AND r.statement = u.s AND r.position = u.p\n           JOIN staged_statement st\n             ON st.import_id = r.import_id AND st.position = r.statement\n           JOIN staged_import i ON i.id = r.import_id",
   "describe": {
     "columns": [
       {
@@ -135,7 +135,8 @@
       "Left": [
         "UuidArray",
         "Int2Array",
-        "Int4Array"
+        "Int4Array",
+        "Int2"
       ]
     },
     "nullable": [
@@ -153,5 +154,5 @@
       false
     ]
   },
-  "hash": "90b2697046f7a6fecdd23362ba223850bfbd00fc17593ebeee080d9c976896cd"
+  "hash": "756eb01e1c95a6f1002eb7a4117a84a7d8c65a97c51d9641e8654f0eb25f8406"
 }

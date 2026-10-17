@@ -30,6 +30,7 @@ mod health;
 mod import_batches;
 mod imports;
 mod ledger;
+mod params;
 mod parties;
 mod prices;
 mod pricing;

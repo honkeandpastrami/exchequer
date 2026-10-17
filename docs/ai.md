@@ -97,6 +97,12 @@ labels already settled as facts, it proposes the others, each with a confidence 
 reason; given a statement's rows, it proposes an account. The stack only sees that
 interface, so a level can be replaced without touching the rest.
 
+Each level's tunable parameters (thresholds, weights, how much it's shown) are
+constants in its crate's `params` module: `suggest::params` (shared: the
+threshold, the transfer window), `rules::params`, `heuristics::params` (local AI),
+`remote::params`, `import::params` (matching), plus `api::params` (backtest and
+dry-run sizes).
+
 ## Rules
 
 Rules are one [Rhai](https://rhai.rs) script, stored in the database. Rhai is a small

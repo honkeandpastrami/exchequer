@@ -20,13 +20,9 @@ use crate::AppState;
 use crate::auth::Principal;
 use crate::conventions::{IfMatch, Page, PageParams, etag};
 use crate::imports::Label as LabelName;
+use crate::params::{DRY_RUN_DAYS, DRY_RUN_ITEMS};
 use crate::problem::{Json, Path, Problem, ProblemItem, Query};
 use crate::suggestions::{history, names};
-
-/// Rows of a dry run listed at most.
-const MAX_ITEMS: usize = 500;
-/// Longest dry run, in days.
-const MAX_DAYS: i64 = 3 * 366;
 
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -313,9 +309,9 @@ async fn dry_run(
     Query(p): Query<DryRunParams>,
     Json(req): Json<DryRunRequest>,
 ) -> Result<axum::Json<DryRun>, Problem> {
-    if p.to < p.from || (p.to - p.from).whole_days() > MAX_DAYS {
+    if p.to < p.from || (p.to - p.from).whole_days() > DRY_RUN_DAYS {
         return Err(Problem::invalid(format!(
-            "from..to must be in order and at most {MAX_DAYS} days"
+            "from..to must be in order and at most {DRY_RUN_DAYS} days"
         )));
     }
     let mut db = state.pool.acquire().await?;
@@ -396,7 +392,7 @@ async fn dry_run(
                     item.error = Some(err);
                 }
             }
-            if out.items.len() < MAX_ITEMS {
+            if out.items.len() < DRY_RUN_ITEMS {
                 out.items.push(item);
             } else {
                 out.truncated = true;

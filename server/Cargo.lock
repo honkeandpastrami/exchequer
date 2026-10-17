@@ -2277,6 +2277,7 @@ dependencies = [
  "rust_decimal",
  "serde_json",
  "sqlx",
+ "suggest",
  "time",
  "tokio",
  "uuid",

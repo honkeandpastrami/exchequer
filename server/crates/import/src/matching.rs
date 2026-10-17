@@ -10,6 +10,22 @@ use suggest::TRANSFER_DAYS;
 use time::Date;
 use uuid::Uuid;
 
+use crate::params::{NEAR_DAY, NEAR_LIKENESS, NEAR_MOST, TRANSFER_DAY, UNMEASURED};
+
+/// How sure matching is, per mille, that two sides of a transfer `days`
+/// apart are one transfer (a transfer match, or a transfer duplicate).
+#[must_use]
+pub fn transfer_confidence(days: Option<i32>) -> i32 {
+    days.map_or(UNMEASURED, |d| (1000 - TRANSFER_DAY * d).max(0))
+}
+
+/// How sure matching is, per mille, that a near duplicate is the
+/// transaction it's like: never sure ([`NEAR_MOST`]).
+#[must_use]
+pub fn near_confidence(days: i32, similarity: i32) -> i32 {
+    (similarity * NEAR_LIKENESS / 100 - NEAR_DAY * days).clamp(0, NEAR_MOST)
+}
+
 /// A staged row and an existing transaction that may be the same.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Near<K> {
@@ -136,6 +152,21 @@ mod tests {
     const CARD: Uuid = Uuid::from_u128(2);
     const SAVINGS: Uuid = Uuid::from_u128(3);
     const USD: Uuid = Uuid::from_u128(9);
+
+    #[test]
+    fn how_sure_matching_is() {
+        // A transfer: surer the closer its sides are dated.
+        let transfer: Vec<i32> = [Some(0), Some(1), Some(3), Some(5), None]
+            .into_iter()
+            .map(transfer_confidence)
+            .collect();
+        assert_eq!(transfer, [1000, 970, 910, 850, 500]);
+        // A near duplicate never reaches confident, however alike.
+        assert_eq!(near_confidence(0, 1000), 890);
+        assert_eq!(near_confidence(1, 1000), 830);
+        assert_eq!(near_confidence(2, 300), 147);
+        assert_eq!(near_confidence(3, 0), 0);
+    }
 
     fn near(row: u32, t: u128, similarity: i32, days_apart: i32) -> Near<u32> {
         Near {

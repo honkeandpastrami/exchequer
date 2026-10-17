@@ -47,8 +47,12 @@ impl StatementRow {
     }
 }
 
-/// Confidence, per mille, from which a suggestion counts as made (design §8).
-pub const CONFIDENT: i16 = 900;
+/// Confidence, per mille, from which a suggestion counts as made
+/// ([`suggest::CONFIDENT`]), as stored.
+pub const CONFIDENT: i16 = {
+    assert!(suggest::CONFIDENT <= 1000);
+    suggest::CONFIDENT as i16
+};
 
 /// A statement's suggested account.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -556,7 +560,7 @@ pub async fn matchable(db: impl PgExecutor<'_>) -> Result<Vec<Matchable>, sqlx::
         Matchable,
         r#"SELECT r.import_id, r.statement, r.position,
                   coalesce(st.account_id,
-                           CASE WHEN st.account_confidence >= 900
+                           CASE WHEN st.account_confidence >= $1
                                 THEN st.suggested_account_id END) AS account_id,
                   st.commodity_id, r.date, r.amount, r.status, r.match_transaction_id,
                   r.decision,
@@ -571,7 +575,8 @@ pub async fn matchable(db: impl PgExecutor<'_>) -> Result<Vec<Matchable>, sqlx::
            LEFT JOIN staged_suggestion sg
              ON sg.import_id = r.import_id AND sg.statement = r.statement
             AND sg.position = r.position AND sg.label = 'counterparty'
-           ORDER BY r.import_id, r.statement, r.position"#
+           ORDER BY r.import_id, r.statement, r.position"#,
+        CONFIDENT
     )
     .fetch_all(db)
     .await
@@ -610,7 +615,7 @@ pub async fn pair_rows(
         PairRow,
         r#"SELECT r.import_id, r.statement, r.position, i.file_name, i.file_sha256,
                   coalesce(st.account_id,
-                           CASE WHEN st.account_confidence >= 900
+                           CASE WHEN st.account_confidence >= $4
                                 THEN st.suggested_account_id END) AS account_id,
                   r.date, r.amount, r.description, r.set_description, r.fingerprint, r.raw
            FROM unnest($1::uuid[], $2::int2[], $3::int4[]) AS u(i, s, p)
@@ -622,6 +627,7 @@ pub async fn pair_rows(
         &imports,
         &statements,
         &positions,
+        CONFIDENT,
     )
     .fetch_all(db)
     .await

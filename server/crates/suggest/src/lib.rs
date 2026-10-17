@@ -9,6 +9,8 @@
 //! [`backtest`] measures a method on the ledger's own past.
 //!
 //! Confidences are per mille ([`CONFIDENT`] is 0.9); nothing here is a float.
+//! Every level's tunable parameters are in its crate's `params`; these are
+//! the shared ones.
 
 use rust_decimal::Decimal;
 use sha2::{Digest, Sha256};
@@ -16,10 +18,10 @@ use time::Date;
 use uuid::Uuid;
 
 pub mod backtest;
+pub mod params;
 pub mod stack;
 
-/// Confidence, per mille, from which a suggestion counts as made.
-pub const CONFIDENT: u16 = 900;
+pub use params::{CONFIDENT, TRANSFER_DAYS};
 
 /// What a row is labeled with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -41,10 +43,6 @@ impl Label {
         }
     }
 }
-
-/// How far apart the two sides of a transfer may be dated: money can take a
-/// few business days to arrive.
-pub const TRANSFER_DAYS: i64 = 5;
 
 /// A label's value.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]

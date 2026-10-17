@@ -16,6 +16,7 @@
 pub mod calibrate;
 pub mod lexical;
 pub mod normalize;
+pub mod params;
 
 use suggest::Method;
 

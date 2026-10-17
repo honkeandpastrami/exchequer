@@ -18,14 +18,9 @@ use utoipa_axum::routes;
 
 use crate::AppState;
 use crate::imports::Label;
+use crate::params::{BACKTEST_MONTHS, BACKTEST_REMOTE_MONTHS};
 use crate::problem::{Problem, Query};
 use crate::suggestions::{catalog, history};
-
-/// Most months one backtest covers.
-const MAX_MONTHS: usize = 24;
-/// Most months one backtest with remote AI covers: each row local AI is
-/// unsure of is a request.
-const MAX_REMOTE_MONTHS: usize = 3;
 
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new().routes(routes!(backtest))
@@ -259,13 +254,13 @@ async fn backtest(
     };
     let to = p.to.unwrap_or(p.from);
     let mut months = vec![p.from];
-    while months.last().is_some_and(|m| *m < to) && months.len() <= MAX_MONTHS {
+    while months.last().is_some_and(|m| *m < to) && months.len() <= BACKTEST_MONTHS {
         months.push(months[months.len() - 1].next());
     }
     let max = if p.remote {
-        MAX_REMOTE_MONTHS
+        BACKTEST_REMOTE_MONTHS
     } else {
-        MAX_MONTHS
+        BACKTEST_MONTHS
     };
     if to < p.from || months.len() > max {
         return Err(Problem::invalid(format!("from..to must be 1-{max} months")));

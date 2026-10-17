@@ -13,7 +13,10 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use domain::{AccountNumber, Amount};
 use import::fingerprint::fingerprints;
-use import::matching::{Near, Side, Staged, one_to_one, transfer_matches};
+use import::matching::{
+    Near, Side, Staged, near_confidence, one_to_one, transfer_confidence, transfer_matches,
+};
+use import::params::{MATCHER, NEAR_DAYS, SURE};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -764,9 +767,6 @@ fn respond(status: StatusCode, i: &Import) -> Response {
     (status, etag(i.version), axum::Json(i)).into_response()
 }
 
-/// How far apart, in days, a near-duplicate's date may be.
-const NEAR_DAYS: i32 = 3;
-
 fn near(candidates: Vec<NearCandidate>) -> Vec<Near<i32>> {
     candidates
         .into_iter()
@@ -1156,13 +1156,6 @@ fn decision_of(r: &RowRow) -> Result<Option<Decision>, Problem> {
 // A row's decision is a suggestion (design §6.7, docs/ai.md): matching is
 // logic, like the rules, and as sure as what it found.
 
-/// The matcher's name and version: a new version when its calibration
-/// changes.
-const MATCHER: (&str, &str) = ("matching", "1");
-/// A near duplicate is never sure enough to commit unseen: it may be
-/// another, identical purchase.
-const NEAR_MOST: i32 = 890;
-
 /// What matching suggests for a row.
 #[derive(Debug, Clone)]
 struct Guess {
@@ -1194,14 +1187,14 @@ fn guess(r: &RowRow, pair_date: Option<Date>) -> Result<Option<Guess>, Problem> 
         return Ok(None);
     };
     // The two sides of a transfer: surer the closer they're dated.
-    let transfer = |days: Option<i32>, what: &str| match days {
-        Some(d) => ((1000 - 30 * d).max(0), format!("{what}, {}", apart(d))),
-        None => (500, what.to_owned()),
+    let transfer = |days: Option<i32>, what: &str| {
+        let reason = days.map_or_else(|| what.to_owned(), |d| format!("{what}, {}", apart(d)));
+        (transfer_confidence(days), reason)
     };
     let (confidence, reason) = match status {
         RowStatus::NeedsAccount => return Ok(None),
-        RowStatus::New => (1000, "nothing like it in the ledger".to_owned()),
-        RowStatus::Duplicate => (1000, "this bank row was imported before".to_owned()),
+        RowStatus::New => (SURE, "nothing like it in the ledger".to_owned()),
+        RowStatus::Duplicate => (SURE, "this bank row was imported before".to_owned()),
         RowStatus::TransferDuplicate => transfer(
             r.match_days.map(i32::from),
             "the transfer is already recorded",
@@ -1214,7 +1207,7 @@ fn guess(r: &RowRow, pair_date: Option<Date>) -> Result<Option<Guess>, Problem> 
             (Some(d), Some(sim)) => {
                 let (d, sim) = (i32::from(d), i32::from(sim));
                 (
-                    (sim * 89 / 100 - 60 * d).clamp(0, NEAR_MOST),
+                    near_confidence(d, sim),
                     format!(
                         "the same amount, {}, descriptions {}% alike",
                         apart(d),

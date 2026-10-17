@@ -29,10 +29,10 @@ use rust_decimal::Decimal;
 use suggest::{Guess, Identity, Kind, Label, Proposal, Row, Statement, Suggester, Value};
 use uuid::Uuid;
 
-/// Longest script accepted, in bytes.
-pub const MAX_SOURCE: usize = 200_000;
-/// Operations one call may take before it's stopped.
-const MAX_OPERATIONS: u64 = 100_000;
+pub mod params;
+
+pub use params::MAX_SOURCE;
+use params::{CONFIDENCE, MAX_OPERATIONS};
 
 /// One of your accounts, as scripts name it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -566,7 +566,7 @@ impl Suggester for Script {
                                 l,
                                 Some(Guess {
                                     value,
-                                    confidence: 1000,
+                                    confidence: CONFIDENCE,
                                     reason: format!("rule v{}:{line}", self.version()),
                                 }),
                             );
@@ -582,7 +582,7 @@ impl Suggester for Script {
         let (account, line) = self.account_of(statement).ok()??;
         Some(Guess {
             value: account,
-            confidence: 1000,
+            confidence: CONFIDENCE,
             reason: format!("rule v{}:{line}", self.version()),
         })
     }

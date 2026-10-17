@@ -23,6 +23,7 @@ use suggest::{Guess, History, Identity, Kind, Proposal, Row, Statement, Suggeste
 use uuid::Uuid;
 
 mod context;
+pub mod params;
 mod prompts;
 #[cfg(test)]
 mod tests;
@@ -166,7 +167,7 @@ impl Level {
         let similar = self
             .evidence
             .as_ref()
-            .map(|e| e.similar(row, context::SIMILAR))
+            .map(|e| e.similar(row, params::SIMILAR))
             .unwrap_or_default();
         let (state, asked) = self.context.row(row, &similar);
         let questions: Vec<Question> = asked.iter().map(|(_, o)| o.question.clone()).collect();

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT r.import_id, r.statement, r.position,\n                  coalesce(st.account_id,\n                           CASE WHEN st.account_confidence >= 900\n                                THEN st.suggested_account_id END) AS account_id,\n                  st.commodity_id, r.date, r.amount, r.status, r.match_transaction_id,\n                  r.decision,\n                  'counterparty' = ANY(r.chosen) AS \"chose_side!\",\n                  r.transfer_account_id,\n                  sg.account_id AS \"suggested_account_id?\",\n                  sg.confidence AS \"suggested_confidence?\",\n                  r.pair_import_id, r.pair_statement, r.pair_position\n           FROM staged_row r\n           JOIN staged_statement st\n             ON st.import_id = r.import_id AND st.position = r.statement\n           LEFT JOIN staged_suggestion sg\n             ON sg.import_id = r.import_id AND sg.statement = r.statement\n            AND sg.position = r.position AND sg.label = 'counterparty'\n           ORDER BY r.import_id, r.statement, r.position",
+  "query": "SELECT r.import_id, r.statement, r.position,\n                  coalesce(st.account_id,\n                           CASE WHEN st.account_confidence >= $1\n                                THEN st.suggested_account_id END) AS account_id,\n                  st.commodity_id, r.date, r.amount, r.status, r.match_transaction_id,\n                  r.decision,\n                  'counterparty' = ANY(r.chosen) AS \"chose_side!\",\n                  r.transfer_account_id,\n                  sg.account_id AS \"suggested_account_id?\",\n                  sg.confidence AS \"suggested_confidence?\",\n                  r.pair_import_id, r.pair_statement, r.pair_position\n           FROM staged_row r\n           JOIN staged_statement st\n             ON st.import_id = r.import_id AND st.position = r.statement\n           LEFT JOIN staged_suggestion sg\n             ON sg.import_id = r.import_id AND sg.statement = r.statement\n            AND sg.position = r.position AND sg.label = 'counterparty'\n           ORDER BY r.import_id, r.statement, r.position",
   "describe": {
     "columns": [
       {
@@ -182,7 +182,9 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Int2"
+      ]
     },
     "nullable": [
       false,
@@ -204,5 +206,5 @@
       true
     ]
   },
-  "hash": "00e82ea8f823f283d77554bf6e212c56791ca4a55c26a2c9e3b2899733f36dfc"
+  "hash": "0356d4488a09e07026ec95ab520db06b533eccba7340bd2edbdb9fad42a7b5a1"
 }

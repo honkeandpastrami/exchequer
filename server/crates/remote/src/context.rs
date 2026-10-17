@@ -9,23 +9,11 @@ use outbound::decision::Question;
 use rust_decimal::Decimal;
 use serde_json::{Value as Json, json};
 use suggest::{Candidate, Example, History, Label, Row, Statement, Value};
-use time::{Date, Duration};
+use time::Date;
 use uuid::Uuid;
 
+use crate::params::{CANDIDATES, STATEMENT_ROWS, TEXT, USAGE, USUAL};
 use crate::prompts::{LABELS, render};
-
-/// Similar past transactions shown per row.
-pub const SIMILAR: usize = 10;
-/// Counterparty candidates offered per row.
-const CANDIDATES: usize = 10;
-/// A statement's rows shown, spread over it.
-const STATEMENT_ROWS: usize = 8;
-/// What "usual" covers: the year before the ledger's latest transaction.
-const YEAR: Duration = Duration::days(365);
-/// An account's usage: its last six months.
-const HALF_YEAR: Duration = Duration::days(183);
-/// Bank texts' length shown.
-const TEXT: usize = 100;
 
 /// One of your accounts, as remote AI may describe it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -205,7 +193,7 @@ impl Context {
             // A transfer has no category or purpose: it says nothing about
             // them, nor about how an account's spending is labeled.
             let transfer = matches!(e.labels.counterparty, Value::Account(_));
-            if e.date + YEAR >= latest {
+            if e.date + USUAL >= latest {
                 if e.labels.counterparty != Value::None {
                     c.counterparties
                         .entry(e.labels.counterparty)
@@ -219,7 +207,7 @@ impl Context {
                     c.purposes.entry(e.labels.purpose).or_default().add(e);
                 }
             }
-            if e.date + HALF_YEAR >= latest && !transfer {
+            if e.date + USAGE >= latest && !transfer {
                 c.accounts.entry(e.account).or_default().add(e);
             }
         }
@@ -355,7 +343,7 @@ impl Context {
             .map(|i| &self.examples[*i])
             .filter(|e| {
                 e.date < row.date
-                    && e.date + HALF_YEAR >= row.date
+                    && e.date + USAGE >= row.date
                     && e.amount.abs() == row.amount.abs()
                     && row.account.is_none_or(|a| a == e.account)
             })
