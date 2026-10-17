@@ -32,6 +32,7 @@ describe('balance series', () => {
 		expect(balanceSeries(rows, 'account_id', EUR, names, at)).toEqual([
 			{ name: 'Checking', values: ['0', '7'] }
 		]);
+		expect(balanceSeries(rows, 'account_id', USD, names, at, 'Net').at(-1)?.name).toBe('Net');
 	});
 
 	it('lists commodities, the preferred one first', () => {

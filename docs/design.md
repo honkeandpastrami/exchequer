@@ -256,6 +256,9 @@ data through side channels:
   *liquid*; brokerages are *investment* accounts. Investments are never shared while they
   stay invested: activity inside them (vests, dividends, buys, sells, fees) has no purpose
   and doesn't enter the settlement.
+- **Totals (display).** Balances are added up apart for *liquid* accounts, *investments*
+  (not liquid) and *loans* (mortgages, whatever their flag: large and slow, they'd hide
+  the rest), and mixed only in a **Net** line.
 - **Purpose (per split, the manual part).** The party the money was *for*. It applies only to
   income and expenses on liquid accounts, and to *liquidations* (below). Transfers and
   conversions have no purpose and no category, because they don't change how much anyone

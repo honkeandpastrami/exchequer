@@ -1,19 +1,22 @@
-// The accounts page: balances grouped by owner.
+// The accounts page: balances grouped by owner, then by holding.
 
 import type { Schemas } from '../api/client';
-import { accountKinds, partyKinds, rank } from '../labels';
+import { accountKinds, holding, holdings, partyKinds, rank, type Holding } from '../labels';
 import { sum } from '../money';
 
 export type Line = { commodity: Schemas['Commodity']; balance: string };
 export type Row = { account: Schemas['Account']; lines: Line[] };
-export type Group = { owner: Schemas['Party']; rows: Row[]; totals: Line[] };
+export type Section = { holding: Holding; rows: Row[]; totals: Line[] };
+/** `net` is set only when the owner has more than one holding. */
+export type Group = { owner: Schemas['Party']; sections: Section[]; net: Line[] | null };
 
 const byCode = (a: Line, b: Line) => a.commodity.code.localeCompare(b.commodity.code);
 
 /**
- * One group per owner (household, people, businesses), each account with its
- * balance per commodity. Archived accounts are left out unless asked for; the
- * totals are of the accounts shown.
+ * One group per owner (household, people, businesses), split by holding
+ * (liquid, investments, loans), each account with its balance per commodity.
+ * Archived accounts are left out unless asked for; the totals are of the
+ * accounts shown.
  */
 export function groupBalances(
 	parties: Schemas['Party'][],
@@ -45,9 +48,13 @@ export function groupBalances(
 						rank(accountKinds, a.kind) - rank(accountKinds, b.kind) || a.name.localeCompare(b.name)
 				)
 				.map((account) => ({ account, lines: (lines.get(account.id) ?? []).sort(byCode) }));
-			return { owner, rows, totals: totals(rows) };
+			const sections = (Object.keys(holdings) as Holding[])
+				.map((h) => rows.filter((r) => holding(r.account) === h))
+				.filter((rs) => rs.length > 0)
+				.map((rs) => ({ holding: holding(rs[0].account), rows: rs, totals: totals(rs) }));
+			return { owner, sections, net: sections.length > 1 ? totals(rows) : null };
 		})
-		.filter((g) => g.rows.length > 0);
+		.filter((g) => g.sections.length > 0);
 }
 
 function totals(rows: Row[]): Line[] {

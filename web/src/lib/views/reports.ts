@@ -25,14 +25,15 @@ export function buckets(rows: Row[]): string[] {
 /**
  * One series per account or owner, in one commodity, valued at each bucket
  * (zero where a row is missing), sorted by name. With more than one series a
- * `Total` comes last.
+ * total named `total` comes last.
  */
 export function balanceSeries(
 	rows: Row[],
 	by: 'account_id' | 'owner_id',
 	commodity: string,
 	names: Map<string, string>,
-	at: string[]
+	at: string[],
+	total = 'Total'
 ): Series[] {
 	const values = new Map<string, Map<string, string>>();
 	let none = '0';
@@ -51,7 +52,7 @@ export function balanceSeries(
 		.sort((a, b) => a.name.localeCompare(b.name));
 	if (series.length > 1) {
 		series.push({
-			name: 'Total',
+			name: total,
 			values: at.map((_, i) => sum(series.map((s) => s.values[i])))
 		});
 	}

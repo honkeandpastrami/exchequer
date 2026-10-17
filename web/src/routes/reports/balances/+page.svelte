@@ -10,6 +10,7 @@
 	import MonthWindow from '#lib/components/MonthWindow.svelte';
 	import { lastDay, monthName, thisMonth, today } from '#lib/dates.ts';
 	import { hashQuery, withParam } from '#lib/query.ts';
+	import { holding, holdings, type Holding } from '#lib/labels.ts';
 	import { accountLabel, accountsByOwner } from '#lib/names.ts';
 	import { reference, sorted, type Reference } from '#lib/reference.ts';
 	import { balanceSeries, buckets, commoditiesIn } from '#lib/views/reports.ts';
@@ -26,6 +27,11 @@
 	let by: By = $derived(query.get('by') === 'account' ? 'account_id' : 'owner_id');
 	let owner = $derived(query.get('owner') ?? '');
 	let account = $derived(query.get('account') ?? '');
+	// Liquid unless asked: loans are large and slow, and would flatten the rest.
+	let held: Holding | 'all' = $derived(
+		(['investments', 'loans', 'all'] as const).find((h) => h === query.get('holding')) ?? 'liquid'
+	);
+	const inHolding = (a: Schemas['Account'], h: Holding | 'all') => h === 'all' || holding(a) === h;
 
 	function set(changes: Record<string, string>) {
 		let q = query;
@@ -42,28 +48,34 @@
 		bucket: Bucket,
 		by: By,
 		owner: string,
-		account: string
+		account: string,
+		held: Holding | 'all'
 	) {
-		const [ref, result] = await Promise.all([
-			reference(),
-			api
-				.POST('/api/v1/query', {
-					body: {
-						measure: 'balance',
-						from: `${start}-01`,
-						to: end === thisMonth() ? today() : lastDay(end),
-						bucket,
-						group_by: [by === 'owner_id' ? 'owner' : 'account'],
-						owner_ids: owner ? [owner] : [],
-						account_ids: account ? [account] : []
-					}
-				})
-				.then(ok)
-		]);
+		const ref = await reference();
+		const accounts = account
+			? [account]
+			: held === 'all'
+				? []
+				: [...ref.accounts.values()].filter((a) => inHolding(a, held)).map((a) => a.id);
+		// No accounts in the holding: nothing to ask for (an empty filter means every account).
+		if (held !== 'all' && accounts.length === 0) return { ref, rows: [] };
+		const result = await api
+			.POST('/api/v1/query', {
+				body: {
+					measure: 'balance',
+					from: `${start}-01`,
+					to: end === thisMonth() ? today() : lastDay(end),
+					bucket,
+					group_by: [by === 'owner_id' ? 'owner' : 'account'],
+					owner_ids: owner ? [owner] : [],
+					account_ids: accounts
+				}
+			})
+			.then(ok);
 		return { ref, rows: result.rows };
 	}
 
-	let data = $derived(load(w.start, w.end, bucket, by, owner, account));
+	let data = $derived(load(w.start, w.end, bucket, by, owner, account, held));
 
 	const household = (r: Reference) => usd(r)?.id;
 	const names = (r: Reference) =>
@@ -77,7 +89,8 @@
 		const commodities = commoditiesIn(rows, household(r));
 		const commodity = wanted && commodities.includes(wanted) ? wanted : commodities[0];
 		const at = buckets(rows);
-		const series = commodity ? balanceSeries(rows, by, commodity, names(r), at) : [];
+		const total = held === 'all' ? 'Net' : `${holdings[held]} total`;
+		const series = commodity ? balanceSeries(rows, by, commodity, names(r), at, total) : [];
 		return { commodities, commodity, at, series };
 	}
 </script>
@@ -105,14 +118,28 @@
 			<option value="owner">By owner</option>
 			<option value="account">By account</option>
 		</select>
+		<select
+			value={held}
+			onchange={(e) => {
+				const h = e.currentTarget.value;
+				const a = d.ref.accounts.get(account);
+				// The account picked stays only if it's in the new holding.
+				const keep = a && (h === 'all' || holding(a) === h);
+				set({ holding: h === 'liquid' ? '' : h, account: keep ? account : '' });
+			}}
+			aria-label="Holding"
+		>
+			{#each Object.entries(holdings) as [h, name] (h)}<option value={h}>{name}</option>{/each}
+			<option value="all">All (net)</option>
+		</select>
 		<select value={owner} onchange={(e) => set({ owner: e.currentTarget.value })}>
 			<option value="">Every owner</option>
 			{#each sorted(d.ref.parties) as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
 		</select>
 		<select value={account} onchange={(e) => set({ account: e.currentTarget.value })}>
 			<option value="">Every account</option>
-			{#each accountsByOwner(d.ref) as a (a.id)}<option value={a.id}
-					>{accountLabel(a, d.ref)}</option
+			{#each accountsByOwner(d.ref).filter((a) => inHolding(a, held)) as a (a.id)}<option
+					value={a.id}>{accountLabel(a, d.ref)}</option
 				>{/each}
 		</select>
 		<select
@@ -152,7 +179,9 @@
 						<tr>
 							<td>{label(b)}</td>
 							{#each v.series as s (s.name)}
-								<td class="num" class:total={s.name === 'Total'}><Amount value={s.values[i]} /></td>
+								<td class="num" class:total={s === v.series.at(-1) && v.series.length > 1}
+									><Amount value={s.values[i]} /></td
+								>
 							{/each}
 						</tr>
 					{/each}

@@ -49,3 +49,21 @@ export const candidateReasons: Record<Schemas['CandidateReason'], string> = {
 	near_duplicate: 'Same amount twice in a few days',
 	multiple_of_nine: 'The difference is a multiple of 9, the mark of swapped digits'
 };
+
+/**
+ * How balances are added up (design §4.1): what's spendable, what's
+ * invested, and loans, which are large and move slowly. Mixed only in Net.
+ */
+export type Holding = 'liquid' | 'investments' | 'loans';
+
+export const holdings: Record<Holding, string> = {
+	liquid: 'Liquid',
+	investments: 'Investments',
+	loans: 'Loans'
+};
+
+/** The one place an account's holding is decided. */
+export function holding(a: Pick<Schemas['Account'], 'kind' | 'liquid'>): Holding {
+	if (a.kind === 'mortgage') return 'loans';
+	return a.liquid ? 'liquid' : 'investments';
+}

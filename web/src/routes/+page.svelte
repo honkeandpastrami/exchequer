@@ -4,7 +4,7 @@
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
 	import { today } from '#lib/dates.ts';
-	import { accountKinds, partyKinds } from '#lib/labels.ts';
+	import { accountKinds, holdings, partyKinds } from '#lib/labels.ts';
 	import { groupBalances } from '#lib/views/accounts.ts';
 
 	let date = $state(today());
@@ -39,39 +39,51 @@
 				<thead>
 					<tr><th>Account</th><th>Kind</th><th class="num">Balance</th><th></th></tr>
 				</thead>
-				<tbody>
-					{#each g.rows as r (r.account.id)}
-						<tr class:archived={r.account.archived}>
-							<td>
-								<a href={resolve(`/transactions?account_id=${r.account.id}`)}>{r.account.name}</a>
-								{#if r.account.archived}<span class="muted tag">archived</span>{/if}
-								{#if !r.account.liquid}<span class="muted tag">not liquid</span>{/if}
-							</td>
-							<td class="muted">{accountKinds[r.account.kind]}</td>
+				{#each g.sections as sec (sec.holding)}
+					<tbody>
+						{#each sec.rows as r (r.account.id)}
+							<tr class:archived={r.account.archived}>
+								<td>
+									<a href={resolve(`/transactions?account_id=${r.account.id}`)}>{r.account.name}</a>
+									{#if r.account.archived}<span class="muted tag">archived</span>{/if}
+								</td>
+								<td class="muted">{accountKinds[r.account.kind]}</td>
+								<td class="num">
+									{#each r.lines as l (l.commodity.id)}
+										<div><Amount value={l.balance} code={l.commodity.code} /></div>
+									{:else}
+										<span class="muted">—</span>
+									{/each}
+								</td>
+								<td class="check">
+									<a href={resolve(`/checks?account=${r.account.id}`)}>Check</a>
+								</td>
+							</tr>
+						{/each}
+						<tr class="total">
+							<td colspan="2">{holdings[sec.holding]} total</td>
 							<td class="num">
-								{#each r.lines as l (l.commodity.id)}
+								{#each sec.totals as l (l.commodity.id)}
 									<div><Amount value={l.balance} code={l.commodity.code} /></div>
-								{:else}
-									<span class="muted">—</span>
 								{/each}
 							</td>
-							<td class="check">
-								<a href={resolve(`/checks?account=${r.account.id}`)}>Check</a>
-							</td>
+							<td></td>
 						</tr>
-					{/each}
-				</tbody>
-				<tfoot>
-					<tr>
-						<td colspan="2">Total</td>
-						<td class="num">
-							{#each g.totals as l (l.commodity.id)}
-								<div><Amount value={l.balance} code={l.commodity.code} /></div>
-							{/each}
-						</td>
-						<td></td>
-					</tr>
-				</tfoot>
+					</tbody>
+				{/each}
+				{#if g.net}
+					<tfoot>
+						<tr>
+							<td colspan="2">Net</td>
+							<td class="num">
+								{#each g.net as l (l.commodity.id)}
+									<div><Amount value={l.balance} code={l.commodity.code} /></div>
+								{/each}
+							</td>
+							<td></td>
+						</tr>
+					</tfoot>
+				{/if}
 			</table>
 		</section>
 	{:else}
@@ -123,9 +135,17 @@
 	tr.archived td {
 		opacity: 0.7;
 	}
+	tr.total td,
 	tfoot td {
 		font-weight: var(--weight-strong);
 		border-top: var(--border-width) solid var(--color-border);
+	}
+	/* A gap between one holding's total and the next holding's accounts. */
+	tbody + tbody tr:first-child td {
+		padding-top: var(--space-4);
+	}
+	tfoot td {
+		border-top-width: calc(var(--border-width) * 2);
 	}
 	.check {
 		width: 1%;
