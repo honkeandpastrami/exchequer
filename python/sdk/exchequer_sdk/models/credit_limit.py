@@ -11,11 +11,13 @@ T = TypeVar("T", bound="CreditLimit")
 
 @_attrs_define
 class CreditLimit:
-    """A credit card's limit: display metadata, never part of the balance.
+    """A credit card's limit: display metadata, never part of the balance. Only
+    a `credit_card` account has one (422 otherwise); changing a card to
+    another kind needs the limit cleared, in the same request or before.
 
-    Attributes:
-        commodity_id (UUID):
-        quantity (str): Positive decimal string, e.g. `"9000.00"`. Example: 9000.00.
+        Attributes:
+            commodity_id (UUID):
+            quantity (str): Positive decimal string, e.g. `"9000.00"`. Example: 9000.00.
     """
 
     commodity_id: UUID

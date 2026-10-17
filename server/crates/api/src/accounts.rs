@@ -70,7 +70,9 @@ impl AccountKind {
     }
 }
 
-/// A credit card's limit: display metadata, never part of the balance.
+/// A credit card's limit: display metadata, never part of the balance. Only
+/// a `credit_card` account has one (422 otherwise); changing a card to
+/// another kind needs the limit cleared, in the same request or before.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CreditLimit {
@@ -156,12 +158,19 @@ impl Account {
     }
 }
 
-/// The limit must be positive and fit its commodity's precision.
+/// Only a credit card has a limit; it must be positive and fit its
+/// commodity's precision.
 async fn check_credit_limit(
     db: &mut PgConnection,
+    kind: AccountKind,
     limit: Option<&CreditLimit>,
 ) -> Result<(), Problem> {
     let Some(limit) = limit else { return Ok(()) };
+    if kind != AccountKind::CreditCard {
+        return Err(Problem::invalid(
+            "credit_limit: only a credit card has one; clear it to change the kind",
+        ));
+    }
     if !limit.quantity.is_positive() {
         return Err(Problem::invalid("credit_limit must be positive"));
     }
@@ -271,7 +280,7 @@ async fn create(
         version: 0,
     };
     let mut tx = state.pool.begin().await?;
-    check_credit_limit(&mut tx, new.credit_limit.as_ref()).await?;
+    check_credit_limit(&mut tx, new.kind, new.credit_limit.as_ref()).await?;
     let saved = store::accounts::upsert(&mut *tx, &new.row())
         .await
         .map_err(|e| {
@@ -338,7 +347,7 @@ async fn update(
             None => before.credit_limit.clone(),
         },
     };
-    check_credit_limit(&mut tx, changed.credit_limit.as_ref()).await?;
+    check_credit_limit(&mut tx, changed.kind, changed.credit_limit.as_ref()).await?;
     let saved = store::accounts::upsert(&mut *tx, &changed.row())
         .await
         .map_err(|e| {

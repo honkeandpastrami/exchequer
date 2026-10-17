@@ -1166,7 +1166,11 @@ export interface components {
 			/** @description The full token. Shown only in this response; store it now. */
 			token: string;
 		};
-		/** @description A credit card's limit: display metadata, never part of the balance. */
+		/**
+		 * @description A credit card's limit: display metadata, never part of the balance. Only
+		 *     a `credit_card` account has one (422 otherwise); changing a card to
+		 *     another kind needs the limit cleared, in the same request or before.
+		 */
 		CreditLimit: {
 			/** Format: uuid */
 			commodity_id: string;

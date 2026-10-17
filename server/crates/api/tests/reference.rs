@@ -193,14 +193,37 @@ async fn accounts(pool: PgPool) {
         r.body["credit_limit"]["quantity"], "9000.00",
         "absent keeps it"
     );
+    // Only a credit card has a limit.
+    let limit = json!({ "commodity_id": usd, "quantity": "100.00" });
+    let r2 = post(&pool, &t, "/api/v1/accounts", json!({ "name": "Bad Checking", "kind": "checking", "owner_id": alex, "credit_limit": limit })).await;
+    assert_eq!(r2.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r2.body);
+    let r2 = call(&pool, "PATCH", &card_path)
+        .token(&t)
+        .if_match(&r.etag())
+        .json(json!({ "kind": "checking" }))
+        .send()
+        .await;
+    assert_eq!(
+        r2.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "a card with a limit keeps its kind: {}",
+        r2.body
+    );
     let r = call(&pool, "PATCH", &card_path)
         .token(&t)
         .if_match(&r.etag())
-        .json(json!({ "credit_limit": null }))
+        .json(json!({ "kind": "checking", "credit_limit": null }))
         .send()
         .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert!(r.body.get("credit_limit").is_none(), "null clears it");
+    let r2 = call(&pool, "PATCH", &card_path)
+        .token(&t)
+        .if_match(&r.etag())
+        .json(json!({ "credit_limit": limit }))
+        .send()
+        .await;
+    assert_eq!(r2.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r2.body);
 
     // A party that owns accounts can't be deleted.
     let party = call(&pool, "GET", format!("/api/v1/parties/{alex}"))

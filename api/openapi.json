@@ -5664,7 +5664,7 @@
       },
       "CreditLimit": {
         "type": "object",
-        "description": "A credit card's limit: display metadata, never part of the balance.",
+        "description": "A credit card's limit: display metadata, never part of the balance. Only\na `credit_card` account has one (422 otherwise); changing a card to\nanother kind needs the limit cleared, in the same request or before.",
         "required": [
           "commodity_id",
           "quantity"

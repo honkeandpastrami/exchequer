@@ -92,7 +92,8 @@
 		run(async () => {
 			if (!editing) return;
 			const e = editing;
-			const limit = cleanQuantity(e.limit);
+			// Only a credit card has a limit; another kind clears it.
+			const limit = e.kind === 'credit_card' ? cleanQuantity(e.limit) : '';
 			await accounts.update(e.id, e.etag, {
 				name: e.name.trim(),
 				kind: e.kind,
@@ -206,16 +207,18 @@
 									<input type="checkbox" bind:checked={editing.liquid} aria-label="Liquid" />
 								</td>
 								<td class="num">
-									<input
-										class="qty"
-										inputmode="decimal"
-										bind:value={editing.limit}
-										placeholder="None"
-										aria-label="Credit limit"
-									/>
-									<select bind:value={editing.limitCommodity} aria-label="Limit commodity">
-										{#each commodities as c (c.id)}<option value={c.id}>{c.code}</option>{/each}
-									</select>
+									{#if editing.kind === 'credit_card'}
+										<input
+											class="qty"
+											inputmode="decimal"
+											bind:value={editing.limit}
+											placeholder="None"
+											aria-label="Credit limit"
+										/>
+										<select bind:value={editing.limitCommodity} aria-label="Limit commodity">
+											{#each commodities as c (c.id)}<option value={c.id}>{c.code}</option>{/each}
+										</select>
+									{/if}
 								</td>
 								<td>
 									{#each editing.numbers as n (n.id)}
