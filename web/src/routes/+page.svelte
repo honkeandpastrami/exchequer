@@ -135,8 +135,10 @@
 	tr.archived td {
 		opacity: 0.7;
 	}
+	/* A total is a shaded band, so it can't be read as one more account. */
 	tr.total td,
 	tfoot td {
+		background: var(--color-surface-alt);
 		font-weight: var(--weight-strong);
 		border-top: var(--border-width) solid var(--color-border);
 	}
