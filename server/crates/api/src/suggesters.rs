@@ -1,6 +1,11 @@
 //! `/api/v1/suggesters` (design §8, docs/ai.md): measuring local AI, and
 //! remote AI after it, on the ledger's own past.
+#![allow(
+    clippy::disallowed_types,
+    reason = "backtest measures are fractions, not money; never stored"
+)]
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::extract::State;
@@ -54,6 +59,44 @@ pub struct Bin {
     right: u32,
 }
 
+/// The usual measures, as fractions (null without a denominator). A row
+/// not guessed counts against recall and accuracy, not precision; each row
+/// has one true value, so accuracy is the micro recall. Macro means are
+/// over the classes (values, or accounts) either true or guessed, a class
+/// never guessed or never true counting 0.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct Metrics {
+    /// Rows (or statements).
+    samples: u32,
+    /// Guessed, of the samples.
+    coverage: Option<f64>,
+    /// Right, of the guesses.
+    precision: Option<f64>,
+    /// Right, of the samples.
+    recall: Option<f64>,
+    f1: Option<f64>,
+    accuracy: Option<f64>,
+    macro_precision: Option<f64>,
+    macro_recall: Option<f64>,
+    macro_f1: Option<f64>,
+}
+
+impl From<backtest::Metrics> for Metrics {
+    fn from(m: backtest::Metrics) -> Self {
+        Self {
+            samples: m.samples,
+            coverage: m.coverage,
+            precision: m.precision,
+            recall: m.recall,
+            f1: m.f1,
+            accuracy: m.accuracy,
+            macro_precision: m.macro_precision,
+            macro_recall: m.macro_recall,
+            macro_f1: m.macro_f1,
+        }
+    }
+}
+
 /// Guesses against what the ledger says.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Score {
@@ -67,11 +110,17 @@ pub struct Score {
     confident: u32,
     confident_right: u32,
     bins: Vec<Bin>,
+    /// Over all guesses.
+    all: Metrics,
+    /// Over guesses at 900 or more only.
+    confident_only: Metrics,
 }
 
 impl From<backtest::Score> for Score {
     fn from(s: backtest::Score) -> Self {
         Self {
+            all: s.metrics(false).into(),
+            confident_only: s.metrics(true).into(),
             asked: s.asked,
             guessed: s.guessed,
             right: s.correct,
@@ -112,7 +161,7 @@ pub struct BacktestLevel {
     accounts: Score,
 }
 
-fn label_scores(s: std::collections::BTreeMap<suggest::Label, backtest::Score>) -> Vec<LabelScore> {
+fn label_scores(s: BTreeMap<suggest::Label, backtest::Score>) -> Vec<LabelScore> {
     s.into_iter()
         .map(|(l, score)| LabelScore {
             label: Label::from(l),
@@ -139,6 +188,15 @@ pub struct BacktestMonth {
     levels: Vec<BacktestLevel>,
 }
 
+/// All months together.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BacktestTotal {
+    labels: Vec<LabelScore>,
+    accounts: Score,
+    /// Per level, in order.
+    levels: Vec<BacktestLevel>,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Backtest {
     /// The method measured (`<name>-v<version>`).
@@ -146,6 +204,28 @@ pub struct Backtest {
     /// Whether remote AI was asked too.
     remote: bool,
     months: Vec<BacktestMonth>,
+    total: BacktestTotal,
+}
+
+fn level(l: backtest::Level) -> BacktestLevel {
+    BacktestLevel {
+        kind: l.suggester.kind.as_str().to_owned(),
+        name: l.suggester.name,
+        version: l.suggester.version,
+        details: l.suggester.details,
+        labels: label_scores(l.labels),
+        accounts: l.accounts.into(),
+    }
+}
+
+/// `into`'s scores plus `from`'s.
+fn merge(
+    into: &mut BTreeMap<suggest::Label, backtest::Score>,
+    from: &BTreeMap<suggest::Label, backtest::Score>,
+) {
+    for (l, s) in from {
+        into.entry(*l).or_default().merge(s);
+    }
 }
 
 /// Measure a local AI method, alone or with remote AI after it, on the
@@ -223,6 +303,29 @@ async fn backtest(
     })
     .await
     .map_err(|_| Problem::internal())?;
+    let mut labels = BTreeMap::new();
+    let mut accounts = backtest::Score::default();
+    let mut levels: Vec<backtest::Level> = Vec::new();
+    for (_, r) in &reports {
+        merge(&mut labels, &r.labels);
+        accounts.merge(&r.accounts);
+        for (i, l) in r.levels.iter().enumerate() {
+            match levels.get_mut(i) {
+                Some(t) => {
+                    merge(&mut t.labels, &l.labels);
+                    t.accounts.merge(&l.accounts);
+                    // The latest month's identity.
+                    t.suggester = l.suggester.clone();
+                }
+                None => levels.push(l.clone()),
+            }
+        }
+    }
+    let total = BacktestTotal {
+        labels: label_scores(labels),
+        accounts: accounts.into(),
+        levels: levels.into_iter().map(level).collect(),
+    };
     Ok(axum::Json(Backtest {
         method: method.id(),
         remote: p.remote,
@@ -233,19 +336,9 @@ async fn backtest(
                 trained_on: u64::try_from(r.trained_on).unwrap_or(u64::MAX),
                 labels: label_scores(r.labels),
                 accounts: r.accounts.into(),
-                levels: r
-                    .levels
-                    .into_iter()
-                    .map(|l| BacktestLevel {
-                        kind: l.suggester.kind.as_str().to_owned(),
-                        name: l.suggester.name,
-                        version: l.suggester.version,
-                        details: l.suggester.details,
-                        labels: label_scores(l.labels),
-                        accounts: l.accounts.into(),
-                    })
-                    .collect(),
+                levels: r.levels.into_iter().map(level).collect(),
             })
             .collect(),
+        total,
     }))
 }

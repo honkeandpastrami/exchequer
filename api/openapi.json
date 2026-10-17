@@ -5130,7 +5130,8 @@
         "required": [
           "method",
           "remote",
-          "months"
+          "months",
+          "total"
         ],
         "properties": {
           "method": {
@@ -5146,6 +5147,9 @@
           "remote": {
             "type": "boolean",
             "description": "Whether remote AI was asked too."
+          },
+          "total": {
+            "$ref": "#/components/schemas/BacktestTotal"
           }
         }
       },
@@ -5223,6 +5227,33 @@
             "format": "int64",
             "description": "Labeled transactions they learned from.",
             "minimum": 0
+          }
+        }
+      },
+      "BacktestTotal": {
+        "type": "object",
+        "description": "All months together.",
+        "required": [
+          "labels",
+          "accounts",
+          "levels"
+        ],
+        "properties": {
+          "accounts": {
+            "$ref": "#/components/schemas/Score"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabelScore"
+            }
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BacktestLevel"
+            },
+            "description": "Per level, in order."
           }
         }
       },
@@ -6445,6 +6476,80 @@
           "flow",
           "balance"
         ]
+      },
+      "Metrics": {
+        "type": "object",
+        "description": "The usual measures, as fractions (null without a denominator). A row\nnot guessed counts against recall and accuracy, not precision; each row\nhas one true value, so accuracy is the micro recall. Macro means are\nover the classes (values, or accounts) either true or guessed, a class\nnever guessed or never true counting 0.",
+        "required": [
+          "samples"
+        ],
+        "properties": {
+          "accuracy": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "coverage": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Guessed, of the samples."
+          },
+          "f1": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "macro_f1": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "macro_precision": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "macro_recall": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "precision": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Right, of the guesses."
+          },
+          "recall": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Right, of the samples."
+          },
+          "samples": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Rows (or statements).",
+            "minimum": 0
+          }
+        }
       },
       "NewAccount": {
         "type": "object",
@@ -8083,9 +8188,15 @@
           "right",
           "confident",
           "confident_right",
-          "bins"
+          "bins",
+          "all",
+          "confident_only"
         ],
         "properties": {
+          "all": {
+            "$ref": "#/components/schemas/Metrics",
+            "description": "Over all guesses."
+          },
           "asked": {
             "type": "integer",
             "format": "int32",
@@ -8103,6 +8214,10 @@
             "format": "int32",
             "description": "Guesses at 900 or more, which commit would take.",
             "minimum": 0
+          },
+          "confident_only": {
+            "$ref": "#/components/schemas/Metrics",
+            "description": "Over guesses at 900 or more only."
           },
           "confident_right": {
             "type": "integer",

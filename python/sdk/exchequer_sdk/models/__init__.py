@@ -9,6 +9,7 @@ from .backtest import Backtest
 from .backtest_level import BacktestLevel
 from .backtest_level_details import BacktestLevelDetails
 from .backtest_month import BacktestMonth
+from .backtest_total import BacktestTotal
 from .balance_check import BalanceCheck
 from .balances import Balances
 from .batch_kind import BatchKind
@@ -56,6 +57,7 @@ from .leg import Leg
 from .line import Line
 from .line_kind import LineKind
 from .measure import Measure
+from .metrics import Metrics
 from .new_account import NewAccount
 from .new_balance_check import NewBalanceCheck
 from .new_category import NewCategory
@@ -143,6 +145,7 @@ __all__ = (
     "BacktestLevel",
     "BacktestLevelDetails",
     "BacktestMonth",
+    "BacktestTotal",
     "BalanceCheck",
     "Balances",
     "BatchKind",
@@ -190,6 +193,7 @@ __all__ = (
     "Line",
     "LineKind",
     "Measure",
+    "Metrics",
     "NewAccount",
     "NewBalanceCheck",
     "NewCategory",

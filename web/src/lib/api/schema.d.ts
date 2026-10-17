@@ -952,6 +952,7 @@ export interface components {
 			months: components['schemas']['BacktestMonth'][];
 			/** @description Whether remote AI was asked too. */
 			remote: boolean;
+			total: components['schemas']['BacktestTotal'];
 		};
 		/**
 		 * @description One level's share: of the rows (or statements), those whose final
@@ -990,6 +991,13 @@ export interface components {
 			 * @description Labeled transactions they learned from.
 			 */
 			trained_on: number;
+		};
+		/** @description All months together. */
+		BacktestTotal: {
+			accounts: components['schemas']['Score'];
+			labels: components['schemas']['LabelScore'][];
+			/** @description Per level, in order. */
+			levels: components['schemas']['BacktestLevel'][];
 		};
 		BalanceCheck: {
 			/** Format: uuid */
@@ -1502,6 +1510,45 @@ export interface components {
 		LineKind: 'claim' | 'in_transit' | 'payment' | 'clearing';
 		/** @enum {string} */
 		Measure: 'flow' | 'balance';
+		/**
+		 * @description The usual measures, as fractions (null without a denominator). A row
+		 *     not guessed counts against recall and accuracy, not precision; each row
+		 *     has one true value, so accuracy is the micro recall. Macro means are
+		 *     over the classes (values, or accounts) either true or guessed, a class
+		 *     never guessed or never true counting 0.
+		 */
+		Metrics: {
+			/** Format: double */
+			accuracy?: number | null;
+			/**
+			 * Format: double
+			 * @description Guessed, of the samples.
+			 */
+			coverage?: number | null;
+			/** Format: double */
+			f1?: number | null;
+			/** Format: double */
+			macro_f1?: number | null;
+			/** Format: double */
+			macro_precision?: number | null;
+			/** Format: double */
+			macro_recall?: number | null;
+			/**
+			 * Format: double
+			 * @description Right, of the guesses.
+			 */
+			precision?: number | null;
+			/**
+			 * Format: double
+			 * @description Right, of the samples.
+			 */
+			recall?: number | null;
+			/**
+			 * Format: int32
+			 * @description Rows (or statements).
+			 */
+			samples: number;
+		};
 		NewAccount: {
 			archived?: boolean;
 			credit_limit?: components['schemas']['CreditLimit'] | null;
@@ -2069,6 +2116,8 @@ export interface components {
 		};
 		/** @description Guesses against what the ledger says. */
 		Score: {
+			/** @description Over all guesses. */
+			all: components['schemas']['Metrics'];
 			/**
 			 * Format: int32
 			 * @description Rows (or statements) asked about.
@@ -2080,6 +2129,8 @@ export interface components {
 			 * @description Guesses at 900 or more, which commit would take.
 			 */
 			confident: number;
+			/** @description Over guesses at 900 or more only. */
+			confident_only: components['schemas']['Metrics'];
 			/** Format: int32 */
 			confident_right: number;
 			/**

@@ -252,7 +252,9 @@ account's transactions taken as one statement. A transfer is scored on its other
 only. Per label and for
 accounts it reports how many were asked, guessed, right, confident, and right when
 confident, plus guesses and right answers by confidence bin, which shows whether 0.9
-really means 9 in 10. It reads only; nothing is stored. Any method can be named, so a
+really means 9 in 10. Each score also has the usual measures (samples, coverage,
+precision, recall, F1, accuracy, and their macro means over values), over all guesses and
+over confident ones only, and the response totals them over all months. It reads only; nothing is stored. Any method can be named, so a
 replacement can be compared with the current one before switching.
 
 With `remote=true` (when remote AI is configured, and for at most 3 months), remote AI is

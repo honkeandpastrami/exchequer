@@ -86,8 +86,9 @@ python-check:
     cd python && uv run pytest -q
     # No GPL dependencies (design §16.4).
     cd python && uv run --quiet --with pip-licenses pip-licenses --partial-match --fail-on GPL > /dev/null
-    # No floats near money (design §3.5): the generated SDK included.
-    ! grep -rnE --include='*.py' 'float\(|: *float\b|-> *float\b' python/sdk python/cli python/firefly-migrate
+    # No floats near money (design §3.5): the generated SDK included, except the
+    # backtest's measures (fractions, not money).
+    ! grep -rnE --include='*.py' 'float\(|: *float\b|-> *float\b' python/sdk python/cli python/firefly-migrate | grep -v '^python/sdk/exchequer_sdk/models/metrics\.py:'
     just sdk
     git diff --exit-code -- python/sdk
     test -z "$(git ls-files --others --exclude-standard -- python/sdk)"

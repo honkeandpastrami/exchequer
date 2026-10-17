@@ -50,15 +50,44 @@ fn pct(n: u32, of: u32) -> String {
     }
 }
 
-fn line(name: &str, s: &Score) {
+fn num(x: Option<f64>) -> String {
+    x.map_or_else(|| "-".to_owned(), |x| format!("{x:.3}"))
+}
+
+/// A markdown table: per label, the measures over all guesses and over
+/// confident ones only.
+fn table(scores: &[(&str, &Score)]) {
     println!(
-        "  {name:<13} asked {:>5}  guessed {:>6}  right {:>6}  confident {:>6} of asked, right {:>6}",
-        s.asked,
-        pct(s.guessed, s.asked),
-        pct(s.correct, s.guessed),
-        pct(s.confident, s.asked),
-        pct(s.confident_correct, s.confident),
+        "| label | guesses | n | coverage | precision | recall | F1 | accuracy | macro P | macro R | macro F1 |"
     );
+    println!("|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|");
+    for (name, s) in scores {
+        for (which, confident) in [("all", false), ("≥ 0.9", true)] {
+            let m = s.metrics(confident);
+            println!(
+                "| {name} | {which} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                m.samples,
+                num(m.coverage),
+                num(m.precision),
+                num(m.recall),
+                num(m.f1),
+                num(m.accuracy),
+                num(m.macro_precision),
+                num(m.macro_recall),
+                num(m.macro_f1),
+            );
+        }
+    }
+    println!();
+}
+
+fn scores(r: &[Score; 4]) -> Vec<(&str, &Score)> {
+    Label::ALL
+        .into_iter()
+        .map(|l| l.as_str())
+        .chain(["account"])
+        .zip(r)
+        .collect()
 }
 
 fn main() {
@@ -109,9 +138,9 @@ fn main() {
             })
             .collect(),
     };
-    println!("{}: {} examples", method.id(), history.examples.len());
+    println!("# {}: {} examples\n", method.id(), history.examples.len());
     let (mut month, last) = (date(from), date(to));
-    let mut totals: Vec<Score> = vec![Score::default(); 4];
+    let mut totals: [Score; 4] = Default::default();
     let mut dump: Vec<Value> = Vec::new();
     while month <= last {
         let next = date(&format!(
@@ -124,37 +153,41 @@ fn main() {
         if std::env::var_os("BACKTEST_DUMP").is_some() {
             dump.extend(guesses(method, &history, month, next));
         }
-        println!(
+        eprintln!(
             "{} (trained on {}, {:.1}s)",
             &month.to_string()[..7],
             r.trained_on,
             started.elapsed().as_secs_f64()
         );
-        for (i, l) in Label::ALL.into_iter().enumerate() {
-            line(l.as_str(), &r.labels[&l]);
-            add(&mut totals[i], &r.labels[&l]);
+        let month_scores = [
+            r.labels[&Label::Counterparty].clone(),
+            r.labels[&Label::Category].clone(),
+            r.labels[&Label::Purpose].clone(),
+            r.accounts.clone(),
+        ];
+        for (t, s) in totals.iter_mut().zip(&month_scores) {
+            t.merge(s);
         }
-        line("account", &r.accounts);
-        add(&mut totals[3], &r.accounts);
         month = next;
     }
-    println!("all months");
-    for (i, l) in Label::ALL.into_iter().enumerate() {
-        line(l.as_str(), &totals[i]);
-    }
-    line("account", &totals[3]);
+    println!(
+        "## {} to {}\n",
+        &date(from).to_string()[..7],
+        &last.to_string()[..7]
+    );
+    table(&scores(&totals));
     if let Some(path) = std::env::var_os("BACKTEST_DUMP") {
         std::fs::write(path, serde_json::to_string(&dump).expect("JSON")).expect("writable");
     }
-    println!("calibration (all labels): confidence bin, guesses, right");
+    println!("## Calibration (all labels)\n\n| confidence | guesses | right |\n|---|--:|--:|");
     for b in 0..BINS {
         let (g, r) = totals[..3]
             .iter()
             .fold((0, 0), |(g, r), s| (g + s.bins[b].0, r + s.bins[b].1));
         println!(
-            "  {:>3}-{:<4} {g:>6} {:>6}",
-            b * 100,
-            b * 100 + 99,
+            "| {:.1}–{:.1} | {g} | {} |",
+            b as f64 / 10.0,
+            (b + 1) as f64 / 10.0,
             pct(r, g)
         );
     }
@@ -208,16 +241,4 @@ fn guesses(method: &dyn suggest::Method, history: &History, start: Date, end: Da
             Value::Object(out)
         })
         .collect()
-}
-
-fn add(total: &mut Score, s: &Score) {
-    total.asked += s.asked;
-    total.guessed += s.guessed;
-    total.correct += s.correct;
-    total.confident += s.confident;
-    total.confident_correct += s.confident_correct;
-    for (t, b) in total.bins.iter_mut().zip(s.bins) {
-        t.0 += b.0;
-        t.1 += b.1;
-    }
 }

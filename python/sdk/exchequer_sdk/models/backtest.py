@@ -8,6 +8,7 @@ from attrs import field as _attrs_field
 
 if TYPE_CHECKING:
     from ..models.backtest_month import BacktestMonth
+    from ..models.backtest_total import BacktestTotal
 
 
 T = TypeVar("T", bound="Backtest")
@@ -20,11 +21,13 @@ class Backtest:
         method (str): The method measured (`<name>-v<version>`).
         months (list[BacktestMonth]):
         remote (bool): Whether remote AI was asked too.
+        total (BacktestTotal): All months together.
     """
 
     method: str
     months: list[BacktestMonth]
     remote: bool
+    total: BacktestTotal
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -37,6 +40,8 @@ class Backtest:
 
         remote = self.remote
 
+        total = self.total.to_dict()
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -44,6 +49,7 @@ class Backtest:
                 "method": method,
                 "months": months,
                 "remote": remote,
+                "total": total,
             }
         )
 
@@ -52,6 +58,7 @@ class Backtest:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.backtest_month import BacktestMonth  # noqa: PLC0415
+        from ..models.backtest_total import BacktestTotal  # noqa: PLC0415
 
         d = dict(src_dict)
         method = d.pop("method")
@@ -65,10 +72,13 @@ class Backtest:
 
         remote = d.pop("remote")
 
+        total = BacktestTotal.from_dict(d.pop("total"))
+
         backtest = cls(
             method=method,
             months=months,
             remote=remote,
+            total=total,
         )
 
         backtest.additional_properties = d

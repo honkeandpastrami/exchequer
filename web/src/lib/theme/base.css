@@ -88,6 +88,32 @@ select {
 	background: var(--color-surface);
 }
 
+/* The browser's own select sets its height, background and arrow, and
+   differs per browser; draw it like an input instead, with a chevron made
+   of two gradients so it takes its color from the tokens. */
+select {
+	appearance: none;
+	padding-right: calc(var(--space-3) * 2 + var(--space-2));
+	background-image:
+		linear-gradient(45deg, transparent 50%, var(--color-text-muted) 50%),
+		linear-gradient(135deg, var(--color-text-muted) 50%, transparent 50%);
+	background-position:
+		right calc(var(--space-3) + var(--space-1)) center,
+		right var(--space-3) center;
+	background-size: var(--space-1) var(--space-1);
+	background-repeat: no-repeat;
+	cursor: pointer;
+}
+select:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+/* The open list is drawn by the system; where it honors these, it matches. */
+option {
+	background: var(--color-surface);
+	color: var(--color-text);
+}
+
 table {
 	width: 100%;
 	border-collapse: collapse;

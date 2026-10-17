@@ -223,6 +223,11 @@ data through side channels:
   on masked values. `AccountNumber` in `domain` formats itself as `…1234` in `Display` and
   `Debug`; getting the full number takes an explicit `.reveal()`, used only by parsers and
   the DB layer. Request and response bodies and raw bank rows are never logged.
+- **Clients.** The API returns account numbers as their last four digits. A client gets a
+  full number only by asking for it explicitly, per request (`?reveal=numbers`), with a
+  token; the web app asks only when the signed-in user has chosen to see full numbers
+  (`docs/ux.md` §8), a choice kept in that browser and never on the server. Masked or
+  not, numbers never go to logs.
 - **Remote AI calls** (§8) go through `outbound` (§15) and carry features, not
   identifiers: account numbers only as their last four, and descriptions normalized so
   runs of five or more digits (card, reference and trace numbers) are replaced. A request
@@ -382,7 +387,8 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    written. Parsers emit normalized rows (date, amount,
    description, native ID) plus the raw row for provenance.
 2. **Account resolution.** An OFX statement's account number is looked up among the
-   accounts' numbers (stored without spaces or dashes, shown only as their last four). A
+   accounts' numbers (stored without spaces or dashes, shown as their last four unless the
+   user asks for them, §3.6). A
    CSV names no account. A statement whose account isn't known (a CSV, an unknown number)
    is staged anyway, its rows `needs-account`, and the account is picked in review (the
    upload may name it if the client already knows), or suggested (§8). Picking it can
@@ -692,6 +698,7 @@ A thin client built on the generated SDK; it never imports server code.
 - First the **monthly review and settlement screens** (§4.3), then report dashboards (§7)
   and transaction search/editing with splits, then import review.
 - Talks only through the generated TypeScript SDK.
+- Looks and behaves as `docs/ux.md` says.
 
 ## 14. Component: deployment and operations
 
