@@ -3,9 +3,11 @@
 	import { all, api, ok } from '#lib/api/client.ts';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
+	import Worth from '#lib/components/Worth.svelte';
 	import { today } from '#lib/dates.ts';
 	import { accountKinds, holdings, partyKinds } from '#lib/labels.ts';
-	import { groupBalances } from '#lib/views/accounts.ts';
+	import { SETTLEMENT_CODE } from '#lib/usd.ts';
+	import { groupBalances, mixed } from '#lib/views/accounts.ts';
 
 	let date = $state(today());
 	let showArchived = $state(false);
@@ -15,9 +17,14 @@
 			all((query) => api.GET('/api/v1/parties', { params: { query } })),
 			all((query) => api.GET('/api/v1/commodities', { params: { query } })),
 			all((query) => api.GET('/api/v1/accounts', { params: { query } })),
-			api.GET('/api/v1/reports/balances', { params: { query: { date } } }).then(ok)
+			api
+				.GET('/api/v1/reports/balances', {
+					params: { query: { date, value_in: SETTLEMENT_CODE } }
+				})
+				.then(ok)
 		]);
-		return groupBalances(parties, commodities, accounts, balances.balances, showArchived);
+		const groups = groupBalances(parties, commodities, accounts, balances.balances, showArchived);
+		return { groups, valued: mixed(groups, SETTLEMENT_CODE) };
 	}
 
 	let groups = $derived(load(date, showArchived));
@@ -31,60 +38,78 @@
 
 {#await groups}
 	<p class="muted">Loading…</p>
-{:then groups}
+{:then { groups, valued }}
 	{#each groups as g (g.owner.id)}
 		<section class="owner">
 			<h2>{g.owner.name} <span class="muted kind">{partyKinds[g.owner.kind]}</span></h2>
-			<table>
-				<thead>
-					<tr><th>Account</th><th>Kind</th><th class="num">Balance</th><th></th></tr>
-				</thead>
-				{#each g.sections as sec (sec.holding)}
-					<tbody>
-						{#each sec.rows as r (r.account.id)}
-							<tr class:archived={r.account.archived}>
-								<td>
-									<a href={resolve(`/transactions?account_id=${r.account.id}`)}>{r.account.name}</a>
-									{#if r.account.archived}<span class="muted tag">archived</span>{/if}
-								</td>
-								<td class="muted">{accountKinds[r.account.kind]}</td>
+			<div class="scroll">
+				<table>
+					<thead>
+						<tr>
+							<th>Account</th><th class="kind-col">Kind</th><th class="num">Balance</th>
+							{#if valued}<th class="num">In {SETTLEMENT_CODE}</th>{/if}<th></th>
+						</tr>
+					</thead>
+					{#each g.sections as sec (sec.holding)}
+						<tbody>
+							{#each sec.rows as r (r.account.id)}
+								<tr class:archived={r.account.archived}>
+									<td>
+										<a href={resolve(`/transactions?account_id=${r.account.id}`)}
+											>{r.account.name}</a
+										>
+										{#if r.account.archived}<span class="muted tag">archived</span>{/if}
+									</td>
+									<td class="muted kind-col">{accountKinds[r.account.kind]}</td>
+									<td class="num">
+										{#each r.lines as l (l.commodity.id)}
+											<div><Amount value={l.balance} code={l.commodity.code} /></div>
+										{:else}
+											<span class="muted">—</span>
+										{/each}
+									</td>
+									{#if valued}
+										<td class="num">
+											{#if r.lines.length}<Worth worth={r.worth} code={SETTLEMENT_CODE} />{/if}
+										</td>
+									{/if}
+									<td class="check">
+										<a href={resolve(`/checks?account=${r.account.id}`)}>Check</a>
+									</td>
+								</tr>
+							{/each}
+							<tr class="total">
+								<td>{holdings[sec.holding]} total</td><td class="kind-col"></td>
 								<td class="num">
-									{#each r.lines as l (l.commodity.id)}
+									{#each sec.totals as l (l.commodity.id)}
 										<div><Amount value={l.balance} code={l.commodity.code} /></div>
-									{:else}
-										<span class="muted">—</span>
 									{/each}
 								</td>
-								<td class="check">
-									<a href={resolve(`/checks?account=${r.account.id}`)}>Check</a>
-								</td>
+								{#if valued}
+									<td class="num"><Worth worth={sec.worth} code={SETTLEMENT_CODE} /></td>
+								{/if}
+								<td></td>
 							</tr>
-						{/each}
-						<tr class="total">
-							<td colspan="2">{holdings[sec.holding]} total</td>
-							<td class="num">
-								{#each sec.totals as l (l.commodity.id)}
-									<div><Amount value={l.balance} code={l.commodity.code} /></div>
-								{/each}
-							</td>
-							<td></td>
-						</tr>
-					</tbody>
-				{/each}
-				{#if g.net}
-					<tfoot>
-						<tr>
-							<td colspan="2">Net</td>
-							<td class="num">
-								{#each g.net as l (l.commodity.id)}
-									<div><Amount value={l.balance} code={l.commodity.code} /></div>
-								{/each}
-							</td>
-							<td></td>
-						</tr>
-					</tfoot>
-				{/if}
-			</table>
+						</tbody>
+					{/each}
+					{#if g.net}
+						<tfoot>
+							<tr>
+								<td>Net</td><td class="kind-col"></td>
+								<td class="num">
+									{#each g.net as l (l.commodity.id)}
+										<div><Amount value={l.balance} code={l.commodity.code} /></div>
+									{/each}
+								</td>
+								{#if valued && g.netWorth}
+									<td class="num"><Worth worth={g.netWorth} code={SETTLEMENT_CODE} /></td>
+								{/if}
+								<td></td>
+							</tr>
+						</tfoot>
+					{/if}
+				</table>
+			</div>
 		</section>
 	{:else}
 		<p class="muted">No accounts yet.</p>
@@ -130,7 +155,7 @@
 		table-layout: fixed;
 	}
 	th:first-child {
-		width: 50%;
+		width: 40%;
 	}
 	tr.archived td {
 		opacity: 0.7;
@@ -152,5 +177,20 @@
 	.check {
 		width: 1%;
 		font-size: var(--text-sm);
+	}
+	.scroll {
+		overflow-x: auto;
+	}
+	/* A phone: no room for the kind, and columns as wide as they need. */
+	@media (max-width: 40rem) {
+		.kind-col {
+			display: none;
+		}
+		table {
+			table-layout: auto;
+		}
+		th:first-child {
+			width: auto;
+		}
 	}
 </style>

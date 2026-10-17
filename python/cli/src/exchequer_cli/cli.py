@@ -10,10 +10,12 @@ from typing import Annotated
 import typer
 
 from exchequer_cli import config
-from exchequer_cli.imports import ApiError, Importer
+from exchequer_cli.imports import ApiError, Importer, ok
 from exchequer_cli.rules import Rules, error_lines, month_range
 from exchequer_sdk import AuthenticatedClient
-from exchequer_sdk.models import RuleScript
+from exchequer_sdk.api.prices import prices_refresh
+from exchequer_sdk.models import RefreshRequest, RuleScript
+from exchequer_sdk.types import UNSET
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -188,6 +190,39 @@ def rules_dry_run(
         return code
 
     _rules(run)
+
+
+prices_app = typer.Typer(no_args_is_help=True, help="Prices (design §3.4).")
+app.add_typer(prices_app, name="prices")
+
+
+@prices_app.command("refresh")
+def prices_refresh_(
+    start: Annotated[str | None, typer.Option("--from", help="First day, YYYY-MM-DD.")] = None,
+    end: Annotated[
+        str | None, typer.Option("--to", help="Last day, YYYY-MM-DD; default today.")
+    ] = None,
+    value_in: Annotated[str, typer.Option(help="Prices in this commodity.")] = "USD",
+) -> None:
+    """Fetch every commodity's prices again, from the configured sources in order."""
+    try:
+        cfg = config.load()
+        client = AuthenticatedClient(base_url=cfg.url, token=cfg.token(), timeout=None)
+        body = RefreshRequest(
+            value_in=value_in,
+            from_=datetime.date.fromisoformat(start) if start else UNSET,
+            to=datetime.date.fromisoformat(end) if end else UNSET,
+        )
+        with client:
+            r = ok(prices_refresh.sync_detailed(client=client, body=body), "refresh")
+    except (config.ConfigError, ApiError, ValueError) as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(2) from e
+    sources = ", ".join(r.sources) or "none configured"
+    typer.echo(f"{r.stored} prices stored (sources: {sources})")
+    for e in r.errors:
+        typer.echo(f"  {e}")
+    raise typer.Exit(1 if r.errors and not r.stored else 0)
 
 
 def main() -> None:

@@ -15,7 +15,8 @@
 			route: '/setup/counterparties'
 		},
 		{ href: resolve('/setup/tags'), label: 'Tags', route: '/setup/tags' },
-		{ href: resolve('/setup/commodities'), label: 'Commodities', route: '/setup/commodities' }
+		{ href: resolve('/setup/commodities'), label: 'Commodities', route: '/setup/commodities' },
+		{ href: resolve('/setup/prices'), label: 'Prices', route: '/setup/prices' }
 	];
 </script>
 

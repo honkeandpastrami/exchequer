@@ -4,11 +4,28 @@ import type { Schemas } from '../api/client';
 import { accountKinds, holding, holdings, partyKinds, rank, type Holding } from '../labels';
 import { sum } from '../money';
 
-export type Line = { commodity: Schemas['Commodity']; balance: string };
-export type Row = { account: Schemas['Account']; lines: Line[] };
-export type Section = { holding: Holding; rows: Row[]; totals: Line[] };
+/** `value`: in the household currency, absent when no price connects them. */
+export type Line = {
+	commodity: Schemas['Commodity'];
+	balance: string;
+	value?: string;
+	valuation?: Schemas['ValuationOut'];
+};
+/**
+ * What lines are worth together in the household currency: the sum of
+ * those with a value, the codes of those without, and whether any value
+ * came from a stale price.
+ */
+export type Worth = { value: string; unpriced: string[]; stale: boolean };
+export type Row = { account: Schemas['Account']; lines: Line[]; worth: Worth };
+export type Section = { holding: Holding; rows: Row[]; totals: Line[]; worth: Worth };
 /** `net` is set only when the owner has more than one holding. */
-export type Group = { owner: Schemas['Party']; sections: Section[]; net: Line[] | null };
+export type Group = {
+	owner: Schemas['Party'];
+	sections: Section[];
+	net: Line[] | null;
+	netWorth: Worth | null;
+};
 
 const byCode = (a: Line, b: Line) => a.commodity.code.localeCompare(b.commodity.code);
 
@@ -32,7 +49,12 @@ export function groupBalances(
 		if (c)
 			lines.set(b.account_id, [
 				...(lines.get(b.account_id) ?? []),
-				{ commodity: c, balance: b.balance }
+				{
+					commodity: c,
+					balance: b.balance,
+					value: b.value ?? undefined,
+					valuation: b.valuation ?? undefined
+				}
 			]);
 	}
 	const owners = [...parties].sort(
@@ -47,12 +69,26 @@ export function groupBalances(
 					(a, b) =>
 						rank(accountKinds, a.kind) - rank(accountKinds, b.kind) || a.name.localeCompare(b.name)
 				)
-				.map((account) => ({ account, lines: (lines.get(account.id) ?? []).sort(byCode) }));
+				.map((account) => {
+					const ls = (lines.get(account.id) ?? []).sort(byCode);
+					return { account, lines: ls, worth: worth(ls) };
+				});
 			const sections = (Object.keys(holdings) as Holding[])
 				.map((h) => rows.filter((r) => holding(r.account) === h))
 				.filter((rs) => rs.length > 0)
-				.map((rs) => ({ holding: holding(rs[0].account), rows: rs, totals: totals(rs) }));
-			return { owner, sections, net: sections.length > 1 ? totals(rows) : null };
+				.map((rs) => ({
+					holding: holding(rs[0].account),
+					rows: rs,
+					totals: totals(rs),
+					worth: worth(rs.flatMap((r) => r.lines))
+				}));
+			const many = sections.length > 1;
+			return {
+				owner,
+				sections,
+				net: many ? totals(rows) : null,
+				netWorth: many ? worth(rows.flatMap((r) => r.lines)) : null
+			};
 		})
 		.filter((g) => g.sections.length > 0);
 }
@@ -65,4 +101,23 @@ function totals(rows: Row[]): Line[] {
 	return [...by.values()]
 		.map((ls) => ({ commodity: ls[0].commodity, balance: sum(ls.map((l) => l.balance)) }))
 		.sort(byCode);
+}
+
+/** Whether any balance shown isn't in `code`: then values in it are worth a column. */
+export function mixed(groups: Group[], code: string): boolean {
+	return groups.some((g) =>
+		g.sections.some((s) => s.rows.some((r) => r.lines.some((l) => l.commodity.code !== code)))
+	);
+}
+
+function worth(lines: Line[]): Worth {
+	const priced = lines.filter((l) => l.value !== undefined);
+	const unpriced = [
+		...new Set(lines.filter((l) => l.value === undefined).map((l) => l.commodity.code))
+	];
+	return {
+		value: sum(priced.map((l) => l.value as string)),
+		unpriced: unpriced.sort(),
+		stale: priced.some((l) => l.valuation?.stale)
+	};
 }

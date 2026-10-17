@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Schemas } from '../api/client';
 import { holding } from '../labels';
-import { groupBalances } from './accounts';
+import { groupBalances, mixed } from './accounts';
 
 const usd: Schemas['Commodity'] = { id: 'usd', code: 'USD', kind: 'fiat', precision: 2 };
 const parties: Schemas['Party'][] = [
@@ -80,5 +80,37 @@ describe('groupBalances', () => {
 		expect(sam(false).sections[0].totals).toEqual([{ commodity: usd, balance: '60.05' }]);
 		expect(ids(sam(true))).toContain('old');
 		expect(sam(true).sections[0].totals).toEqual([{ commodity: usd, balance: '61.05' }]);
+	});
+
+	it('adds up values in USD, naming what has no price and flagging stale ones', () => {
+		const vti: Schemas['Commodity'] = { id: 'vti', code: 'VTI', kind: 'fund', precision: 3 };
+		const acme: Schemas['Commodity'] = { id: 'acme', code: 'ACME', kind: 'other', precision: 0 };
+		const valuation = (stale: boolean) => ({
+			rate: '300',
+			prices: [],
+			derived: false,
+			stale,
+			provisional: false
+		});
+		const priced: Schemas['AccountBalance'][] = [
+			{ account_id: 'stocks', commodity_id: 'usd', balance: '20.00', value: '20.00' },
+			{
+				account_id: 'stocks',
+				commodity_id: 'vti',
+				balance: '2.000',
+				value: '600.00',
+				valuation: valuation(true)
+			},
+			{ account_id: 'stocks', commodity_id: 'acme', balance: '5' },
+			{ account_id: 'joint', commodity_id: 'usd', balance: '5.00', value: '5.00' }
+		];
+		const all = [usd, vti, acme];
+		const home = groupBalances(parties, all, accounts, priced, false)[0];
+		const stocks = home.sections.find((s) => s.holding === 'investments')!;
+		expect(stocks.rows[0].worth).toEqual({ value: '620.00', unpriced: ['ACME'], stale: true });
+		expect(home.netWorth).toEqual({ value: '625.00', unpriced: ['ACME'], stale: true });
+		expect(home.sections[0].worth).toEqual({ value: '5.00', unpriced: [], stale: false });
+		expect(mixed([home], 'USD')).toBe(true);
+		expect(mixed(groupBalances(parties, [usd], accounts, balances, false), 'USD')).toBe(false);
 	});
 });

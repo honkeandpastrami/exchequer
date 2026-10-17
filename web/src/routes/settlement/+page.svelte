@@ -9,6 +9,7 @@
 	import { monthName, thisMonth } from '#lib/dates.ts';
 	import { hashQuery } from '#lib/query.ts';
 	import { reference } from '#lib/reference.ts';
+	import { SETTLEMENT_CODE } from '#lib/usd.ts';
 	import { byEdge } from '#lib/views/settlement.ts';
 
 	const current = thisMonth();
@@ -91,7 +92,7 @@
 	{/each}
 	{#if d.unpriced.length}
 		<p class="muted">
-			{d.unpriced.length} splits have no value in the household currency and are left out.
+			{d.unpriced.length} splits have no price in {SETTLEMENT_CODE} and are left out.
 		</p>
 	{/if}
 {:catch error}

@@ -11,6 +11,7 @@
 	import { lineKinds } from '#lib/labels.ts';
 	import { reference } from '#lib/reference.ts';
 	import { transactionsById } from '#lib/transactions.ts';
+	import { SETTLEMENT_CODE } from '#lib/usd.ts';
 	import { status } from '#lib/views/settlement.ts';
 
 	let month = $derived(page.params.month ?? thisMonth());
@@ -122,7 +123,17 @@
 											{ref}
 										/>{/if}
 								</td>
-								<td class="num"><Amount value={l.amount} /></td>
+								<td class="num">
+									<Amount value={l.amount} />
+									{#if l.valuation && s.split}
+										{@const leg = s.split.from.account_id ? s.split.from : s.split.to}
+										<div class="muted note">
+											at {l.valuation.rate}
+											{SETTLEMENT_CODE}/{ref.commodities.get(leg.commodity_id)?.code ?? '?'}
+											{#if l.valuation.stale}· stale price{/if}
+										</div>
+									{/if}
+								</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -149,7 +160,7 @@
 
 	{#if statement.unpriced.length}
 		<p class="muted">
-			{statement.unpriced.length} splits have no value in the household currency and are left out.
+			{statement.unpriced.length} splits have no price in {SETTLEMENT_CODE} and are left out.
 		</p>
 	{/if}
 {/if}
