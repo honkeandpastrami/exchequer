@@ -6,6 +6,7 @@
 	import { all, api, ApiError, done, ok, type Schemas } from '#lib/api/client.ts';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
+	import Mark from '#lib/components/Mark.svelte';
 	import NoValue from '#lib/components/NoValue.svelte';
 	import SuggestionBadge from '#lib/components/SuggestionBadge.svelte';
 	import { localDate } from '#lib/dates.ts';
@@ -400,9 +401,13 @@
 		<section class="card" class:ok={b.matches}>
 			<strong>{a ? accountLabel(a, r) : '?'}</strong>:
 			{#if b.matches}
-				✓ the bank's <Amount value={b.amount} {code} /> on {b.date} matches the ledger.
+				<Mark tone="ok" label="Matches" /> the bank's <Amount value={b.amount} {code} /> on {b.date}
+				is the ledger's.
 			{:else}
-				the bank says <Amount value={b.amount} {code} /> on {b.date}, the ledger
+				<Mark tone="warning" label="Doesn't match" /> the bank says <Amount
+					value={b.amount}
+					{code}
+				/> on {b.date}, the ledger
 				<Amount value={b.ledger} {code} />: off by <Amount value={b.difference} {code} />.
 				<a href={resolve(`/checks?account=${b.account_id}`)}>Look into it</a>
 			{/if}

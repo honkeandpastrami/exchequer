@@ -162,7 +162,7 @@
 		{@const c = shown.check}
 		<section class="card result" class:ok={c.matches}>
 			{#if c.matches}
-				<h2>✓ Matches on {c.date}</h2>
+				<h2>Matches on {c.date}</h2>
 				<p>
 					The ledger shows <Amount value={c.ledger} code={code(c.commodity_id)} />. Verified through
 					{c.verified_through}.
