@@ -365,6 +365,12 @@ async fn rows_like_recorded_transactions_are_near_duplicates(pool: PgPool) {
         r.body["statements"][0]["counts"]["near_duplicate"],
         json!(2)
     );
+    // Whether they're the same is yours to say; the new row needs labels.
+    let ready = &r.body["readiness"];
+    assert_eq!(
+        (&ready["state"], &ready["undecided"], &ready["unlabeled"]),
+        (&json!("needs_work"), &json!(2), &json!(1))
+    );
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]

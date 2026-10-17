@@ -12,6 +12,7 @@ from ..models.file_format import FileFormat
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.readiness import Readiness
     from ..models.staged_statement import StagedStatement
 
 
@@ -26,6 +27,7 @@ class Import:
         file_sha256 (str): The file's identity: its bytes' SHA-256 (hex), whatever it's called.
         format_ (FileFormat):
         id (UUID):
+        readiness (Readiness): An import's readiness, and why.
         statements (list[StagedStatement]):
         file_name (None | str | Unset):
     """
@@ -34,6 +36,7 @@ class Import:
     file_sha256: str
     format_: FileFormat
     id: UUID
+    readiness: Readiness
     statements: list[StagedStatement]
     file_name: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -46,6 +49,8 @@ class Import:
         format_ = self.format_.value
 
         id = str(self.id)
+
+        readiness = self.readiness.to_dict()
 
         statements = []
         for statements_item_data in self.statements:
@@ -66,6 +71,7 @@ class Import:
                 "file_sha256": file_sha256,
                 "format": format_,
                 "id": id,
+                "readiness": readiness,
                 "statements": statements,
             }
         )
@@ -76,6 +82,7 @@ class Import:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.readiness import Readiness  # noqa: PLC0415
         from ..models.staged_statement import StagedStatement  # noqa: PLC0415
 
         d = dict(src_dict)
@@ -86,6 +93,8 @@ class Import:
         format_ = FileFormat(d.pop("format"))
 
         id = UUID(d.pop("id"))
+
+        readiness = Readiness.from_dict(d.pop("readiness"))
 
         statements = []
         _statements = d.pop("statements")
@@ -108,6 +117,7 @@ class Import:
             file_sha256=file_sha256,
             format_=format_,
             id=id,
+            readiness=readiness,
             statements=statements,
             file_name=file_name,
         )

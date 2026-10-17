@@ -2151,6 +2151,42 @@
         ]
       }
     },
+    "/api/v1/imports/commit-ready": {
+      "post": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Commit the imports you saw as ready, oldest first, each on its own, as\n[`commit`] does. Each is checked again just before: one that's gone, no\nlonger ready (committing another may have changed it), or changed since\nis skipped, as is one commit refuses; the others go ahead.",
+        "operationId": "imports_commit_ready",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitReady"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyCommitted"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/imports/{id}": {
       "get": {
         "tags": [
@@ -6087,6 +6123,23 @@
           }
         }
       },
+      "CommitReady": {
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The imports you saw as ready."
+          }
+        },
+        "additionalProperties": false
+      },
       "Committed": {
         "type": "object",
         "description": "What a commit did.",
@@ -6689,7 +6742,8 @@
           "file_sha256",
           "format",
           "created_at",
-          "statements"
+          "statements",
+          "readiness"
         ],
         "properties": {
           "created_at": {
@@ -6712,6 +6766,9 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/Readiness"
           },
           "statements": {
             "type": "array",
@@ -7838,7 +7895,8 @@
                 "file_sha256",
                 "format",
                 "created_at",
-                "statements"
+                "statements",
+                "readiness"
               ],
               "properties": {
                 "created_at": {
@@ -7861,6 +7919,9 @@
                 "id": {
                   "type": "string",
                   "format": "uuid"
+                },
+                "readiness": {
+                  "$ref": "#/components/schemas/Readiness"
                 },
                 "statements": {
                   "type": "array",
@@ -8713,6 +8774,114 @@
             "items": {
               "$ref": "#/components/schemas/Row"
             }
+          }
+        }
+      },
+      "Readiness": {
+        "type": "object",
+        "description": "An import's readiness, and why.",
+        "required": [
+          "state",
+          "no_account",
+          "unlabeled",
+          "undecided",
+          "suggested_accounts",
+          "suggested_rows"
+        ],
+        "properties": {
+          "no_account": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Statements with no account. Needs work.",
+            "minimum": 0
+          },
+          "state": {
+            "$ref": "#/components/schemas/ReadinessState"
+          },
+          "suggested_accounts": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Statements whose account is a confident suggestion, not yet chosen.",
+            "minimum": 0
+          },
+          "suggested_rows": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Rows that would take a confident AI suggestion.",
+            "minimum": 0
+          },
+          "undecided": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Near duplicates and transfer matches left on their default decision.\nNeeds work.",
+            "minimum": 0
+          },
+          "unlabeled": {
+            "type": "integer",
+            "format": "int32",
+            "description": "New rows with a label neither chosen nor confidently suggested.\nNeeds work.",
+            "minimum": 0
+          }
+        }
+      },
+      "ReadinessState": {
+        "type": "string",
+        "description": "How close an import is to committing (design §6.7): `ready` commits as\nshown, with nothing left to a guess (a rule's suggestion is yours);\n`suggested` would commit too, on confident AI suggestions you haven't\nconfirmed; `needs_work` needs you first.",
+        "enum": [
+          "ready",
+          "suggested",
+          "needs_work"
+        ]
+      },
+      "ReadyCommitted": {
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReadyOutcome"
+            },
+            "description": "Oldest import first."
+          }
+        }
+      },
+      "ReadyOutcome": {
+        "type": "object",
+        "description": "What committing one of the ready imports did.",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "committed": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Committed",
+                "description": "Absent if it wasn't committed."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "file_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "skipped": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it wasn't committed: gone, no longer ready, changed since it was\nchecked, or refused."
           }
         }
       },

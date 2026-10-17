@@ -620,3 +620,77 @@ async fn a_row_can_replace_the_transaction_it_matches(pool: PgPool) {
     let r = upload(&pool, &h, &format!("?account_id={}", h.alex_checking), CSV).await;
     assert_eq!(r.body["statements"][0]["counts"]["duplicate"], json!(3));
 }
+
+async fn commit_ready(pool: &PgPool, h: &H, ids: &[&str]) -> Vec<Value> {
+    let r = h
+        .send(
+            pool,
+            "POST",
+            "/api/v1/imports/commit-ready",
+            Some(json!({ "ids": ids })),
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    r.body["results"].as_array().unwrap().clone()
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn ready_imports_are_committed_together(pool: PgPool) {
+    let h = H::new(&pool).await;
+    let card = upload(&pool, &h, "?file_name=march.ofx", &ofx()).await;
+    let card_id = card.id();
+    let ready = |r: &Response| r.body["readiness"].clone();
+    assert_eq!(
+        ready(&card),
+        json!({ "state": "needs_work", "no_account": 1, "unlabeled": 0, "undecided": 0,
+                "suggested_accounts": 0, "suggested_rows": 0 })
+    );
+    let r = call(
+        &pool,
+        "PATCH",
+        format!("/api/v1/imports/{card_id}/statements/0"),
+    )
+    .token(&h.t)
+    .if_match(&card.etag())
+    .json(json!({ "account_id": h.alex_credit }))
+    .send()
+    .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    let r = read(&pool, &h, &card_id).await;
+    assert_eq!(
+        (
+            &ready(&r)["state"],
+            &ready(&r)["no_account"],
+            &ready(&r)["unlabeled"]
+        ),
+        (&json!("needs_work"), &json!(0), &json!(2))
+    );
+    label_none(&pool, &h, &card_id).await;
+    assert_eq!(
+        ready(&read(&pool, &h, &card_id).await)["state"],
+        json!("ready")
+    );
+
+    // Another, still needing labels, isn't committed; one that's gone is
+    // said to be.
+    let cash = upload(&pool, &h, &format!("?account_id={}", h.alex_checking), CSV).await;
+    let cash_id = cash.id();
+    let gone = "00000000-0000-7000-8000-000000000000";
+    let results = commit_ready(&pool, &h, &[&cash_id, &card_id, gone]).await;
+    assert_eq!(results.len(), 3);
+    let of = |id: &str| results.iter().find(|r| r["id"] == json!(id)).unwrap();
+    assert_eq!(of(gone)["skipped"], json!("it's gone"));
+    assert_eq!(of(&cash_id)["skipped"], json!("it isn't ready"));
+    assert_eq!(
+        (
+            &of(&card_id)["committed"]["created"],
+            &of(&card_id)["file_name"]
+        ),
+        (&json!(2), &json!("march.ofx"))
+    );
+    assert_eq!(
+        read(&pool, &h, &card_id).await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(read(&pool, &h, &cash_id).await.status, StatusCode::OK);
+}

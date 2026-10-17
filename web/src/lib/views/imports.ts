@@ -72,6 +72,47 @@ export function totals(statements: Schemas['StagedStatement'][]): Schemas['RowCo
 	return out;
 }
 
+// --------------------------------------------------------- Readiness ----
+// Design §6.7: ready commits as shown; suggested would commit on confident AI
+// suggestions you haven't confirmed; needs work needs you first.
+
+type Readiness = Schemas['Readiness'];
+
+export const readinessNames: Record<Schemas['ReadinessState'], string> = {
+	ready: 'Ready',
+	suggested: 'Confident suggestions',
+	needs_work: 'Needs work'
+};
+
+const several = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** Why an import isn't ready, briefly; nothing when it is. */
+export function readinessWhy(r: Readiness): string[] {
+	return [
+		r.no_account && several(r.no_account, 'statement has no account', 'statements have no account'),
+		r.unlabeled && several(r.unlabeled, 'row needs labels', 'rows need labels'),
+		r.undecided && several(r.undecided, 'match to decide', 'matches to decide'),
+		r.suggested_accounts &&
+			several(r.suggested_accounts, 'suggested account', 'suggested accounts'),
+		r.suggested_rows &&
+			several(r.suggested_rows, 'row with AI suggestions', 'rows with AI suggestions')
+	].filter((x): x is string => !!x);
+}
+
+/** What a commit did, in a line. */
+export function committedSummary(c: Schemas['Committed']): string {
+	return (
+		[
+			c.created && several(c.created, 'new transaction', 'new transactions'),
+			c.matched && `${c.matched} already there`,
+			c.replaced && `${c.replaced} replaced`,
+			c.skipped && `${c.skipped} not imported`
+		]
+			.filter((x): x is string => !!x)
+			.join(', ') || 'nothing to add'
+	);
+}
+
 /** What committing would do now, by decision. */
 export function plan(rows: Schemas['StagedRow'][]): Record<Decision, number> {
 	const out: Record<Decision, number> = { new: 0, match: 0, replace: 0, skip: 0 };

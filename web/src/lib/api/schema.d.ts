@@ -315,6 +315,28 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v1/imports/commit-ready': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Commit the imports you saw as ready, oldest first, each on its own, as
+		 *     [`commit`] does. Each is checked again just before: one that's gone, no
+		 *     longer ready (committing another may have changed it), or changed since
+		 *     is skipped, as is one commit refuses; the others go ahead.
+		 */
+		post: operations['imports_commit_ready'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/imports/{id}': {
 		parameters: {
 			query?: never;
@@ -1207,6 +1229,10 @@ export interface components {
 			/** Format: uuid */
 			category_id?: string | null;
 		};
+		CommitReady: {
+			/** @description The imports you saw as ready. */
+			ids: string[];
+		};
 		/** @description What a commit did. */
 		Committed: {
 			/**
@@ -1483,6 +1509,7 @@ export interface components {
 			format: components['schemas']['FileFormat'];
 			/** Format: uuid */
 			id: string;
+			readiness: components['schemas']['Readiness'];
 			statements: components['schemas']['StagedStatement'][];
 		};
 		ImportBatch: {
@@ -1915,6 +1942,7 @@ export interface components {
 				format: components['schemas']['FileFormat'];
 				/** Format: uuid */
 				id: string;
+				readiness: components['schemas']['Readiness'];
 				statements: components['schemas']['StagedStatement'][];
 			}[];
 			/** @description Pass as `cursor` to get the next page; absent on the last page. */
@@ -2215,6 +2243,61 @@ export interface components {
 		};
 		QueryResult: {
 			rows: components['schemas']['Row'][];
+		};
+		/** @description An import's readiness, and why. */
+		Readiness: {
+			/**
+			 * Format: int32
+			 * @description Statements with no account. Needs work.
+			 */
+			no_account: number;
+			state: components['schemas']['ReadinessState'];
+			/**
+			 * Format: int32
+			 * @description Statements whose account is a confident suggestion, not yet chosen.
+			 */
+			suggested_accounts: number;
+			/**
+			 * Format: int32
+			 * @description Rows that would take a confident AI suggestion.
+			 */
+			suggested_rows: number;
+			/**
+			 * Format: int32
+			 * @description Near duplicates and transfer matches left on their default decision.
+			 *     Needs work.
+			 */
+			undecided: number;
+			/**
+			 * Format: int32
+			 * @description New rows with a label neither chosen nor confidently suggested.
+			 *     Needs work.
+			 */
+			unlabeled: number;
+		};
+		/**
+		 * @description How close an import is to committing (design §6.7): `ready` commits as
+		 *     shown, with nothing left to a guess (a rule's suggestion is yours);
+		 *     `suggested` would commit too, on confident AI suggestions you haven't
+		 *     confirmed; `needs_work` needs you first.
+		 * @enum {string}
+		 */
+		ReadinessState: 'ready' | 'suggested' | 'needs_work';
+		ReadyCommitted: {
+			/** @description Oldest import first. */
+			results: components['schemas']['ReadyOutcome'][];
+		};
+		/** @description What committing one of the ready imports did. */
+		ReadyOutcome: {
+			committed?: components['schemas']['Committed'] | null;
+			file_name?: string | null;
+			/** Format: uuid */
+			id: string;
+			/**
+			 * @description Why it wasn't committed: gone, no longer ready, changed since it was
+			 *     checked, or refused.
+			 */
+			skipped?: string | null;
 		};
 		RefreshRequest: {
 			/**
@@ -4000,6 +4083,30 @@ export interface operations {
 				};
 				content: {
 					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	imports_commit_ready: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['CommitReady'];
+			};
+		};
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ReadyCommitted'];
 				};
 			};
 		};

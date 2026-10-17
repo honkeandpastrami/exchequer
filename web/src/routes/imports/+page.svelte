@@ -6,7 +6,12 @@
 	import { localDate } from '#lib/dates.ts';
 	import { accountLabel } from '#lib/names.ts';
 	import { reference, type Reference } from '#lib/reference.ts';
-	import { counted, statementName, statuses, totals } from '#lib/views/imports.ts';
+	import {
+		committedSummary,
+		readinessNames,
+		readinessWhy,
+		statementName
+	} from '#lib/views/imports.ts';
 
 	let ref: Reference | null = $state(null);
 	let staged: Schemas['Import'][] | null = $state(null);
@@ -14,6 +19,12 @@
 	let failure: unknown = $state(null);
 	let busy = $state(false);
 	let input: HTMLInputElement | undefined = $state();
+	/** What the last commit did, a line per file. */
+	let notices: string[] = $state([]);
+	let committing = $state(false);
+
+	const ready = $derived.by(() => staged?.filter((i) => i.readiness.state === 'ready') ?? []);
+	const name = (i: { file_name?: string | null; id: string }) => i.file_name ?? 'A file';
 
 	async function load() {
 		try {
@@ -57,6 +68,55 @@
 		}
 		await load();
 	}
+
+	/** One import, as it is now: refused if it needs work since. */
+	async function commitOne(imp: Schemas['Import']) {
+		committing = true;
+		notices = [];
+		failure = null;
+		try {
+			const r = await api.GET('/api/v1/imports/{id}', { params: { path: { id: imp.id } } });
+			const now = ok(r);
+			if (now.readiness.state === 'needs_work') {
+				notices = [`${name(imp)}: needs work since it was listed.`];
+			} else {
+				const c = await api.POST('/api/v1/imports/{id}/commit', {
+					params: {
+						path: { id: imp.id },
+						header: { 'If-Match': r.response.headers.get('etag') ?? '' }
+					}
+				});
+				notices = [
+					`${name(imp)}: ${c.data ? committedSummary(c.data) : (c.error?.detail ?? c.error?.title ?? 'not committed')}.`
+				];
+			}
+		} catch (e) {
+			failure = e;
+		}
+		committing = false;
+		await load();
+	}
+
+	async function commitReady() {
+		committing = true;
+		notices = [];
+		failure = null;
+		try {
+			const r = ok(
+				await api.POST('/api/v1/imports/commit-ready', {
+					body: { ids: ready.map((i) => i.id) }
+				})
+			);
+			notices = r.results.map(
+				(o) =>
+					`${name(o)}: ${o.committed ? committedSummary(o.committed) : `not committed, ${o.skipped}`}.`
+			);
+		} catch (e) {
+			failure = e;
+		}
+		committing = false;
+		await load();
+	}
 </script>
 
 <h1>Imports</h1>
@@ -77,6 +137,12 @@
 	/>
 	{#if busy}<span class="muted">Uploading…</span>{/if}
 </label>
+<button
+	class="commit-ready"
+	disabled={committing || busy || ready.length === 0}
+	onclick={commitReady}>Commit {ready.length} ready</button
+>
+{#each notices as n, i (i)}<p class="notice" role="status">{n}</p>{/each}
 
 {#each failures as f (f.file)}
 	<div class="failed"><strong>{f.file}</strong><Failure error={f.error} /></div>
@@ -92,7 +158,8 @@
 					<th>File</th>
 					<th>Uploaded</th>
 					<th>Statements</th>
-					<th>Rows</th>
+					<th>Status</th>
+					<th></th>
 				</tr>
 			</thead>
 			<tbody>
@@ -114,13 +181,24 @@
 							{/each}
 						</td>
 						<td>
-							{#each counted(totals(imp.statements)) as [status, n] (status)}
-								<div>{n} {statuses[status].toLowerCase()}</div>
+							<span class="mark {imp.readiness.state}"
+								><span class="dot" aria-hidden="true"></span>{readinessNames[
+									imp.readiness.state
+								]}</span
+							>
+							{#each readinessWhy(imp.readiness) as why (why)}
+								<div class="why">{why}</div>
 							{/each}
+						</td>
+						<td>
+							<button
+								disabled={committing || busy || imp.readiness.state === 'needs_work'}
+								onclick={() => commitOne(imp)}>Commit</button
+							>
 						</td>
 					</tr>
 				{:else}
-					<tr><td colspan="4" class="muted">Nothing staged.</td></tr>
+					<tr><td colspan="5" class="muted">Nothing staged.</td></tr>
 				{/each}
 			</tbody>
 		</table>
@@ -156,5 +234,36 @@
 	}
 	.warn {
 		color: var(--color-warning);
+	}
+	.commit-ready {
+		margin-bottom: var(--space-4);
+	}
+	.notice {
+		font-size: var(--text-sm);
+	}
+	.mark {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+		white-space: nowrap;
+	}
+	.dot {
+		width: 0.7em;
+		height: 0.7em;
+		border-radius: 50%;
+		background: currentColor;
+	}
+	.ready .dot {
+		color: var(--color-positive);
+	}
+	.suggested .dot {
+		color: var(--color-warning);
+	}
+	.needs_work .dot {
+		color: var(--color-negative);
+	}
+	.why {
+		font-size: var(--text-sm);
+		color: var(--color-text-muted);
 	}
 </style>

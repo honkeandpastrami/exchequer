@@ -50,6 +50,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(set_statement))
         .routes(routes!(set_row))
         .routes(routes!(commit))
+        .routes(routes!(commit_ready))
         .routes(routes!(refresh))
         .layer(DefaultBodyLimit::max(MAX_FILE))
 }
@@ -305,8 +306,39 @@ pub struct Import {
     #[serde(with = "time::serde::rfc3339")]
     created_at: OffsetDateTime,
     statements: Vec<StagedStatement>,
+    readiness: Readiness,
     #[serde(skip)]
     version: i64,
+}
+
+/// How close an import is to committing (design §6.7): `ready` commits as
+/// shown, with nothing left to a guess (a rule's suggestion is yours);
+/// `suggested` would commit too, on confident AI suggestions you haven't
+/// confirmed; `needs_work` needs you first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadinessState {
+    Ready,
+    Suggested,
+    NeedsWork,
+}
+
+/// An import's readiness, and why.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct Readiness {
+    state: ReadinessState,
+    /// Statements with no account. Needs work.
+    no_account: u32,
+    /// New rows with a label neither chosen nor confidently suggested.
+    /// Needs work.
+    unlabeled: u32,
+    /// Near duplicates and transfer matches left on their default decision.
+    /// Needs work.
+    undecided: u32,
+    /// Statements whose account is a confident suggestion, not yet chosen.
+    suggested_accounts: u32,
+    /// Rows that would take a confident AI suggestion.
+    suggested_rows: u32,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -505,6 +537,34 @@ pub struct Committed {
     balance_checks: Vec<crate::balance_checks::BalanceCheck>,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CommitReady {
+    /// The imports you saw as ready.
+    ids: Vec<Uuid>,
+}
+
+/// What committing one of the ready imports did.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReadyOutcome {
+    id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_name: Option<String>,
+    /// Absent if it wasn't committed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    committed: Option<Committed>,
+    /// Why it wasn't committed: gone, no longer ready, changed since it was
+    /// checked, or refused.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    skipped: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReadyCommitted {
+    /// Oldest import first.
+    results: Vec<ReadyOutcome>,
+}
+
 /// A bank file's bytes, as is.
 #[derive(ToSchema)]
 #[schema(value_type = String, format = Binary)]
@@ -598,6 +658,16 @@ async fn output(db: &mut PgConnection, imports: Vec<ImportRow>) -> Result<Vec<Im
             .filter_map(|(_, s)| s.suggestion.as_ref().map(|a| a.suggester_id)),
     )
     .await?;
+    let accounts = suggestions::accounts(db).await?;
+    let mut ready = HashMap::new();
+    for i in &imports {
+        let mine: Vec<StatementRow> = statements
+            .iter()
+            .filter(|(id, _)| *id == i.id)
+            .map(|(_, s)| s.clone())
+            .collect();
+        ready.insert(i.id, readiness(db, i.id, &mine, &accounts).await?);
+    }
     imports
         .into_iter()
         .map(|i| {
@@ -653,6 +723,7 @@ async fn output(db: &mut PgConnection, imports: Vec<ImportRow>) -> Result<Vec<Im
                 format: format_of(&i.format)?,
                 created_at: i.created_at,
                 statements,
+                readiness: ready.remove(&i.id).ok_or_else(Problem::internal)?,
                 version: i.version,
             })
         })
@@ -948,6 +1019,8 @@ struct Labels {
     purpose: Option<Uuid>,
     missing: Vec<Label>,
     not_applicable: Vec<Label>,
+    /// Who made the suggestions it takes.
+    suggested_by: Vec<Uuid>,
 }
 
 /// What a row's labels depend on beyond the row.
@@ -970,6 +1043,7 @@ fn labels(r: &RowRow, suggestions: &[SuggestionRow], cx: &Context) -> Labels {
         purpose: r.purpose_id,
         missing: Vec::new(),
         not_applicable: Vec::new(),
+        suggested_by: Vec::new(),
     };
     let chosen = |label: Label| r.chosen.iter().any(|c| c == label.as_str());
     let suggested = |label: Label| {
@@ -983,7 +1057,10 @@ fn labels(r: &RowRow, suggestions: &[SuggestionRow], cx: &Context) -> Labels {
         (out.counterparty, out.transfer) = (None, Some(a));
     } else if !chosen(Label::Counterparty) {
         match suggested(Label::Counterparty) {
-            Some(s) => (out.counterparty, out.transfer) = (s.value, s.account_id),
+            Some(s) => {
+                (out.counterparty, out.transfer) = (s.value, s.account_id);
+                out.suggested_by.push(s.suggester_id);
+            }
             None => {
                 (out.counterparty, out.transfer) = (None, None);
                 out.missing.push(Label::Counterparty);
@@ -1012,7 +1089,10 @@ fn labels(r: &RowRow, suggestions: &[SuggestionRow], cx: &Context) -> Labels {
             continue;
         }
         match suggested(label) {
-            Some(s) => *slot = s.value,
+            Some(s) => {
+                *slot = s.value;
+                out.suggested_by.push(s.suggester_id);
+            }
             None => {
                 *slot = None;
                 out.missing.push(label);
@@ -1033,6 +1113,93 @@ fn decision_of(r: &RowRow) -> Result<Option<Decision>, Problem> {
         Some(d) => Some(Decision::parse(d)?),
         None => Decision::default_for(status),
     })
+}
+
+/// How close an import is to committing ([`Readiness`]). `statements`
+/// are its own.
+async fn readiness(
+    db: &mut PgConnection,
+    id: Uuid,
+    statements: &[StatementRow],
+    accounts: &[suggest::Account],
+) -> Result<Readiness, Problem> {
+    let rows = store::imports::rows(&mut *db, id, None, None, None, i64::MAX).await?;
+    let keys: Vec<(i16, i32)> = rows.iter().map(|r| (r.statement, r.position)).collect();
+    let suggestions = store::imports::suggestions(&mut *db, id, &keys).await?;
+    let by = suggesters(db, suggestions.iter().map(|s| s.suggester_id)).await?;
+    let pairs: HashMap<RowKey, Option<Uuid>> = {
+        let keys: Vec<RowKey> = rows.iter().filter_map(pair_key).collect();
+        store::imports::pair_rows(&mut *db, &keys)
+            .await?
+            .into_iter()
+            .map(|p| ((p.import_id, p.statement, p.position), p.account_id))
+            .collect()
+    };
+    let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    let mut out = Readiness {
+        state: ReadinessState::Ready,
+        no_account: count(
+            statements
+                .iter()
+                .filter(|s| s.effective_account().is_none())
+                .count(),
+        ),
+        unlabeled: 0,
+        undecided: 0,
+        suggested_accounts: count(
+            statements
+                .iter()
+                .filter(|s| s.account_id.is_none() && s.effective_account().is_some())
+                .count(),
+        ),
+        suggested_rows: 0,
+    };
+    for r in &rows {
+        let status = RowStatus::parse(&r.status)?;
+        // A row without an account counts as its statement.
+        let Some(decision) = decision_of(r)? else {
+            continue;
+        };
+        if matches!(status, RowStatus::NearDuplicate | RowStatus::TransferMatch)
+            && r.decision.is_none()
+        {
+            out.undecided += 1;
+        }
+        let labeled = match decision {
+            Decision::New | Decision::Replace => true,
+            Decision::Match => status == RowStatus::TransferMatch,
+            Decision::Skip => false,
+        };
+        if !labeled {
+            continue;
+        }
+        let cx = Context {
+            accounts,
+            account: statements
+                .iter()
+                .find(|s| s.position == r.statement)
+                .and_then(StatementRow::effective_account),
+            pair_account: pair_key(r).and_then(|k| pairs.get(&k).copied().flatten()),
+        };
+        let l = labels(r, &suggestions, &cx);
+        if decision == Decision::New && !l.missing.is_empty() {
+            out.unlabeled += 1;
+        }
+        if l.suggested_by
+            .iter()
+            .any(|s| by.get(s).is_some_and(|s| s.kind != SuggesterKind::Rule))
+        {
+            out.suggested_rows += 1;
+        }
+    }
+    out.state = if out.no_account + out.unlabeled + out.undecided > 0 {
+        ReadinessState::NeedsWork
+    } else if out.suggested_accounts + out.suggested_rows > 0 {
+        ReadinessState::Suggested
+    } else {
+        ReadinessState::Ready
+    };
+    Ok(out)
 }
 
 /// Rows as the API shows them, with their suggestions.
@@ -1813,6 +1980,21 @@ async fn commit(
     if current != version {
         return Err(Problem::stale());
     }
+    let committed = carry_out(&mut tx, &state, principal, id).await?;
+    tx.commit().await?;
+    committed.map(axum::Json).ok_or_else(|| {
+        Problem::conflict("the ledger changed since the rows were checked: review them again")
+    })
+}
+
+/// Commits a locked import ([`commit`]); `None`, with nothing committed but
+/// its rows worked out again, if any of them changed.
+async fn carry_out(
+    tx: &mut PgConnection,
+    state: &AppState,
+    principal: Principal,
+    id: Uuid,
+) -> Result<Option<Committed>, Problem> {
     let import = store::imports::get(&mut *tx, id)
         .await?
         .ok_or_else(Problem::internal)?;
@@ -1832,9 +2014,9 @@ async fn commit(
     // were checked.
     let seen = store::imports::rows(&mut *tx, id, None, None, None, i64::MAX).await?;
     for s in &statements {
-        restatus(&mut tx, id, s.position).await?;
+        restatus(tx, id, s.position).await?;
     }
-    rematch(&mut tx).await?;
+    rematch(tx).await?;
     let rows = store::imports::rows(&mut *tx, id, None, None, None, i64::MAX).await?;
     let changed = rows.iter().zip(&seen).any(|(now, before)| {
         now.status != before.status
@@ -1843,17 +2025,14 @@ async fn commit(
     });
     if changed {
         store::imports::touch(&mut *tx, id).await?;
-        tx.commit().await?;
-        return Err(Problem::conflict(
-            "the ledger changed since the rows were checked: review them again",
-        ));
+        return Ok(None);
     }
 
     // Every new transaction needs each label from you or a confident
     // suggestion (design §8).
     let keys: Vec<(i16, i32)> = rows.iter().map(|r| (r.statement, r.position)).collect();
     let suggestions = store::imports::suggestions(&mut *tx, id, &keys).await?;
-    let accounts = suggestions::accounts(&mut tx).await?;
+    let accounts = suggestions::accounts(tx).await?;
     let pairs: HashMap<RowKey, store::imports::PairRow> = {
         let keys: Vec<RowKey> = rows.iter().filter_map(pair_key).collect();
         store::imports::pair_rows(&mut *tx, &keys)
@@ -1983,8 +2162,8 @@ async fn commit(
                         l.purpose,
                         l.category,
                     );
-                    let b = batch(&mut tx).await?;
-                    let t = create_in(&mut tx, principal, req, b)
+                    let b = batch(tx).await?;
+                    let t = create_in(tx, principal, req, b)
                         .await
                         .map_err(at_row(r))?
                         .id();
@@ -2021,10 +2200,8 @@ async fn commit(
                 };
                 let req =
                     NewTransaction::single(r.date, description, from, to, l.purpose, l.category);
-                let b = batch(&mut tx).await?;
-                let t = create_in(&mut tx, principal, req, b)
-                    .await
-                    .map_err(at_row(r))?;
+                let b = batch(tx).await?;
+                let t = create_in(tx, principal, req, b).await.map_err(at_row(r))?;
                 out.created += 1;
                 for sg in suggestions
                     .iter()
@@ -2059,7 +2236,7 @@ async fn commit(
                 let set =
                     |label: Label, v: Option<Uuid>| (!l.missing.contains(&label)).then_some(v);
                 replace_with_row(
-                    &mut tx,
+                    tx,
                     principal,
                     t,
                     account,
@@ -2126,7 +2303,7 @@ async fn commit(
         {
             out.balance_checks.push(
                 crate::balance_checks::record(
-                    &mut tx,
+                    tx,
                     principal,
                     account,
                     s.commodity_id,
@@ -2141,10 +2318,10 @@ async fn commit(
     store::imports::delete(&mut *tx, id).await?;
     // The ledger changed: other staged imports' rows may now be duplicates,
     // and their transfer matches with this one's rows are gone.
-    let levels = state.suggestions.levels(&mut tx).await?;
-    refresh_others(&mut tx, &levels, id).await?;
+    let levels = state.suggestions.levels(tx).await?;
+    refresh_others(tx, &levels, id).await?;
     audit(
-        &mut tx,
+        tx,
         principal,
         Action::Delete,
         "staged_import",
@@ -2158,6 +2335,83 @@ async fn commit(
         ),
     )
     .await?;
-    tx.commit().await?;
-    Ok(axum::Json(out))
+    Ok(Some(out))
+}
+
+/// Commit the imports you saw as ready, oldest first, each on its own, as
+/// [`commit`] does. Each is checked again just before: one that's gone, no
+/// longer ready (committing another may have changed it), or changed since
+/// is skipped, as is one commit refuses; the others go ahead.
+#[utoipa::path(post, path = "/imports/commit-ready", tag = "imports", security(("bearer" = [])),
+    request_body = CommitReady,
+    responses((status = OK, body = ReadyCommitted)))]
+async fn commit_ready(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<CommitReady>,
+) -> Result<axum::Json<ReadyCommitted>, Problem> {
+    let mut imports = Vec::new();
+    {
+        let mut db = state.pool.acquire().await?;
+        for id in &body.ids {
+            if let Some(i) = store::imports::get(&mut *db, *id).await? {
+                imports.push(i);
+            }
+        }
+    }
+    imports.sort_by_key(|i| (i.created_at, i.id));
+    imports.dedup_by_key(|i| i.id);
+    let mut results: Vec<ReadyOutcome> = body
+        .ids
+        .iter()
+        .filter(|id| !imports.iter().any(|i| i.id == **id))
+        .map(|id| ReadyOutcome {
+            id: *id,
+            file_name: None,
+            committed: None,
+            skipped: Some("it's gone".to_owned()),
+        })
+        .collect();
+    for i in imports {
+        let outcome = |committed: Option<Committed>, skipped: Option<String>| ReadyOutcome {
+            id: i.id,
+            file_name: i.file_name.clone(),
+            committed,
+            skipped,
+        };
+        let mut tx = state.pool.begin().await?;
+        if store::imports::lock(&mut *tx, i.id).await?.is_none() {
+            results.push(outcome(None, Some("it's gone".to_owned())));
+            continue;
+        }
+        let statements: Vec<StatementRow> = store::imports::statements(&mut *tx, &[i.id])
+            .await?
+            .into_iter()
+            .map(|(_, s)| s)
+            .collect();
+        let accounts = suggestions::accounts(&mut tx).await?;
+        let r = readiness(&mut tx, i.id, &statements, &accounts).await?;
+        if r.state != ReadinessState::Ready {
+            results.push(outcome(None, Some("it isn't ready".to_owned())));
+            continue;
+        }
+        match carry_out(&mut tx, &state, principal, i.id).await {
+            Ok(Some(c)) => {
+                tx.commit().await?;
+                results.push(outcome(Some(c), None));
+            }
+            Ok(None) => {
+                tx.commit().await?;
+                results.push(outcome(
+                    None,
+                    Some("the ledger changed since its rows were checked".to_owned()),
+                ));
+            }
+            Err(p) => {
+                drop(tx);
+                results.push(outcome(None, Some(p.detail.unwrap_or(p.title))));
+            }
+        }
+    }
+    Ok(axum::Json(ReadyCommitted { results }))
 }

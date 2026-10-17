@@ -622,3 +622,71 @@ async fn a_backtest_measures_local_ai_on_past_months(pool: PgPool) {
         );
     }
 }
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn confident_ai_suggestions_make_an_import_suggested(pool: PgPool) {
+    let h = H::new(&pool).await;
+    let r = call(
+        &pool,
+        "POST",
+        format!("/api/v1/imports?account_id={}", h.alex_checking),
+    )
+    .token(&h.t)
+    .bytes(CSV.as_bytes().to_vec())
+    .send()
+    .await;
+    let id = r.id();
+    let rule = suggester(&pool, "rule", "rules").await;
+    let remote = suggester(&pool, "remote", "a-deployment/a-model").await;
+    let set = |by: [Uuid; 2]| {
+        let (pool, id, store) = (pool.clone(), uuid(&id), h.store.clone());
+        async move {
+            let mut db = pool.acquire().await.unwrap();
+            let mut all = Vec::new();
+            for (position, by) in [0, 1].into_iter().zip(by) {
+                for l in ["counterparty", "category", "purpose"] {
+                    let value = (l == "counterparty").then_some(store.as_str());
+                    all.push(label(position, l, value, by, 950));
+                }
+            }
+            store::imports::set_suggestions(&mut db, id, 0, &all)
+                .await
+                .unwrap();
+        }
+    };
+    // Rules are yours: ready.
+    set([rule, rule]).await;
+    assert_eq!(
+        read(&pool, &h, &id).await.body["readiness"]["state"],
+        json!("ready")
+    );
+    // A confident AI suggestion would commit too, but you haven't seen it.
+    set([rule, remote]).await;
+    let ready = read(&pool, &h, &id).await.body["readiness"].clone();
+    assert_eq!(
+        (&ready["state"], &ready["suggested_rows"]),
+        (&json!("suggested"), &json!(1))
+    );
+    // So committing every ready import leaves it.
+    let r = h
+        .send(
+            &pool,
+            "POST",
+            "/api/v1/imports/commit-ready",
+            Some(json!({ "ids": [id] })),
+        )
+        .await;
+    assert_eq!(r.body["results"][0]["skipped"], json!("it isn't ready"));
+    // Choosing it yourself makes it ready.
+    patch(
+        &pool,
+        &h,
+        format!("/api/v1/imports/{id}/rows/0/1"),
+        json!({ "counterparty_id": h.store, "category_id": null, "purpose_id": null }),
+    )
+    .await;
+    assert_eq!(
+        read(&pool, &h, &id).await.body["readiness"]["state"],
+        json!("ready")
+    );
+}

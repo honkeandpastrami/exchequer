@@ -507,6 +507,21 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    call; it deletes the new transactions and their recorded rows. Every transaction has a batch and
    edits never change it: a migration is a batch, and a transaction entered by hand is a
    batch of its own. Uploaded files aren't kept; only each row's parsed raw form is.
+
+   **Readiness.** Each staged import says how close it is to committing (`readiness`):
+   - `needs_work` (red): a statement has no account; a new row has a label that is
+     neither chosen nor confidently suggested; or a near-duplicate or transfer match is
+     still on its default decision. Each comes with a count.
+   - `suggested` (yellow): it would commit, but it relies on confident AI suggestions
+     (local or remote) or a suggested account that you haven't confirmed.
+   - `ready` (green): it commits exactly as shown. A rule's suggestion counts as yours.
+
+   The web app's Imports list can commit any import that isn't `needs_work`, one at a
+   time. **Commit N ready** (`POST /imports/commit-ready {ids}`) commits the `ready` ones
+   that were listed. It goes oldest first, each import on its own, and checks each one
+   again just before its turn, since committing one changes the others. Each import comes
+   back committed or skipped, with the reason: gone, not ready, changed since it was
+   checked, or refused.
 8. **Balance check.** An OFX `LEDGERBAL` is recorded on commit as a balance check (source
    `ofx`), returned with the commit's result, with candidates if it doesn't match (§7.1).
 
