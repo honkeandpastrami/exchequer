@@ -47,12 +47,12 @@ STATUS = {
     RowStatus.NEEDS_ACCOUNT: "needs account",
 }
 # The letter that picks each decision in a prompt.
-KEYS = {Decision.MATCH: "m", Decision.NEW: "n", Decision.REPLACE: "r", Decision.SKIP: "s"}
+KEYS = {Decision.MATCH: "m", Decision.NEW: "n", Decision.REPLACE: "r", Decision.SKIP: "d"}
 LABELS = {
     Decision.MATCH: "match",
     Decision.NEW: "new",
     Decision.REPLACE: "replace",
-    Decision.SKIP: "skip",
+    Decision.SKIP: "do not import",
 }
 
 
@@ -170,7 +170,7 @@ def decisions_for(status: RowStatus) -> list[Decision]:
 def committed_lines(c: Committed, names: Names) -> list[str]:
     out = [
         f"  {c.created} new ({c.transfers} transfers with their match), {c.matched} already there, "
-        f"{c.replaced} replaced, {c.skipped} skipped"
+        f"{c.replaced} replaced, {c.skipped} not imported"
     ]
     for b in c.balance_checks:
         account = names.accounts.get(b.account_id, "?")

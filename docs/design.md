@@ -453,7 +453,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    duplicate or near-duplicate whose bank row should win: the
    matched transaction keeps its ID, notes, tags and batch and takes the row's date,
    amount and description, and the labels set in review; it must be one split between
-   the statement's account and the outside) or `skip`, plus optional labels for the new
+   the statement's account and the outside) or `skip` (shown as *Do not import*), plus optional labels for the new
    transaction (description, the other side, category, purpose). `POST
    /imports/{id}/commit` first works every status and transfer match out again; if one
    changed, nothing is committed and the client reviews again (409). Then: `new` rows

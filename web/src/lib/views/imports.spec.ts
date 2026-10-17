@@ -71,8 +71,8 @@ describe('import review', () => {
 	});
 
 	it('calls a transfer match one transfer, and splitting it not the same', () => {
-		expect(decisionLabel('transfer_match', 'match')).toBe('One transfer with its match');
-		expect(decisionLabel('transfer_match', 'new')).toBe('Not the same transfer');
+		expect(decisionLabel('transfer_match', 'match')).toBe('Merge into one transfer');
+		expect(decisionLabel('transfer_match', 'new')).toBe('Keep separate transactions');
 		expect(decisionLabel('transfer_duplicate', 'match')).toBe('Already there');
 		expect(decisionLabel('near_duplicate', 'match')).toBe('Already there');
 	});

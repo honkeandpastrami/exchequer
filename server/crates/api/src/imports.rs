@@ -1745,7 +1745,7 @@ async fn set_row(
     store::imports::set_decision(&mut *tx, id, &row)
         .await
         .map_err(|e| write_error(e, String::new))?;
-    // One transfer with its match, or not: the other side decides the same.
+    // Merged into one transfer, or kept separate: the other side decides the same.
     if req.decision.is_some()
         && row.status == RowStatus::TransferMatch.as_str()
         && row.decision.as_deref() != Some(Decision::Skip.as_str())

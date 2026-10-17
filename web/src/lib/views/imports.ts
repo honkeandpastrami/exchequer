@@ -20,7 +20,7 @@ export const decisions: Record<Decision, string> = {
 	new: 'Add as new',
 	match: 'Already there',
 	replace: 'Replace it',
-	skip: 'Skip'
+	skip: 'Do not import'
 };
 
 /** What a row with this status can become, its default first (the server's rules). */
@@ -41,8 +41,8 @@ export function decisionsFor(status: Status): Decision[] {
 
 /** For a transfer match, `match` and `new` mean something else. */
 export function decisionLabel(status: Status, d: Decision): string {
-	if (status === 'transfer_match' && d === 'match') return 'One transfer with its match';
-	if (status === 'transfer_match' && d === 'new') return 'Not the same transfer';
+	if (status === 'transfer_match' && d === 'match') return 'Merge into one transfer';
+	if (status === 'transfer_match' && d === 'new') return 'Keep separate transactions';
 	return decisions[d];
 }
 

@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { tick, untrack } from 'svelte';
 	import { all, api, ApiError, done, ok, type Schemas } from '#lib/api/client.ts';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
@@ -9,6 +10,7 @@
 	import SuggestionBadge from '#lib/components/SuggestionBadge.svelte';
 	import { localDate } from '#lib/dates.ts';
 	import { partyKinds, rank } from '#lib/labels.ts';
+	import { hashQuery } from '#lib/query.ts';
 	import { accountLabel, accountsByOwner } from '#lib/names.ts';
 	import { forgetReference, reference, sorted, type Reference } from '#lib/reference.ts';
 	import { transactionsById } from '#lib/transactions.ts';
@@ -82,7 +84,53 @@
 		(r) => (ref = r),
 		(e) => (failure = e)
 	);
-	load();
+
+	// `?row=0-3`: the row to show, its Details open (a transfer match's
+	// other side links here).
+	const focus = $derived(hashQuery(page.url).get('row'));
+	const anchor = (r: { statement: number; position: number }) => `${r.statement}-${r.position}`;
+	/** A link to a transfer match's other side. */
+	const sideLink = (m: Schemas['TransferMatch']) =>
+		`${resolve('/imports/[id]', { id: m.import_id })}?row=${anchor(m)}`;
+	// Rows just brought into view, highlighted for a moment.
+	let flashed: Set<string> = $state(new Set());
+	let unflash: ReturnType<typeof setTimeout> | undefined;
+	async function bring(targets: Row[]) {
+		if (!targets.length) return;
+		await tick();
+		document.getElementById(`row-${anchor(targets[0])}`)?.scrollIntoView({ block: 'center' });
+		flashed = new Set(targets.map(rowKey));
+		clearTimeout(unflash);
+		unflash = setTimeout(() => (flashed = new Set()), 2000);
+	}
+	async function reveal() {
+		const row = focus ? rows.find((r) => anchor(r) === focus) : undefined;
+		if (!row) return;
+		show('');
+		open = rowKey(row);
+		await bring([row]);
+	}
+	function showUnlabeled() {
+		show('unlabeled');
+		bring(matching('unlabeled'));
+	}
+	// Another import is another page's worth of state.
+	$effect(() => {
+		void id;
+		untrack(() => {
+			imp = null;
+			rows = [];
+			open = null;
+			result = null;
+			notice = '';
+			show('');
+			load().then(reveal);
+		});
+	});
+	$effect(() => {
+		void focus;
+		untrack(reveal);
+	});
 
 	// Edits go one at a time: each needs the ETag the one before returned.
 	let queue: Promise<unknown> = Promise.resolve();
@@ -336,7 +384,7 @@
 	<section class="card ok">
 		<p>
 			{result.created} new ({result.transfers} transfers with their match) · {result.matched} already
-			there · {result.replaced} replaced · {result.skipped} skipped
+			there · {result.replaced} replaced · {result.skipped} not imported
 		</p>
 		{#if result.import_batch_id}
 			<p>
@@ -434,7 +482,7 @@
 	<div class="actions">
 		<button disabled={busy || missingAccount || blocked.length > 0} onclick={commit}>
 			Commit: {planned.new} new, {planned.match} already there or transfer matches, {planned.replace}
-			replacing, {planned.skip} skipped
+			replacing, {planned.skip} not imported
 		</button>
 		<button class="quiet" disabled={busy || refreshing} onclick={refresh}
 			>{refreshing ? 'Refreshing…' : 'Refresh suggestions'}</button
@@ -443,7 +491,7 @@
 		{#if missingAccount}<span class="muted small">Every statement needs an account first.</span
 			>{:else if blocked.length}<span class="small warn"
 				>{blocked.length} new {blocked.length === 1 ? 'row needs' : 'rows need'} labels:
-				<button class="link" onclick={() => (shown = 'unlabeled')}>show them</button></span
+				<button class="link" onclick={showUnlabeled}>show them</button></span
 			>{/if}
 	</div>
 
@@ -486,7 +534,11 @@
 					{@const tx = row.match_transaction_id ? txs.get(row.match_transaction_id) : undefined}
 					{@const key = rowKey(row)}
 					{@const labeled = row.decision === 'new' || row.decision === 'replace'}
-					<tr class:skip={row.decision === 'skip'}>
+					<tr
+						id="row-{anchor(row)}"
+						class:skip={row.decision === 'skip'}
+						class:flash={flashed.has(key)}
+					>
 						<td class="date">{row.date}</td>
 						<td>
 							<div class="text">
@@ -541,8 +593,9 @@
 								{@const m = row.transfer_match}
 								{@const a = r.accounts.get(m.account_id)}
 								<div class="small match">
-									with {a ? accountLabel(a, r) : '?'}: {m.date}
-									{m.description}
+									with
+									<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- sideLink resolves -->
+									<a href={sideLink(m)}>{a ? accountLabel(a, r) : '?'}: {m.date} {m.description}</a>
 								</div>
 							{:else if row.match_transaction_id}
 								<div class="small match">
@@ -581,12 +634,12 @@
 									{@const m = row.transfer_match}
 									{@const a = r.accounts.get(m.account_id)}
 									<p class="matches">
-										{statuses[row.status]} with {a ? accountLabel(a, r) : '?'}: {m.date}
-										{m.description}
-										{#if m.import_id !== i.id}
-											(in <a href={resolve('/imports/[id]', { id: m.import_id })}
-												>{m.file_name ?? 'another import'}</a
-											>){/if}
+										{statuses[row.status]} with
+										<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- sideLink resolves -->
+										<a href={sideLink(m)}
+											>{a ? accountLabel(a, r) : '?'}: {m.date} {m.description}</a
+										>
+										{#if m.import_id !== i.id}(in {m.file_name ?? 'another import'}){/if}
 									</p>
 								{:else if row.match_transaction_id}
 									<p class="matches">
@@ -846,7 +899,7 @@
 	/* Fixed columns: what's in a cell never resizes the others. */
 	.list table {
 		table-layout: fixed;
-		min-width: 48rem;
+		min-width: 50rem;
 	}
 	.c-date {
 		width: 6.5rem;
@@ -857,9 +910,9 @@
 	.c-status {
 		width: 10rem;
 	}
-	/* Room for the longest decision, "Not the same transfer". */
+	/* Room for the longest decision, "Keep separate transactions". */
 	.c-decide {
-		width: 13.5rem;
+		width: 15.5rem;
 	}
 	.text {
 		overflow-wrap: anywhere;
@@ -883,6 +936,21 @@
 	}
 	.decide button[aria-expanded='true'] {
 		font-weight: var(--weight-strong);
+	}
+	/* Just brought into view: a highlight that fades. */
+	tr.flash td {
+		animation: flash 2s ease-out;
+	}
+	@keyframes flash {
+		from {
+			background: var(--color-warning-bg);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		tr.flash td {
+			animation: none;
+			background: var(--color-warning-bg);
+		}
 	}
 	tr.skip td {
 		color: var(--color-text-muted);

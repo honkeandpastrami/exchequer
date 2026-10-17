@@ -41,7 +41,7 @@ transfer, never an expense plus an income.
   transfer, by whichever file is committed first, with both bank rows. This pairing is a
   rule, not a guess (`import::matching`): one-to-one, rows agreeing on both sides first,
   then the closest dates. A counterparty you chose, or a decision you made on a row, rules
-  it out; *Not the same transfer* splits a pair.
+  it out; *Keep separate transactions* splits a pair.
 - **Transfer duplicate.** When the transfer is already in the ledger (committed from the
   other account), its other side is a transfer duplicate: kept with that transfer,
   nothing new created, unless you add it as new.
@@ -382,8 +382,8 @@ shows the suggester and the reason.
   (typed by its `Owner · Name`): the row is then a transfer, and its category and purpose
   show *Not for a transfer*.
 - **Transfers.** A transfer match names its other side (account, date, text, and file if
-  it's another), and committing makes the two one transfer; *Not the same transfer*
-  splits them. A transfer duplicate names the transfer it's the other side of.
+  it's another), linked to that row, and committing makes the two one transfer (*Merge
+  into one transfer*); *Keep separate transactions* splits them. A transfer duplicate names the transfer it's the other side of.
 
 ## Commit
 

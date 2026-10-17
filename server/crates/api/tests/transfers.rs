@@ -204,7 +204,7 @@ async fn a_pair_can_be_split_and_a_lone_transfer_committed(pool: PgPool) {
         json!({ "transfer_account_id": h.alex_credit }),
     )
     .await;
-    // Not the same transfer, you say: both sides are added as new, and stay
+    // Keep separate transactions, you say: both sides are added as new, and stay
     // a potential match, so you can change your mind.
     let r = set_row(&pool, &h, &checking, 0, json!({ "decision": "new" })).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);

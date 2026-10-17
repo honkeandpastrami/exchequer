@@ -26,6 +26,9 @@ these; a screen that can't is a reason to change this doc, not to make an except
 - Buttons are a verb, plus an object when the verb alone is ambiguous: **Save**, **Cancel**,
   **Edit**, **Delete**, **Add**, **Discard**, **Commit import**. The same action has the
   same word on every screen. No words with two readings ("Back the suggestion").
+- A choice says what you end up with: a row left out of an import is **Do not import**,
+  never "skip"; a transfer match is **Merge into one transfer** or **Keep separate
+  transactions**.
 - In progress: the verb with an ellipsis (**Saving…**), the control disabled.
 
 ## 4. Values, none and unknown
