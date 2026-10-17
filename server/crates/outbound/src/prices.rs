@@ -244,35 +244,49 @@ impl PriceSource for Tiingo {
         }
     }
 
+    /// FX pairs are quoted one way round (`usdclp`, not `clpusd`): a pair
+    /// with nothing is asked the other way, and its closes kept as quoted.
     fn fetch(&self, pairs: &[Pair], from: Date, to: Date) -> Result<Vec<Quote>, Error> {
-        let auth = format!("Token {}", self.key);
         let mut out = Vec::new();
         for pair in pairs {
-            let mut url = format!(
-                "{}{}?startDate={}&endDate={}",
-                self.url,
-                Self::path(pair),
-                iso(from),
-                iso(to)
-            );
-            if pair.kind == Kind::Currency {
-                url.push_str("&resampleFreq=1day");
+            let mut quotes = self.closes(pair, from, to)?;
+            if quotes.is_empty() && pair.kind == Kind::Currency {
+                let reversed = Pair {
+                    base: pair.quote.clone(),
+                    quote: pair.base.clone(),
+                    kind: pair.kind,
+                };
+                quotes = self.closes(&reversed, from, to)?;
             }
-            let (status, body) = get(&self.agent, &url, Some(&auth))?;
-            match status {
-                200 => out.extend(parse_tiingo(pair, &body)?),
-                // An unknown ticker.
-                404 => {}
-                429 => return Err(Error::RateLimited),
-                _ => {
-                    return Err(Error::Status {
-                        status,
-                        detail: tiingo_detail(&body),
-                    });
-                }
-            }
+            out.extend(quotes);
         }
         Ok(out)
+    }
+}
+
+impl Tiingo {
+    /// One pair's closes; none for an unknown ticker.
+    fn closes(&self, pair: &Pair, from: Date, to: Date) -> Result<Vec<Quote>, Error> {
+        let mut url = format!(
+            "{}{}?startDate={}&endDate={}",
+            self.url,
+            Self::path(pair),
+            iso(from),
+            iso(to)
+        );
+        if pair.kind == Kind::Currency {
+            url.push_str("&resampleFreq=1day");
+        }
+        let (status, body) = get(&self.agent, &url, Some(&format!("Token {}", self.key)))?;
+        match status {
+            200 => parse_tiingo(pair, &body),
+            404 => Ok(Vec::new()),
+            429 => Err(Error::RateLimited),
+            _ => Err(Error::Status {
+                status,
+                detail: tiingo_detail(&body),
+            }),
+        }
     }
 }
 

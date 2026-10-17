@@ -186,3 +186,41 @@ fn ecb_asks_once_for_every_currency() {
         seen[0].0
     );
 }
+
+#[test]
+fn tiingo_asks_an_fx_pair_the_other_way_round_when_empty() {
+    let (url, server) = serve(vec![
+        (200, "", "[]"),
+        (
+            200,
+            "",
+            r#"[{"date":"2026-10-15T00:00:00.000Z","close":981.589777}]"#,
+        ),
+        (404, "", r#"{"detail":"not found"}"#),
+    ]);
+    let t = Tiingo::new(&url, "k", Duration::from_secs(5)).unwrap();
+    let c = Kind::Currency;
+    let (d1, d2) = (date!(2026 - 10 - 15), date!(2026 - 10 - 15));
+    let q = t.fetch(&[pair("CLP", "USD", c)], d1, d2).unwrap();
+    assert_eq!(
+        (q[0].base.as_str(), q[0].quote.as_str(), q[0].rate.as_str()),
+        ("USD", "CLP", "981.589777")
+    );
+    // A listed ticker isn't turned around.
+    assert!(
+        t.fetch(&[pair("NOPE", "USD", Kind::Listed)], d1, d2)
+            .unwrap()
+            .is_empty()
+    );
+    let seen = server.join().unwrap();
+    assert!(
+        seen[0].0.starts_with("GET /tiingo/fx/clpusd/"),
+        "{}",
+        seen[0].0
+    );
+    assert!(
+        seen[1].0.starts_with("GET /tiingo/fx/usdclp/"),
+        "{}",
+        seen[1].0
+    );
+}

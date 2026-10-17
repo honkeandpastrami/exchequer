@@ -282,7 +282,7 @@ pub fn same(r: &PriceRow, p: &valuation::Price) -> bool {
 
 /// Stores a source's quotes for commodities that exist (a pivot such as
 /// EUR needs to be a commodity). Returns how many were stored, and whether
-/// every planned pair got at least one.
+/// every planned pair got at least one, either way round.
 async fn save(
     db: &mut PgConnection,
     source: &str,
@@ -331,9 +331,11 @@ async fn save(
         stored += 1;
         got.push((&q.base, &q.quote));
     }
-    let covered = pairs
-        .iter()
-        .all(|p| got.contains(&(p.base.as_str(), p.quote.as_str())));
+    // A source may quote a pair the other way round.
+    let covered = pairs.iter().all(|p| {
+        got.contains(&(p.base.as_str(), p.quote.as_str()))
+            || got.contains(&(p.quote.as_str(), p.base.as_str()))
+    });
     Ok((stored, covered))
 }
 
