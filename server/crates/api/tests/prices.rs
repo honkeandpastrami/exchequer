@@ -301,6 +301,7 @@ async fn settlement_and_balances_use_prices(pool: PgPool) {
                     "from": leg(("account_id", &euro_account)),
                     "to": leg(("counterparty_id", &h.store)),
                     "purpose_id": h.household,
+                    "category_id": h.shopping,
                 }]}),
             ),
         )

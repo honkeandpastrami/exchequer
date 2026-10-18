@@ -187,7 +187,7 @@ async fn a_suggested_account_counts_only_when_confident(pool: PgPool) {
             &pool,
             &h,
             format!("/api/v1/imports/{id}/rows/0/{position}"),
-            json!({ "counterparty_id": null, "category_id": null, "purpose_id": h.alex }),
+            json!({ "counterparty_id": null, "category_id": h.shopping, "purpose_id": h.alex }),
         )
         .await;
     }
@@ -654,7 +654,13 @@ async fn confident_ai_suggestions_make_an_import_suggested(pool: PgPool) {
     let rule = suggester(&pool, "rule", "rules").await;
     let remote = suggester(&pool, "remote", "a-deployment/a-model").await;
     let set = |by: [Uuid; 2], confidence: i16| {
-        let (pool, id, store, alex) = (pool.clone(), uuid(&id), h.store.clone(), h.alex.clone());
+        let (pool, id, store, alex, shopping) = (
+            pool.clone(),
+            uuid(&id),
+            h.store.clone(),
+            h.alex.clone(),
+            h.shopping.clone(),
+        );
         async move {
             let mut db = pool.acquire().await.unwrap();
             let mut all = Vec::new();
@@ -663,7 +669,7 @@ async fn confident_ai_suggestions_make_an_import_suggested(pool: PgPool) {
                     let value = match l {
                         "counterparty" => Some(store.as_str()),
                         "purpose" => Some(alex.as_str()),
-                        _ => None,
+                        _ => Some(shopping.as_str()),
                     };
                     all.push(label(position, l, value, by, confidence));
                 }
@@ -709,7 +715,7 @@ async fn confident_ai_suggestions_make_an_import_suggested(pool: PgPool) {
         &pool,
         &h,
         format!("/api/v1/imports/{id}/rows/0/1"),
-        json!({ "counterparty_id": h.store, "category_id": null, "purpose_id": h.alex }),
+        json!({ "counterparty_id": h.store, "category_id": h.shopping, "purpose_id": h.alex }),
     )
     .await;
     assert_eq!(

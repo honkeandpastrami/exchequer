@@ -92,8 +92,8 @@ def test_brokerage_accounts_collapse_and_a_sale_is_a_conversion(m):
 def test_money_out_of_an_investment_is_income(m):
     j = journal(4, 1, "1000.00", type="transfer", budget="Shared", category="Card Payment")
     split = only(plan(m, group(10, "2026-03-01", j))).splits[0]
-    assert split.purpose == "Household"
-    assert split.category is None  # transfer-only categories don't migrate
+    # Its category is the account's, from the mapping.
+    assert (split.purpose, split.category) == ("Household", "Divest")
     counts = plan(m, group(10, "2026-03-01", j)).report.counts
     assert counts["into or out of investments and loans"] == 1
 
@@ -106,8 +106,26 @@ def test_payment_into_a_mortgage_is_spending(m):
         "Household · Joint Savings",
         "Household · Mortgage",
     )
-    assert (split.purpose, split.category) == ("Household", "Mortgage")
-    assert not p.report.dropped
+    # The mapping's category, over Firefly's.
+    assert (split.purpose, split.category) == ("Household", "Mortgage principal")
+    assert list(p.report.dropped) == [
+        "category 'Mortgage' on money into or out of Household · Mortgage"
+    ]
+
+
+def test_no_category_is_an_error(m):
+    p = plan(
+        m,
+        group(10, "2026-03-01", journal(2, "Expense:Books", "9.00", category=None)),
+        group(11, "2026-03-02", journal(2, "Expense:Books", "9.00", category="Card Payment")),
+        # Out of a mortgage: the mapping has no category_out for it.
+        group(12, "2026-03-03", journal(6, 5, "5.00", type="transfer", budget="Shared")),
+    )
+    assert not [t for t in p.transactions if t.firefly_id]
+    [none, dropped, unmapped] = p.report.errors
+    assert "no category says what it was" in none
+    assert "no category says what it was" in dropped
+    assert "account Household · Mortgage has no category_out in the mapping" in unmapped
 
 
 def test_dividends_from_the_cash_account_come_from_the_institution(m):

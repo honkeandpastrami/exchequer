@@ -62,7 +62,7 @@ fn classify(row, s) {
         s.category("Salary");
         s.purpose("Alex");
     } else if row.raw.Memo == "via app" && row.owner == "Studio" {
-        s.category(());
+        s.counterparty(());
     }
 }
 
@@ -101,7 +101,7 @@ fn a_script_sets_labels_with_its_lines() {
     let set = s
         .classify(&row(Some(STUDIO_CHECKING), "-1", "SOMETHING"))
         .unwrap();
-    assert_eq!(set.category, Some((Value::None, 15)));
+    assert_eq!(set.counterparty, Some((Value::None, 15)));
     assert_eq!(
         s.classify(&row(None, "-1", "SOMETHING")).unwrap(),
         Set::default()
@@ -144,9 +144,10 @@ fn classify(row, s) {
         errors("fn classify(row, s) { s.transfer(\"Alex · Nope\"); }")[0].contains("no account")
     );
     assert!(errors("fn classify(row, s) { s.transfer(()); }")[0].contains("written out"));
-    // A purpose names someone: `()` isn't one.
+    // A purpose names someone and a category something: `()` is neither.
     assert!(errors("fn classify(row, s) { s.purpose(()); }")[0].contains("written out"));
-    assert!(errors("fn classify(row, s) { s.category(()); }").is_empty());
+    assert!(errors("fn classify(row, s) { s.category(()); }")[0].contains("written out"));
+    assert!(errors("fn classify(row, s) { s.counterparty(()); }").is_empty());
 }
 
 #[test]

@@ -44,6 +44,8 @@ export type Draft = {
 
 export type Preview = {
 	kind: Schemas['Kind'] | null;
+	/** Whether it takes a category, which must then be chosen if it takes a
+	 * purpose too (design §4.1). */
 	category: boolean;
 	/** Whether it takes a purpose, which must then be chosen (design §4.1). */
 	purpose: boolean;
@@ -191,6 +193,7 @@ export function problems(d: Draft, ref: Reference): string[] {
 			const t = quantityProblem(s.toQuantity, s.toCommodity, ref);
 			if (t) say(`received: ${t}.`);
 		}
+		if (p.purpose && (!s.category || s.category === UNSET)) say('choose a category.');
 		if (p.purpose && (!s.purpose || s.purpose === UNSET)) say("choose who it's for.");
 		if (p.settles && s.settles && !/^\d{4}-\d{2}$/.test(s.settles))
 			say('the settled month is YYYY-MM.');

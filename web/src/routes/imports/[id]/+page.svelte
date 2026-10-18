@@ -56,8 +56,6 @@
 		category: 'category_id',
 		purpose: 'purpose_id'
 	} as const;
-	// The select value for an explicit "none".
-	const NONE = '-';
 
 	const id = $derived(page.params.id ?? '');
 
@@ -293,7 +291,8 @@
 		}
 		for (const label of ['category', 'purpose'] as const) {
 			const sg = row.not_applicable.includes(label) ? undefined : offered(r, row, label);
-			if (sg)
+			// A category and a purpose are never none (design §4.1).
+			if (sg?.value)
 				out[label] = {
 					label: suggested(r, row, label, sg),
 					value: sg.value ?? '',
@@ -339,7 +338,7 @@
 
 	function nameOf(r: Reference, row: Row, label: Label, value: string | null | undefined): string {
 		if (value === undefined) return '?';
-		if (value === null) return label === 'purpose' ? '?' : noneNames[label];
+		if (value === null) return label === 'counterparty' ? noneNames.counterparty : '?';
 		const named =
 			label === 'counterparty'
 				? r.counterparties.get(value)
@@ -347,12 +346,6 @@
 					? r.categories.get(value)
 					: r.parties.get(value);
 		return named?.name ?? '?';
-	}
-
-	/** A select's option for a value: no category is NONE; a purpose is never none. */
-	function optionOf(label: Label, v: string | null): string {
-		if (v !== null) return v;
-		return label === 'purpose' ? '' : NONE;
 	}
 
 	/** What you'd type for a side: an account's label, a name, or "none". */
@@ -378,7 +371,7 @@
 		const same =
 			label === 'counterparty'
 				? typed(r, suggestedSide(sg)) === typed(r, sideOf(row))
-				: optionOf(label, sg.value ?? null) === optionOf(label, row[field[label]] ?? null);
+				: (sg.value ?? '') === (row[field[label]] ?? '');
 		return same ? undefined : sg;
 	}
 

@@ -24,6 +24,7 @@ pub struct H {
     pub joint_savings: AccountId,
     pub mortgage: AccountId,
     pub store: CounterpartyId,
+    pub groceries: CategoryId,
 }
 
 impl H {
@@ -100,6 +101,7 @@ impl H {
             joint_savings,
             mortgage,
             store,
+            groceries: CategoryId::new(),
         }
     }
 
@@ -160,6 +162,7 @@ pub fn split(from: Side, to: Side, commodity: CommodityId, qty: &str) -> Split {
 pub fn spend(h: &H, account: AccountId, qty: &str, purpose: PartyId) -> Split {
     Split {
         purpose: Some(purpose),
+        category: Some(h.groceries),
         ..split(
             Side::Account(account),
             Side::Counterparty(Some(h.store)),
@@ -178,6 +181,7 @@ pub fn transfer(h: &H, from: AccountId, to: AccountId, qty: &str) -> Split {
 pub fn crossing(h: &H, from: AccountId, to: AccountId, qty: &str, purpose: PartyId) -> Split {
     Split {
         purpose: Some(purpose),
+        category: Some(h.groceries),
         ..transfer(h, from, to, qty)
     }
 }

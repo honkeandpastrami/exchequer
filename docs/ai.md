@@ -153,9 +153,10 @@ fn account(file, s) {
 
 A `file` has `name` (or `()`), `kind` (`"bank"`, `"credit_card"` or `()`) and `rows`.
 
-**What `s` sets:** `s.counterparty("…")` and `s.category("…")`, each by name or `()` for
-none; `s.purpose("…")`, a party by name (never none: design §4.1); `s.transfer("Owner · Name")`, the other side as
-one of your accounts (a transfer); and `s.account("Owner · Name")`. The name alone is
+**What `s` sets:** `s.counterparty("…")`, by name or `()` for none; `s.category("…")` and
+`s.purpose("…")`, a category and a party by name (never none: design §4.1);
+`s.transfer("Owner · Name")`, the other side as one of your accounts (a transfer); and
+`s.account("Owner · Name")`. The name alone is
 enough for an account no other shares. If a setter is called twice, the last call wins.
 Whatever is set is a suggestion at full confidence, by the rules level: its reason is
 `rule v<version>:<line>`. Labels left unset go to local AI as usual, with the set ones as
@@ -316,7 +317,7 @@ question per open label, sharing one state; one request per statement without an
 | Question | Options |
 |---|---|
 | `counterparty` | The row's other side: the accounts of its potential transfer matches (a transfer), then the other sides of its similar past transactions and of those with the same text, at most 10 — never the whole list — plus *none of these* and *cannot tell* |
-| `category` | Every category, plus *no category* and *cannot tell* |
+| `category` | Every category, plus *cannot tell* |
 | `purpose` | Every party, plus *cannot tell* |
 | `account` | Every account that isn't archived and fits the file's kind, plus *none of these* and *cannot tell* |
 
@@ -403,8 +404,8 @@ shows the suggester and the reason.
 - **A row's labels.** Each new row shows its counterparty, category and purpose, with
   their badges. In its details, you can change any of them (the value becomes yours),
   accept an unsure suggestion (it becomes yours too), or go back to the suggestion.
-  *None* is a choice you can make explicitly: an unknown counterparty, or no category. A
-  purpose always names someone (design §4.1). The counterparty can be one of your accounts
+  *None* is a choice you can make explicitly for the counterparty: an unknown one. A
+  category always names something and a purpose someone (design §4.1). The counterparty can be one of your accounts
   (typed by its `Owner · Name`): the row is then a transfer, and its category and purpose
   show *Not for a transfer*.
 - **Transfers.** A transfer match names its other side (account, date, text, and file if

@@ -50,7 +50,7 @@ async fn settlement_is_in_usd(pool: PgPool) {
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn statement_and_implied_stipend(pool: PgPool) {
     let h = H::new(&pool).await;
-    let household = json!({ "purpose_id": h.household });
+    let household = json!({ "purpose_id": h.household, "category_id": h.shopping });
     let store = ("counterparty_id", h.store.as_str());
 
     // June: Alex buys groceries for the Household; Studio gets funding.
@@ -189,7 +189,7 @@ async fn settles_and_investment_proceeds(pool: PgPool) {
         h.acct(&h.alex_brokerage),
         h.acct(&h.alex_checking),
         "1000.00",
-        json!({ "purpose_id": h.household }),
+        json!({ "purpose_id": h.household, "category_id": h.shopping }),
     )
     .await;
     let st = h
@@ -214,7 +214,7 @@ async fn july_alex(h: &H, pool: &PgPool) -> serde_json::Value {
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn corrections_carry_forward(pool: PgPool) {
     let h = H::new(&pool).await;
-    let household = json!({ "purpose_id": h.household });
+    let household = json!({ "purpose_id": h.household, "category_id": h.shopping });
     let store = ("counterparty_id", h.store.as_str());
     let card = h.acct(&h.alex_credit);
     let (joint, checking) = (h.acct(&h.joint_savings), h.acct(&h.alex_checking));
@@ -279,14 +279,14 @@ async fn close_and_reopen(pool: PgPool) {
             h.acct(&h.alex_credit),
             store,
             "80.00",
-            json!({ "purpose_id": h.alex }),
+            json!({ "purpose_id": h.alex, "category_id": h.shopping }),
         )
         .await;
     let tx_path = format!("/api/v1/transactions/{}", r.id());
     let tx_etag = r.etag();
     let tx_body = json!({ "date": "2026-06-05", "description": "y", "splits": [
         { "from": h.leg(h.acct(&h.alex_credit), "81.00"), "to": h.leg(store, "81.00"),
-          "purpose_id": h.alex }] });
+          "purpose_id": h.alex, "category_id": h.shopping }] });
 
     // Closing needs every person's stipend and every business's funder.
     let r = h.post_month(&pool, "2026-06", "close").await;
@@ -331,7 +331,7 @@ async fn close_and_reopen(pool: PgPool) {
             h.acct(&h.alex_credit),
             store,
             "1.00",
-            json!({ "purpose_id": h.alex }),
+            json!({ "purpose_id": h.alex, "category_id": h.shopping }),
         )
         .await,
     );
@@ -359,7 +359,7 @@ async fn close_and_reopen(pool: PgPool) {
             h.acct(&h.alex_credit),
             store,
             "1.00",
-            json!({ "purpose_id": h.alex }),
+            json!({ "purpose_id": h.alex, "category_id": h.shopping }),
         )
         .await;
     assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);

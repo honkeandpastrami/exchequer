@@ -104,7 +104,9 @@ is on each side of a split:
 
 Money into an investment or a loan is gone for a long time, so for all practical purposes
 it's spent: putting savings in a brokerage or paying down a mortgage is an expense, and
-taking money out of an investment is income. On the non-liquid account's side it's only
+taking money out of an investment is income. Like any expense or income it has a category
+(§4.1): one category for both directions nets them, the way a refund nets against its
+category; two (*Invest*, *Divest*) show each. On the non-liquid account's side it's only
 money arriving or leaving; reports count it once, on the liquid side (§7).
 
 An **adjustment** sets or corrects a balance: an opening balance (a debt's leaves the
@@ -307,10 +309,13 @@ data through side channels:
   Transfers and
   conversions have no purpose and no category, because they don't change how much anyone
   has.
-- **No default.** Every income and expense on a liquid account names its purpose: a
-  transaction can't be saved, nor an import row committed, without one. Suggestions name
-  it too (§8), so household accounts need almost no review; on personal accounts, where a
-  large share of spending is often household spending, it's **predicted**.
+- **No default.** Every income and expense on a liquid account names its purpose and its
+  category: a transaction can't be saved, nor an import row committed, without both, so
+  nothing is ever "uncategorized". Money into or out of an investment or a loan is
+  categorized like any other expense or income (*Invest*, *Divest*, *Mortgage
+  principal*). Suggestions name both too (§8), so household accounts need almost no
+  review; on personal accounts, where a large share of spending is often household
+  spending, the purpose is **predicted**.
 
 ### 4.2 What creates a claim between parties
 
@@ -740,6 +745,9 @@ until the output is right, and migrates **one calendar year at a time**.
     whatever the household used to encode it (typically a tag such as "Shared" and/or
     per-person budgets), with the mapping declaring which tag or budget means which party.
     A split neither names is an error, in the dry run too: there's no default (§4.1).
+    So is an income or expense with no Firefly category. Money into or out of a non-liquid
+    account was a Firefly transfer, with no category: the mapping names one per account
+    and direction (e.g. *Invest* and *Divest*, *Mortgage principal*).
     Conflicting labels are listed in the report. Budgets and the encoding tags are then
     retired.
   - **Settlement history:** transfers between personal accounts and shared savings become
@@ -1015,7 +1023,7 @@ The components are independent behind the API contract, but they have a natural 
 | 10 | Balance checks | One user-entered number, optionally dated; mismatches go to the discrepancy finder | §7.1 |
 | 11 | Stipend | Set per person when closing each month | §4.3 |
 | 12 | Businesses | Their own party and settlement; the funder is set per month | §4.1 |
-| 13 | Investments | Not shared while invested; money into or out of them (a mortgage too) is an expense or income | §3.2, §4.1, §4.2 |
+| 13 | Investments | Not shared while invested; money into or out of them (a mortgage too) is an expense or income, with a purpose and a category like any other | §3.2, §4.1, §4.2 |
 | 14 | Transfers between people | Settlement payments | §4.2 |
 | 15 | Privacy within the household | Everyone sees and edits everything | §10 |
 | 16 | Investment proceeds into personal accounts | Income with a purpose like any other: a claim, settled when moved on | §4.2 |

@@ -26,6 +26,7 @@ fn effects_follow_the_claims_table() {
     // Salary into Alex Checking for the Household: Alex owes the Household.
     let salary = Split {
         purpose: Some(h.household),
+        category: Some(h.groceries),
         ..split(
             Side::Counterparty(Some(h.store)),
             Side::Account(h.alex_checking),
@@ -104,6 +105,7 @@ fn values_are_in_the_household_currency() {
     // Spent in EUR from a EUR account: no USD value until prices exist.
     let eur = Split {
         purpose: Some(h.household),
+        category: Some(h.groceries),
         ..split(
             Side::Account(h.alex_eur),
             Side::Counterparty(Some(h.store)),

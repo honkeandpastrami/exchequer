@@ -158,7 +158,7 @@ describe('a bank row as a form', () => {
 		const before = rowDraft(r, bank, ref);
 		expect(before.splits.map((s) => [s.quantity, s.to.account, s.category])).toEqual([
 			['1000.00', OUTSIDE, 'principal'],
-			['900.00', 'escrow', '']
+			['900.00', 'escrow', UNSET]
 		]);
 		const after = structuredClone(before);
 		after.splits.pop();

@@ -185,19 +185,21 @@
 					<div class="field f-category">
 						<label for="{uid}-{i}-category">Category</label>
 						{#if p.category}
+							<!-- Required where a purpose is (design §4.1). -->
+							{@const unset = split.category === UNSET || (p.purpose && !split.category)}
 							<select
 								id="{uid}-{i}-category"
 								class="pick"
-								value={split.category}
+								value={unset ? UNSET : split.category}
 								onchange={(e) =>
 									pick(i, 'category', e.currentTarget.value, (v) => (split.category = v))}
 								aria-label="Split {n}: category"
 							>
-								{#if split.category === UNSET}<option value={UNSET} disabled>Choose…</option>{/if}
+								{#if unset}<option value={UNSET} disabled>Choose…</option>{/if}
 								{#if offer.category}<option value={SUGGESTED}
 										>{offer.category.label} (suggested)</option
 									>{/if}
-								{#if offer.category?.value !== ''}<option value="">None</option>{/if}
+								{#if !p.purpose && offer.category?.value !== ''}<option value="">None</option>{/if}
 								{#each sorted(ref.categories) as c (c.id)}<option value={c.id}>{c.name}</option
 									>{/each}
 							</select>

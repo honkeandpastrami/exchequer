@@ -44,6 +44,10 @@ class Account:
     # everything else is). A mortgage never is.
     liquid: bool | None = None
     archived: bool = False
+    # A non-liquid account's categories for money into it (an expense) and
+    # out of it (income), e.g. Invest and Divest (design §3.2).
+    category_in: str | None = None
+    category_out: str | None = None
 
     @property
     def key(self) -> str:
@@ -201,16 +205,23 @@ def parse(raw: dict[str, Any]) -> Mapping:
             problems.append(f"account {name}: owner {a.get('owner')!r} is not a party")
         if a.get("kind") == "mortgage" and a.get("liquid"):
             problems.append(f"account {name}: a mortgage is never liquid")
-        accounts.append(
-            Account(
-                name=name,
-                firefly=ids,
-                kind=a.get("kind", ""),
-                owner=a.get("owner", ""),
-                liquid=a.get("liquid"),
-                archived=bool(a.get("archived", False)),
-            )
+        account = Account(
+            name=name,
+            firefly=ids,
+            kind=a.get("kind", ""),
+            owner=a.get("owner", ""),
+            liquid=a.get("liquid"),
+            archived=bool(a.get("archived", False)),
+            category_in=a.get("category_in"),
+            category_out=a.get("category_out"),
         )
+        for key in ("category_in", "category_out"):
+            value = a.get(key)
+            if value is not None and (not isinstance(value, str) or not value):
+                problems.append(f"account {name}: {key} must be a category name")
+            elif value is not None and account.is_liquid:
+                problems.append(f"account {name}: only a non-liquid account takes {key}")
+        accounts.append(account)
     keys = [a.key for a in accounts]
     for k in sorted({k for k in keys if keys.count(k) > 1}):
         problems.append(f"accounts: {k} appears twice (names are unique per owner)")

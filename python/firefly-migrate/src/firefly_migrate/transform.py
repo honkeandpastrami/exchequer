@@ -14,7 +14,7 @@ from datetime import date
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from typing import Any
 
-from firefly_migrate.mapping import Mapping
+from firefly_migrate.mapping import Account, Mapping
 
 FIREFLY = "firefly"
 OPENING_BALANCES = "opening_balances"
@@ -304,6 +304,17 @@ class _Builder:
             raise _Skip(f"{where}: no budget or purpose tag says who it's for")
         return parties.pop()
 
+    def crossing_category(self, a_from: Account, a_to: Account, where: str) -> tuple[str, str]:
+        """Money into or out of a non-liquid account: its category from the
+        mapping (`category_in`, `category_out`), and the account's key."""
+        into = not a_to.is_liquid
+        account = a_to if into else a_from
+        key = "category_in" if into else "category_out"
+        category = account.category_in if into else account.category_out
+        if category is None:
+            raise _Skip(f"{where}: account {account.key} has no {key} in the mapping")
+        return category, account.key
+
     def split(self, j: _Journal) -> Split:
         where = f"Firefly transaction {j.group_id} ({j.date}, {j.description!r})"
         src = self.side(j.source_id, j.source_type, j.source_name, j.destination_id, where)
@@ -353,15 +364,19 @@ class _Builder:
             owned = a_from or a_to
 
         purpose = category = None
+        crossing_key = ""
         if crossing:
             purpose = self.purpose(j, where)
-            category = j.category
+            assert a_from and a_to  # a crossing is between two accounts
+            category, crossing_key = self.crossing_category(a_from, a_to, where)
             if not self.quiet:
                 self.report.counts["into or out of investments and loans"] += 1
         elif income_or_expense and owned is not None:
             category = j.category
             if owned.is_liquid:
                 purpose = self.purpose(j, where)
+                if category is None or category in self.m.drop_categories:
+                    raise _Skip(f"{where}: no category says what it was")
             elif j.budget or any(t in self.m.purpose_tags for t in j.tags):
                 self.note("dropped", f"purpose label on investment account {owned.key}", j.group_id)
         elif j.budget and j.budget in self.m.budgets:
@@ -369,17 +384,23 @@ class _Builder:
             self.note("dropped", f"budget {j.budget!r} on a {kind}", j.group_id)
 
         if category in self.m.drop_categories:
-            if income_or_expense or crossing:
+            if income_or_expense:
                 self.note(
                     "dropped",
                     f"transfer-only category {category!r} on an income/expense",
                     j.group_id,
                 )
             category = None
-        kept_kind = income_or_expense or crossing
-        if j.category and j.category not in self.m.drop_categories and not kept_kind:
-            kind = "transfer" if transfer else "conversion"
-            self.note("dropped", f"category {j.category!r} on a {kind}", j.group_id)
+        if j.category and j.category not in self.m.drop_categories and j.category != category:
+            if crossing:
+                self.note(
+                    "dropped",
+                    f"category {j.category!r} on money into or out of {crossing_key}",
+                    j.group_id,
+                )
+            elif not income_or_expense:
+                kind = "transfer" if transfer else "conversion"
+                self.note("dropped", f"category {j.category!r} on a {kind}", j.group_id)
         if category is not None:
             self.categories.add(category)
 

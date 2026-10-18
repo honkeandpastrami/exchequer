@@ -21,9 +21,22 @@ RAW: dict[str, Any] = {
     "accounts": [
         {"name": "Checking", "firefly": [1], "kind": "checking", "owner": "Alex"},
         {"name": "Credit", "firefly": [2], "kind": "credit_card", "owner": "Alex"},
-        {"name": "Brokerage", "firefly": [3, 4], "kind": "brokerage", "owner": "Alex"},
+        {
+            "name": "Brokerage",
+            "firefly": [3, 4],
+            "kind": "brokerage",
+            "owner": "Alex",
+            "category_in": "Invest",
+            "category_out": "Divest",
+        },
         {"name": "Joint Savings", "firefly": [5], "kind": "savings", "owner": "Household"},
-        {"name": "Mortgage", "firefly": [6], "kind": "mortgage", "owner": "Household"},
+        {
+            "name": "Mortgage",
+            "firefly": [6],
+            "kind": "mortgage",
+            "owner": "Household",
+            "category_in": "Mortgage principal",
+        },
         {"name": "Checking", "firefly": [7], "kind": "checking", "owner": "Sam", "archived": True},
     ],
     "purpose": {
@@ -93,17 +106,19 @@ def journal(
     currency: str = "USD",
     foreign: tuple[str, str] | None = None,
     budget: str | None = "",
-    category: str | None = None,
+    category: str | None = "",
     tags: list[str] | None = None,
     description: str = "something",
     external_id: str | None = None,
 ) -> dict:
     """`source`/`destination`: a Firefly account ID (owned), or
-    "Expense:<name>", "Revenue:<name>", "Cash", "Initial". `budget`: by
-    default, Shared on income and expenses (every one says who it's for) and
-    none on transfers."""
+    "Expense:<name>", "Revenue:<name>", "Cash", "Initial". `budget` and
+    `category`: by default, Shared and Groceries on income and expenses
+    (every one says who it's for and what it was) and none on transfers."""
     if budget == "":
         budget = "Shared" if type in ("withdrawal", "deposit") else None
+    if category == "":
+        category = "Groceries" if type in ("withdrawal", "deposit") else None
 
     def side(x: int | str) -> tuple[str, str, str]:
         if isinstance(x, int):

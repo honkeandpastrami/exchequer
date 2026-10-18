@@ -22,6 +22,8 @@ def test_reports_every_problem():
     raw["accounts"][2]["owner"] = "Nobody"
     raw["purpose"]["budgets"]["Ghost"] = "Ghost"
     raw["scope"]["through"] = raw["scope"]["through"].replace(year=2025)
+    raw["accounts"][0]["category_in"] = "Savings"  # Checking is liquid
+    raw["accounts"][4]["category_out"] = ""
     with pytest.raises(mapping.MappingError) as e:
         mapping.parse(raw)
     problems = "\n".join(e.value.problems)
@@ -29,6 +31,8 @@ def test_reports_every_problem():
     assert "'Nobody' is not a party" in problems
     assert "'Ghost' maps to 'Ghost'" in problems
     assert "is not in scope.year" in problems
+    assert "Checking: only a non-liquid account takes category_in" in problems
+    assert "Mortgage: category_out must be a category name" in problems
 
 
 def test_account_names_are_unique_per_owner():

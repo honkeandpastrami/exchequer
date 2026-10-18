@@ -565,17 +565,13 @@ impl Context {
     }
 
     fn category_question(&self, seed: &str) -> Option<Options<Value>> {
-        let mut options: Vec<(String, Value, String)> = self
+        let options: Vec<(String, Value, String)> = self
             .catalog
             .categories
             .iter()
             .map(|(id, name)| (name.clone(), Value::Id(*id), self.category_option(*id)))
             .collect();
-        options.push((
-            LABELS.no_category.clone(),
-            Value::None,
-            LABELS.no_category_means.clone(),
-        ));
+        // A category names something: there's no "no category" (design §4.1).
         Some(Self::question(
             "category",
             options,

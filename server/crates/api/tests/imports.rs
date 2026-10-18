@@ -258,7 +258,7 @@ async fn rows_already_imported_are_duplicates(pool: PgPool) {
             Some(
                 json!({ "date": "2026-03-02", "description": "COFFEE", "splits": [{
                 "from": h.leg(h.acct(&h.alex_checking), "4.50"),
-                "to": h.leg(("counterparty_id", &h.store), "4.50"), "purpose_id": h.alex }] }),
+                "to": h.leg(("counterparty_id", &h.store), "4.50"), "purpose_id": h.alex, "category_id": h.shopping }] }),
             ),
         )
         .await
@@ -310,12 +310,14 @@ async fn rows_already_imported_are_duplicates(pool: PgPool) {
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn rows_like_recorded_transactions_are_near_duplicates(pool: PgPool) {
     let h = H::new(&pool).await;
-    // With someone outside, it's income or an expense: for the Household.
+    // With someone outside, it's income or an expense: Shopping, for the
+    // Household.
     let tx = |date: &str, desc: &str, from: Value, to: Value| {
         let outside = from.get("counterparty_id").is_some() || to.get("counterparty_id").is_some();
         let mut split = json!({ "from": from, "to": to });
         if outside {
             split["purpose_id"] = json!(h.household);
+            split["category_id"] = json!(h.shopping);
         }
         json!({ "date": date, "description": desc, "splits": [split] })
     };
@@ -400,12 +402,14 @@ async fn rows_like_recorded_transactions_are_near_duplicates(pool: PgPool) {
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn rows_whose_transfer_is_already_recorded(pool: PgPool) {
     let h = H::new(&pool).await;
-    // With someone outside, it's income or an expense: for the Household.
+    // With someone outside, it's income or an expense: Shopping, for the
+    // Household.
     let one = |date: &str, from: Value, to: Value| {
         let outside = from.get("counterparty_id").is_some() || to.get("counterparty_id").is_some();
         let mut split = json!({ "from": from, "to": to });
         if outside {
             split["purpose_id"] = json!(h.household);
+            split["category_id"] = json!(h.shopping);
         }
         json!({ "date": date, "description": "x", "splits": [split] })
     };
@@ -469,7 +473,7 @@ async fn fingerprints_recorded_for_existing_transactions(pool: PgPool) {
     let coffee = |date: &str| {
         json!({ "date": date, "description": "Coffee", "splits": [{
             "from": h.leg(h.acct(&h.alex_checking), "4.50"),
-            "to": h.leg(("counterparty_id", &h.store), "4.50"), "purpose_id": h.alex }] })
+            "to": h.leg(("counterparty_id", &h.store), "4.50"), "purpose_id": h.alex, "category_id": h.shopping }] })
     };
     let a = h
         .send(

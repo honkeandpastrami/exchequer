@@ -76,8 +76,9 @@ async fn set_row(pool: &PgPool, h: &H, id: &str, position: i32, body: Value) -> 
     .await
 }
 
-/// Gives every new row's missing labels an explicit "none" (Alex for the
-/// purpose, which is never none), as commit needs (design §8).
+/// Gives every new row's missing labels an explicit value (none for the
+/// counterparty; Alex and Shopping for the purpose and category, which are
+/// never none), as commit needs (design §8).
 async fn label_none(pool: &PgPool, h: &H, id: &str) {
     for r in rows(pool, h, id).await {
         if r["missing"].as_array().unwrap().is_empty() {
@@ -91,6 +92,7 @@ async fn label_none(pool: &PgPool, h: &H, id: &str) {
             .map(|l| {
                 let v = match l.as_str().unwrap() {
                     "purpose" => json!(h.alex),
+                    "category" => json!(h.shopping),
                     _ => Value::Null,
                 };
                 (format!("{}_id", l.as_str().unwrap()), v)
@@ -400,7 +402,10 @@ async fn decisions_labels_and_transfers(pool: PgPool) {
         (&r.body["chosen"], &r.body["missing"]),
         (&json!(["counterparty", "purpose"]), &json!(["category"]))
     );
+    // A category names something: `null` isn't one either.
     let r = set_row(&pool, &h, &id, 1, json!({ "category_id": null })).await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
+    let r = set_row(&pool, &h, &id, 1, json!({ "category_id": h.shopping })).await;
     assert_eq!(r.body["missing"], json!([]));
     // Reverting gives the label back to suggestions; there are none.
     let r = set_row(&pool, &h, &id, 1, json!({ "revert": ["counterparty"] })).await;
@@ -482,7 +487,7 @@ async fn commit_rechecks_and_is_all_or_nothing(pool: PgPool) {
             Some(
                 json!({ "date": "2026-03-03", "description": "Salary", "splits": [{
             "from": h.leg(("counterparty_id", &h.store), "1500.00"),
-            "to": h.leg(h.acct(&h.alex_checking), "1500.00"), "purpose_id": h.alex }] }),
+            "to": h.leg(h.acct(&h.alex_checking), "1500.00"), "purpose_id": h.alex, "category_id": h.shopping }] }),
             ),
         )
         .await
@@ -580,7 +585,7 @@ async fn a_row_can_replace_the_transaction_it_matches(pool: PgPool) {
                 json!({ "date": "2026-03-01", "description": "Salary", "notes": "March",
                         "tags": ["work"], "splits": [{
             "from": h.leg(("counterparty_id", &h.store), "1500.00"),
-            "to": h.leg(h.acct(&h.alex_checking), "1500.00"), "purpose_id": h.alex }] }),
+            "to": h.leg(h.acct(&h.alex_checking), "1500.00"), "purpose_id": h.alex, "category_id": h.shopping }] }),
             ),
         )
         .await
@@ -593,9 +598,9 @@ async fn a_row_can_replace_the_transaction_it_matches(pool: PgPool) {
         Some(
             json!({ "date": "2026-03-01", "description": "Coffees", "splits": [
             { "from": h.leg(h.acct(&h.alex_checking), "4.50"),
-              "to": h.leg(("counterparty_id", &h.store), "4.50"), "purpose_id": h.alex },
+              "to": h.leg(("counterparty_id", &h.store), "4.50"), "purpose_id": h.alex, "category_id": h.shopping },
             { "from": h.leg(h.acct(&h.alex_checking), "4.50"),
-              "to": h.leg(("counterparty_id", &h.store), "4.50"), "purpose_id": h.alex }] }),
+              "to": h.leg(("counterparty_id", &h.store), "4.50"), "purpose_id": h.alex, "category_id": h.shopping }] }),
         ),
     )
     .await;

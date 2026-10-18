@@ -1187,15 +1187,15 @@ fn labels(r: &RowRow, suggestions: &[SuggestionRow], cx: &Context) -> Labels {
             out.not_applicable.push(label);
             continue;
         }
-        // A purpose names someone: blank isn't one (design §4.1).
-        let named = |v: Option<Uuid>| label != Label::Purpose || v.is_some();
+        // A purpose names someone and a category something: blank is
+        // neither (design §4.1).
         if chosen(label) {
-            if !named(*slot) {
+            if slot.is_none() {
                 out.missing.push(label);
             }
             continue;
         }
-        match suggested(label).filter(|s| named(s.value)) {
+        match suggested(label).filter(|s| s.value.is_some()) {
             Some(s) => {
                 *slot = s.value;
                 out.suggested_by.push((s.suggester_id, s.confidence));
@@ -2148,6 +2148,11 @@ async fn set_row(
         }
     }
     if let Some(v) = req.category_id {
+        if v.is_none() {
+            return Err(Problem::invalid(
+                "category_id: what it was; to drop your choice, revert it",
+            ));
+        }
         row.category_id = v;
     }
     if let Some(v) = req.purpose_id {
@@ -2312,7 +2317,8 @@ async fn split_parts(
             row.amount.abs()
         )));
     }
-    // Income or an expense with a liquid account says who it was for.
+    // Income or an expense with a liquid account says who it was for and
+    // what it was.
     let liquid = |id: Uuid| {
         accounts
             .iter()
@@ -2327,6 +2333,11 @@ async fn split_parts(
         if takes_purpose && p.purpose_id.is_none() {
             return Err(Problem::invalid(format!(
                 "split {i}: purpose_id: who it was for"
+            )));
+        }
+        if takes_purpose && p.category_id.is_none() {
+            return Err(Problem::invalid(format!(
+                "split {i}: category_id: what it was"
             )));
         }
     }

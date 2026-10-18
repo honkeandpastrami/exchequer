@@ -99,13 +99,16 @@ describe('editor preview', () => {
 describe('editor checks', () => {
 	it('points out what the server would refuse', () => {
 		const d = { ...blankDraft('usd', '2026-03-01'), description: 'Lunch' };
-		d.splits = [split('alex', 'Grocer', { quantity: '1,234.50', purpose: 'p-alex' })];
-		expect(problems(d, ref)).toEqual([]);
-		// Income and spending say who they were for: there's no default.
-		d.splits = [split('alex', 'Grocer')];
-		expect(problems(d, ref)).toEqual(["Choose who it's for."]);
 		d.splits = [
-			split('alex', 'Grocer', { quantity: '1.234', purpose: 'p-alex' }),
+			split('alex', 'Grocer', { quantity: '1,234.50', category: 'food', purpose: 'p-alex' })
+		];
+		expect(problems(d, ref)).toEqual([]);
+		// Income and spending say what they were and who they were for:
+		// there's no default.
+		d.splits = [split('alex', 'Grocer')];
+		expect(problems(d, ref)).toEqual(['Choose a category.', "Choose who it's for."]);
+		d.splits = [
+			split('alex', 'Grocer', { quantity: '1.234', category: 'food', purpose: 'p-alex' }),
 			{ ...split('alex', 'Grocer', { quantity: '0' }), to: { account: '', outside: '' } }
 		];
 		expect(problems(d, ref)).toEqual([

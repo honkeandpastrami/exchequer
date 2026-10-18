@@ -75,7 +75,7 @@ export function rowDraft(row: Row, bank: Bank, ref: Reference): RowDraft {
 			splits: row.splits.map((p) =>
 				line(row, bank, otherLeg(ref, p.transfer_account_id, p.counterparty_id), {
 					quantity: p.amount,
-					category: p.category_id ?? '',
+					category: p.category_id ?? UNSET,
 					purpose: p.purpose_id ?? UNSET,
 					description: p.description ?? ''
 				})
@@ -85,10 +85,11 @@ export function rowDraft(row: Row, bank: Bank, ref: Reference): RowDraft {
 	const side = shown(row, 'counterparty');
 	const transfer = row.transfer_account_id;
 	const other = transfer ? leg(transfer) : side ? otherLeg(ref, null, side.value) : leg('');
-	// A purpose names someone: none is not chosen yet.
+	// A purpose names someone and a category something: none is not chosen
+	// yet.
 	const label = (l: Schemas['Label']) => {
 		const v = shown(row, l);
-		return !v || (l === 'purpose' && !v.value) ? UNSET : (v.value ?? '');
+		return !v || !v.value ? UNSET : v.value;
 	};
 	return {
 		description,
@@ -160,8 +161,8 @@ export function rowUpdate(
 	const p = other.account ? preview(a, ref) : { category: true, purpose: true };
 	if (other.account && (unsplit || !same(other, otherOf(row, b))))
 		Object.assign(out, sideUpdate(other, ids));
-	if (p.category && a.category !== UNSET && (unsplit || a.category !== b.category))
-		out.category_id = value(a.category);
+	if (p.category && a.category && a.category !== UNSET && (unsplit || a.category !== b.category))
+		out.category_id = a.category;
 	if (p.purpose && a.purpose && a.purpose !== UNSET && (unsplit || a.purpose !== b.purpose))
 		out.purpose_id = a.purpose;
 	return out;
@@ -181,7 +182,8 @@ export function rowProblems(row: Row, d: RowDraft, ref: Reference): string[] {
 		if (!/^\d+(\.\d+)?$/.test(q) || /^[0.]+$/.test(q)) out.push(`${n}add an amount.`);
 		else amounts.push(q);
 		const p = preview(s, ref);
-		if (other.account && p.category && s.category === UNSET) out.push(`${n}choose a category.`);
+		if (other.account && p.purpose && (!s.category || s.category === UNSET))
+			out.push(`${n}choose a category.`);
 		if (other.account && p.purpose && (!s.purpose || s.purpose === UNSET))
 			out.push(`${n}choose who it's for.`);
 	});

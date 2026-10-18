@@ -146,11 +146,10 @@ export const labelNames: Record<Label, string> = {
 	purpose: 'For'
 };
 
-/** What choosing "none" means. A purpose has no such choice: it names
- * someone (design §4.1). */
-export const noneNames: Record<Exclude<Label, 'purpose'>, string> = {
-	counterparty: 'Unknown',
-	category: 'No category'
+/** What choosing "none" means. A category and a purpose have no such
+ * choice: they name something and someone (design §4.1). */
+export const noneNames: Record<'counterparty', string> = {
+	counterparty: 'Unknown'
 };
 
 export const sourceNames: Record<Schemas['SuggesterKind'], string> = {

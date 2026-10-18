@@ -35,7 +35,7 @@ impl Decide for Fake {
         for q in questions {
             let want = match q.name.as_str() {
                 "counterparty" => "Store",
-                "category" => "(no category)",
+                "category" => "Shopping",
                 "purpose" => "Household",
                 _ => "Alex · Alex Credit",
             };
@@ -69,7 +69,7 @@ async fn spend(pool: &PgPool, h: &H, date: &str, description: &str) {
             Some(
                 json!({ "date": date, "description": description, "splits": [{
                 "from": h.leg(h.acct(&h.alex_credit), "4.50"),
-                "to": h.leg(("counterparty_id", &h.store), "4.50"), "purpose_id": h.alex }] }),
+                "to": h.leg(("counterparty_id", &h.store), "4.50"), "purpose_id": h.alex, "category_id": h.shopping }] }),
             ),
         )
         .await;
@@ -130,7 +130,7 @@ async fn remote_ai_answers_what_local_ai_leaves_unsure(pool: PgPool) {
         ),
         (
             &json!(h.store),
-            &Value::Null,
+            &json!(h.shopping),
             &json!(h.household),
             &json!([])
         ),

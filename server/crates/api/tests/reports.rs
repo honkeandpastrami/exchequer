@@ -45,14 +45,14 @@ async fn june_and_july(h: &H, pool: &PgPool) -> String {
             h.acct(&h.alex_credit),
             store,
             "20.00",
-            json!({ "purpose_id": h.alex }),
+            json!({ "purpose_id": h.alex, "category_id": h.shopping }),
         ),
         (
             "2026-06-15",
             store,
             h.acct(&h.alex_checking),
             "3000.00",
-            json!({ "purpose_id": household }),
+            json!({ "purpose_id": household, "category_id": h.shopping }),
         ),
         (
             "2026-06-20",
@@ -133,7 +133,7 @@ async fn flows(pool: PgPool) {
     found_sorted.sort_unstable();
     assert_eq!(found_sorted, expected);
 
-    // By category over the whole range: a missing category is null.
+    // By category over the whole range.
     let rows = query(
         &h,
         &pool,
@@ -146,7 +146,7 @@ async fn flows(pool: PgPool) {
         .map(|r| (r["category_id"].clone(), r["amount"].as_str().unwrap()))
         .collect();
     assert!(by.contains(&(json!(groceries), "-120.00")));
-    assert!(by.contains(&(Value::Null, "-20.00")));
+    assert!(by.contains(&(json!(h.shopping), "-20.00")));
     assert!(rows[0].get("purpose_id").is_none(), "not grouped: absent");
 
     // Income vs. expense, one row each; transfers net to zero.
@@ -273,7 +273,7 @@ async fn household_pool(pool: PgPool) {
         h.acct(&h.alex_brokerage),
         h.acct(&h.joint_savings),
         "500.00",
-        json!({ "purpose_id": h.household }),
+        json!({ "purpose_id": h.household, "category_id": h.shopping }),
     )
     .await;
     h.put_params(
@@ -290,7 +290,7 @@ async fn household_pool(pool: PgPool) {
     let p = &r.body;
     assert_eq!(
         p["income"],
-        json!([{ "category_id": null, "amount": "3500.00" }])
+        json!([{ "category_id": h.shopping, "amount": "3500.00" }])
     );
     assert_eq!(
         p["expenses"],

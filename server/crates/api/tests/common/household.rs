@@ -18,6 +18,7 @@ pub struct H {
     pub alex_brokerage: String,
     pub joint_savings: String,
     pub store: String,
+    pub shopping: String,
 }
 
 pub async fn create(pool: &PgPool, t: &str, path: &str, body: Value) -> String {
@@ -76,6 +77,13 @@ impl H {
             json!({ "name": "Store" }),
         )
         .await;
+        let shopping = create(
+            pool,
+            &t,
+            "/api/v1/categories",
+            json!({ "name": "Shopping" }),
+        )
+        .await;
         Self {
             t,
             household,
@@ -87,6 +95,7 @@ impl H {
             alex_brokerage,
             joint_savings,
             store,
+            shopping,
         }
     }
 

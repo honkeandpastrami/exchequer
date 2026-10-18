@@ -29,7 +29,7 @@ async fn checks_and_candidates(pool: PgPool) {
             store,
             h.acct(&h.alex_checking),
             "1000.00",
-            json!({ "purpose_id": h.alex }),
+            json!({ "purpose_id": h.alex, "category_id": h.shopping }),
         )
         .await;
     assert_eq!(salary.status, StatusCode::CREATED, "{}", salary.body);
@@ -44,7 +44,7 @@ async fn checks_and_candidates(pool: PgPool) {
             h.acct(&h.alex_checking),
             store,
             qty,
-            json!({ "purpose_id": h.alex }),
+            json!({ "purpose_id": h.alex, "category_id": h.shopping }),
         )
         .await;
     }
@@ -134,7 +134,7 @@ async fn cards_show_owed_as_positive(pool: PgPool) {
         h.acct(&h.alex_credit),
         store,
         "50.00",
-        json!({ "purpose_id": h.alex }),
+        json!({ "purpose_id": h.alex, "category_id": h.shopping }),
     )
     .await;
     let c = check(

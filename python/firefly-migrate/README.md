@@ -26,9 +26,14 @@ uv run firefly-migrate fingerprints MAPPING [--apply]  # record which bank rows 
 - `[parties]`, `[commodities]` and `[[accounts]]` (several Firefly accounts may collapse
   into one, e.g. one per security into a single brokerage). Account names are unique per
   owner, so two people can each have a `Checking`; elsewhere in the mapping an account is
-  its name, or `Owner · Name` when several owners have one by that name;
+  its name, or `Owner · Name` when several owners have one by that name. A non-liquid
+  account names the categories of money into it and out of it, `category_in` and
+  `category_out` (e.g. `"Invest"` and `"Divest"`, or `"Mortgage principal"`): Firefly
+  recorded those as transfers, with no category to carry over. Money into or out of an
+  account without the one it needs is an error;
 - `[purpose]` which Firefly budgets and tags mean which party (an income or expense with
-  neither is an error, in the dry run too: there's no default);
+  neither is an error, in the dry run too: there's no default). An income or expense with
+  no Firefly category is an error too;
 - `[counterparties]`, `[categories]` and `[tags]`: dividends from Firefly's cash account,
   transfer-only categories to drop, encoding tags to retire;
 - `[settlement]` (for `settle`, always in USD): `stipends.<person>` and

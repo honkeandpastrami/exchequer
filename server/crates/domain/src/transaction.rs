@@ -131,6 +131,9 @@ pub enum SplitError {
     PurposeRequired(Kind),
     #[error("a {0:?} can't have a category")]
     CategoryNotAllowed(Kind),
+    /// Income and expenses of liquid accounts say what they were.
+    #[error("this {0:?} needs a category: what it was")]
+    CategoryRequired(Kind),
     /// Only transfers between liquid accounts of different owners settle a month.
     #[error("only a settlement payment can settle a month")]
     SettlesNotAllowed,
@@ -185,7 +188,8 @@ impl Split {
         let crossing =
             from.is_some() && to.is_some() && matches!(kind, Kind::Expense | Kind::Income);
 
-        // Income or an expense with a liquid account takes a purpose.
+        // Income or an expense with a liquid account takes a purpose and a
+        // category.
         let liquid = [from, to].into_iter().flatten().any(|a| a.liquid);
         let takes_purpose = matches!(kind, Kind::Expense | Kind::Income) && liquid;
         match self.purpose {
@@ -198,6 +202,9 @@ impl Split {
         }
         if self.category.is_some() && !matches!(kind, Kind::Expense | Kind::Income) {
             return Err(SplitError::CategoryNotAllowed(kind));
+        }
+        if self.category.is_none() && takes_purpose {
+            return Err(SplitError::CategoryRequired(kind));
         }
 
         if self.settles.is_some() {

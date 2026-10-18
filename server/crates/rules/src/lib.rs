@@ -135,13 +135,12 @@ enum Setter {
 }
 
 impl Setter {
-    /// Whether it names an account, which can't be none.
     /// Whether `()` (none) is a value: not for an account, and not for a
-    /// purpose, which names someone (design §4.1).
+    /// purpose or a category, which name someone and something (design §4.1).
     const fn takes_none(self) -> bool {
         !matches!(
             self,
-            Self::Account | Self::Transfer | Self::Label(Label::Purpose)
+            Self::Account | Self::Transfer | Self::Label(Label::Purpose | Label::Category)
         )
     }
 }
