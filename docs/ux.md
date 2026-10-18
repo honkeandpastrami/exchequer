@@ -60,7 +60,8 @@ these; a screen that can't is a reason to change this doc, not to make an except
   page, in light and dark.
 - Shared things come from shared components: amounts (`Amount`), suggestions
   (`SuggestionBadge`), none and unknown (`NoValue`), names of legs (`LegName`), failures
-  (`Failure`), statuses (`Mark`). A second way of showing the same thing is a bug.
+  (`Failure`), statuses (`Mark`), a row's form (`RowForm`), a transaction's splits
+  (`SplitLines`). A second way of showing the same thing is a bug.
 - A status is a symbol plus a word, in its colour, never a dot or colour alone:
   - ✓ ok, green: settled, ready, matches;
   - ⚠ warning, amber: it would go through but you should look (confident suggestions, a
@@ -103,3 +104,18 @@ these; a screen that can't is a reason to change this doc, not to make an except
 - No footnotes. A page doesn't end with notes on how it works, what it leaves out or why;
   if the user needs to know something, the screen shows it where it applies (a label, a
   column, a disabled control), and otherwise it belongs in the docs.
+
+## 10. Rows and forms
+
+- Adding or changing something happens where it is, never on another page. Opening a row
+  (or its **Details**) opens its form directly under it; **Add** opens the same form,
+  blank, at the top of the list. There's no separate read-only view: facts about the item
+  (its ID, where it came from) sit at the bottom of its form.
+- A form changes nothing until **Save**; **Cancel** closes it and drops what was typed. A
+  saved item keeps its place in the list until the page is reloaded (§2).
+- A transaction's splits are one line each, under one set of headings: from, to, amount,
+  category, For, note. A field a split can't have stays in its place, disabled. **Add
+  split** copies the line above. Rarer fields (another commodity received, a settled
+  month) open under the line's ⋯.
+- A transaction has an address (`/transactions/<id>`): the list showing only it, its form
+  open.

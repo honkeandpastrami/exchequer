@@ -9,6 +9,7 @@ import {
 	newCounterparties,
 	preview,
 	problems,
+	splitTotals,
 	toRequest,
 	type SplitDraft
 } from './editor';
@@ -104,6 +105,22 @@ describe('editor checks', () => {
 			'Split 1: USD has 2 decimal places.',
 			'Split 2: choose both sides, at least one of them your account.',
 			'Split 2: the amount must be more than zero.'
+		]);
+	});
+});
+
+describe('editor totals', () => {
+	it('adds the typed amounts, per commodity, exactly', () => {
+		expect(
+			splitTotals([
+				split('alex', 'Lender', { quantity: '1,200.10' }),
+				split('alex', 'Lender', { quantity: '0.20' }),
+				split('alex', 'Escrow', { quantity: '' }),
+				split('alex', 'Shop', { quantity: '5', commodity: 'eur' })
+			])
+		).toEqual([
+			{ commodity: 'usd', value: '1200.30' },
+			{ commodity: 'eur', value: '5' }
 		]);
 	});
 });

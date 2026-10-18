@@ -1,18 +1,16 @@
 <script lang="ts">
+	// One transaction's form, opened in place: under its row to edit it, or at
+	// the top of the list to add one (blank, or like an existing one).
 	import { usd } from '../usd';
-	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { page } from '$app/state';
-	import { ApiError, api, done, ok } from '../api/client';
+	import { api, done, ok, type Schemas } from '../api/client';
 	import Failure from './Failure.svelte';
-	import SplitEditor from './SplitEditor.svelte';
+	import RowForm from './RowForm.svelte';
+	import SplitLines from './SplitLines.svelte';
 	import { today } from '../dates';
-	import { hashQuery } from '../query';
 	import { forgetReference, reference, sorted, type Reference } from '../reference';
-	import { returnTo } from '../returnTo.svelte';
 	import {
 		blankDraft,
-		blankSplit,
 		fromTransaction,
 		newCounterparties,
 		problems,
@@ -20,12 +18,32 @@
 		type Draft
 	} from '../views/editor';
 
-	// The transaction to edit, or `null` for a new one.
-	let { id }: { id: string | null } = $props();
+	type Transaction = Schemas['Transaction'];
+
+	let {
+		id,
+		copy,
+		account,
+		onclose,
+		oncopy
+	}: {
+		/** The transaction to edit, or `null` for a new one. */
+		id: string | null;
+		/** A new one: like this transaction, dated today. */
+		copy?: string;
+		/** A new one: from this account. */
+		account?: string;
+		/** Closed: saved as `saved`, deleted, or neither (Cancel). */
+		onclose: (change?: { saved?: Transaction; deleted?: true }) => void;
+		/** Copy as new, asked from an existing transaction. */
+		oncopy?: (id: string) => void;
+	} = $props();
 	let creating = $derived(id === null);
+	const uid = $props.id();
 
 	let ref: Reference | null = $state(null);
 	let draft: Draft | null = $state(null);
+	let tx: Transaction | null = $state(null);
 	let etag = $state('');
 	// Shown from the first save on, and updated as the draft changes.
 	let tried = $state(false);
@@ -40,24 +58,22 @@
 		return { tx: ok(r), etag: r.response.headers.get('etag') ?? '' };
 	}
 
-	async function load(id: string | null, query: URLSearchParams) {
+	async function load() {
 		failure = null;
 		draft = null;
 		tried = false;
 		try {
 			const r = await reference();
-			const copy = query.get('copy');
 			if (id) {
 				const got = await get(id);
 				etag = got.etag;
+				tx = got.tx;
 				draft = fromTransaction(got.tx, r);
 			} else if (copy) {
-				// A new transaction like an existing one, dated today.
 				const d = fromTransaction((await get(copy)).tx, r);
 				draft = { ...d, date: today(), externalRefs: [] };
 			} else {
 				const d = blankDraft(household(r), today());
-				const account = query.get('account');
 				if (account && r.accounts.has(account)) d.splits[0].from.account = account;
 				draft = d;
 			}
@@ -66,12 +82,7 @@
 			failure = e;
 		}
 	}
-
-	$effect(() => {
-		load(id, hashQuery(page.url));
-	});
-
-	const back = () => goto(resolve(returnTo.transactions as '/transactions'));
+	load();
 
 	async function save() {
 		if (!draft || !ref) return;
@@ -88,17 +99,17 @@
 				r = ref = await reference();
 			}
 			const body = toRequest(draft, r);
-			if (creating) ok(await api.POST('/api/v1/transactions', { body }));
-			else if (id)
-				ok(
-					await api.PUT('/api/v1/transactions/{id}', {
-						params: { path: { id }, header: { 'If-Match': etag } },
-						body
-					})
-				);
+			const saved = id
+				? ok(
+						await api.PUT('/api/v1/transactions/{id}', {
+							params: { path: { id }, header: { 'If-Match': etag } },
+							body
+						})
+					)
+				: ok(await api.POST('/api/v1/transactions', { body }));
 			const names = new Set([...r.tags.values()].map((t) => t.name));
 			if (body.tags?.some((t) => !names.has(t))) forgetReference();
-			back();
+			onclose({ saved });
 		} catch (e) {
 			failure = e;
 		} finally {
@@ -116,7 +127,7 @@
 					params: { path: { id }, header: { 'If-Match': etag } }
 				})
 			);
-			back();
+			onclose({ deleted: true });
 		} catch (e) {
 			failure = e;
 		} finally {
@@ -126,15 +137,15 @@
 </script>
 
 {#if draft && ref}
-	<form
-		onsubmit={(e) => {
-			e.preventDefault();
-			save();
-		}}
+	<RowForm
+		label={creating ? 'Add transaction' : `Edit ${tx?.description ?? 'transaction'}`}
+		{busy}
+		{issues}
+		{failure}
+		onsave={save}
+		oncancel={() => onclose()}
+		onreload={load}
 	>
-		<datalist id="counterparties">
-			{#each sorted(ref.counterparties) as c (c.id)}<option value={c.name}></option>{/each}
-		</datalist>
 		<div class="head">
 			<label class="field">
 				<span>Date</span>
@@ -148,9 +159,9 @@
 		<div class="head">
 			<label class="field grow">
 				<span>Tags, comma-separated</span>
-				<input bind:value={draft.tags} list="tags" />
+				<input bind:value={draft.tags} list="{uid}-tags" />
 			</label>
-			<datalist id="tags">
+			<datalist id="{uid}-tags">
 				{#each sorted(ref.tags) as t (t.id)}<option value={t.name}></option>{/each}
 			</datalist>
 			<label class="field grow">
@@ -158,53 +169,30 @@
 				<input bind:value={draft.notes} />
 			</label>
 		</div>
+		<SplitLines bind:splits={draft.splits} {ref} commodity={household(ref)} />
 
-		{#each draft.splits, i (i)}
-			<SplitEditor
-				bind:split={draft.splits[i]}
-				{ref}
-				title={draft.splits.length > 1 ? `Split ${i + 1}` : 'Split'}
-				onremove={draft.splits.length > 1 ? () => draft?.splits.splice(i, 1) : undefined}
-			/>
-		{/each}
-		<p>
-			<button
-				type="button"
-				class="quiet"
-				onclick={() => draft?.splits.push(blankSplit(household(ref!), draft.splits.at(-1)))}
-				>Add split</button
-			>
-		</p>
-
-		{#if draft.externalRefs.length}
-			<p class="muted refs">
-				Imported as {draft.externalRefs.map((e) => `${e.source} ${e.ref}`).join(', ')}
-			</p>
-		{/if}
-
-		{#if issues.length}
-			<ul class="issues" role="alert">
-				{#each issues as m (m)}<li>{m}</li>{/each}
-			</ul>
-		{/if}
-		{#if failure}
-			<Failure error={failure} />
-			{#if failure instanceof ApiError && failure.status === 412}
-				<button type="button" class="quiet" onclick={() => load(id, hashQuery(page.url))}
-					>Reload, discarding my changes</button
+		{#snippet actions()}
+			{#if id && oncopy}
+				<button type="button" class="quiet" onclick={() => id && oncopy(id)} disabled={busy}
+					>Copy as new</button
 				>
 			{/if}
-		{/if}
-
-		<div class="actions">
-			<button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
-			<button type="button" class="quiet" onclick={back} disabled={busy}>Cancel</button>
-			{#if !creating}
-				<a class="copy" href={resolve(`/transactions/new?copy=${id}`)}>Copy as new</a>
+			{#if id}
 				<button type="button" class="quiet danger" onclick={remove} disabled={busy}>Delete</button>
 			{/if}
-		</div>
-	</form>
+		{/snippet}
+		{#snippet facts()}
+			{#if tx}
+				{#each tx.external_refs as e (e.source)}<span>{e.source} {e.ref}</span>{/each}
+				<span>id {tx.id}</span>
+				<span
+					>import batch <a href={resolve(`/transactions?import_batch_id=${tx.import_batch_id}`)}
+						>{tx.import_batch_id}</a
+					></span
+				>
+			{/if}
+		{/snippet}
+	</RowForm>
 {:else if failure}
 	<Failure error={failure} />
 {:else}
@@ -212,9 +200,6 @@
 {/if}
 
 <style>
-	form {
-		max-width: 60rem;
-	}
 	.head {
 		display: flex;
 		flex-wrap: wrap;
@@ -233,26 +218,6 @@
 	.grow {
 		flex: 1;
 		min-width: 14rem;
-	}
-	.refs {
-		font-size: var(--text-sm);
-	}
-	.issues {
-		padding: var(--space-3) var(--space-5);
-		border-radius: var(--radius-sm);
-		background: var(--color-warning-bg);
-		color: var(--color-warning);
-	}
-	.actions {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--space-3);
-		margin-top: var(--space-4);
-	}
-	.copy {
-		margin-left: auto;
-		font-size: var(--text-sm);
 	}
 	.danger {
 		color: var(--color-negative);

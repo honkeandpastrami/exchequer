@@ -3,6 +3,7 @@
 // decides which fields to show, mirroring `domain::transaction`.
 
 import type { Schemas } from '../api/client';
+import { sum } from '../money';
 import type { Reference } from '../reference';
 
 /** The select value meaning "someone outside the household". */
@@ -159,6 +160,16 @@ export function preview(s: SplitDraft, ref: Reference): Preview {
 /** `1,234.50 ` → `1234.50`. */
 export function cleanQuantity(q: string): string {
 	return q.replace(/[,\s]/g, '');
+}
+
+/** What the splits send, per commodity, counting only the amounts already typed. */
+export function splitTotals(splits: SplitDraft[]): { commodity: string; value: string }[] {
+	const by = new Map<string, string[]>();
+	for (const s of splits) {
+		const q = cleanQuantity(s.quantity);
+		if (/^\d+(\.\d+)?$/.test(q)) by.set(s.commodity, [...(by.get(s.commodity) ?? []), q]);
+	}
+	return [...by].map(([commodity, qs]) => ({ commodity, value: sum(qs) }));
 }
 
 function quantityProblem(q: string, commodity: string, ref: Reference): string | null {

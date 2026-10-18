@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import TransactionEditor from '#lib/components/TransactionEditor.svelte';
+	import TransactionList from '#lib/components/TransactionList.svelte';
 </script>
 
-<h1>Edit transaction</h1>
+<!-- The list, showing only this transaction, its form open. -->
 {#key page.params.id}
-	<TransactionEditor id={page.params.id ?? null} />
+	<TransactionList only={page.params.id ?? null} />
 {/key}
