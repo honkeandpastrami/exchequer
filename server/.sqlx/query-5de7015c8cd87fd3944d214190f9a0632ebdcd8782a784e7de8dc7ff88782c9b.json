@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT statement, position, amount, counterparty_id, transfer_account_id,\n                category_id, purpose_id, description\n         FROM staged_split WHERE import_id = $1\n         ORDER BY statement, position, part",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "statement",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "staged_split",
+            "name": "statement"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "position",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "staged_split",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "amount",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "staged_split",
+            "name": "amount"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "counterparty_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_split",
+            "name": "counterparty_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "transfer_account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_split",
+            "name": "transfer_account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "category_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_split",
+            "name": "category_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "purpose_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "staged_split",
+            "name": "purpose_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_split",
+            "name": "description"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "5de7015c8cd87fd3944d214190f9a0632ebdcd8782a784e7de8dc7ff88782c9b"
+}

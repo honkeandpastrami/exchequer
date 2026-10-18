@@ -35,7 +35,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(imported_rows))
 }
 
-const MAX_SPLITS: usize = 200;
+pub(crate) const MAX_SPLITS: usize = 200;
 
 // ------------------------------------------------------------- Schemas ----
 
@@ -728,7 +728,39 @@ impl Leg {
     }
 }
 
+impl NewSplit {
+    pub(crate) const fn new(
+        from: Leg,
+        to: Leg,
+        purpose_id: Option<Uuid>,
+        category_id: Option<Uuid>,
+        description: Option<String>,
+    ) -> Self {
+        Self {
+            from,
+            to,
+            purpose_id,
+            category_id,
+            description,
+            settles: None,
+        }
+    }
+}
+
 impl NewTransaction {
+    /// These splits, no notes, tags or references.
+    pub(crate) const fn of(date: Date, description: String, splits: Vec<NewSplit>) -> Self {
+        Self {
+            date,
+            description,
+            notes: None,
+            tags: Vec::new(),
+            external_refs: Vec::new(),
+            import_batch_id: None,
+            splits,
+        }
+    }
+
     /// One split, no notes, tags or references.
     pub(crate) fn single(
         date: Date,

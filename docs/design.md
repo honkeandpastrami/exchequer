@@ -489,11 +489,15 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    matched transaction keeps its ID, notes, tags and batch and takes the row's date,
    amount and description, and the labels set in review; it must be one split between
    the statement's account and the outside) or `skip` (shown as *Do not import*), plus optional labels for the new
-   transaction (description, the other side, category, purpose). `POST
+   transaction (description, the other side, category, purpose). A row added as new
+   (not a transfer match) can instead be **split** into parts that add up to its amount,
+   each with its own other side, category, purpose and note; its labels are then the
+   parts', all yours, and it isn't matched as a transfer. `POST
    /imports/{id}/commit` first works every status and transfer match out again; if one
    changed, nothing is committed and the client reviews again (409). Then: `new` rows
-   become one-split transactions in one `file` import batch (the other side is the chosen
-   counterparty, unknown, or one of your accounts for a transfer); a transfer match
+   become transactions in one `file` import batch, one split each (the other side is the
+   chosen counterparty, unknown, or one of your accounts for a transfer), or one per part
+   for a split row; a transfer match
    becomes one transfer, dated and described as the side the money left, and both rows
    are recorded with it, so the other file's row is a duplicate of it from then on; every
    row now in the ledger is recorded in `import_fingerprint`. **A row that matches a

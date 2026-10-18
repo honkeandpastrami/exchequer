@@ -552,6 +552,8 @@ pub struct Matchable {
     pub pair_import_id: Option<Uuid>,
     pub pair_statement: Option<i16>,
     pub pair_position: Option<i32>,
+    /// Split into parts before commit.
+    pub split: bool,
 }
 
 /// Every staged row, in every staged import.
@@ -568,7 +570,10 @@ pub async fn matchable(db: impl PgExecutor<'_>) -> Result<Vec<Matchable>, sqlx::
                   r.transfer_account_id,
                   sg.account_id AS "suggested_account_id?",
                   sg.confidence AS "suggested_confidence?",
-                  r.pair_import_id, r.pair_statement, r.pair_position
+                  r.pair_import_id, r.pair_statement, r.pair_position,
+                  EXISTS (SELECT 1 FROM staged_split sp
+                          WHERE sp.import_id = r.import_id AND sp.statement = r.statement
+                            AND sp.position = r.position) AS "split!"
            FROM staged_row r
            JOIN staged_statement st
              ON st.import_id = r.import_id AND st.position = r.statement
@@ -785,6 +790,78 @@ pub async fn set_decision(
     .execute(db)
     .await?;
     Ok(done.rows_affected() > 0)
+}
+
+/// One part of a staged row split before commit: a split of the new
+/// transaction between the statement's account and `counterparty_id` or
+/// `transfer_account_id` (neither: outside, unknown who).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StagedSplit {
+    pub statement: i16,
+    pub position: i32,
+    /// Unsigned: the row's sign says which way the money goes.
+    pub amount: Decimal,
+    pub counterparty_id: Option<Uuid>,
+    pub transfer_account_id: Option<Uuid>,
+    pub category_id: Option<Uuid>,
+    pub purpose_id: Option<Uuid>,
+    pub description: Option<String>,
+}
+
+/// Every split row's parts in an import, in order.
+pub async fn splits(
+    db: impl PgExecutor<'_>,
+    import_id: Uuid,
+) -> Result<Vec<StagedSplit>, sqlx::Error> {
+    sqlx::query_as!(
+        StagedSplit,
+        "SELECT statement, position, amount, counterparty_id, transfer_account_id,
+                category_id, purpose_id, description
+         FROM staged_split WHERE import_id = $1
+         ORDER BY statement, position, part",
+        import_id,
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// Replaces a row's parts with `parts` (none: the row isn't split).
+pub async fn set_splits(
+    db: &mut sqlx::PgConnection,
+    import_id: Uuid,
+    statement: i16,
+    position: i32,
+    parts: &[StagedSplit],
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "DELETE FROM staged_split WHERE import_id = $1 AND statement = $2 AND position = $3",
+        import_id,
+        statement,
+        position,
+    )
+    .execute(&mut *db)
+    .await?;
+    for (part, s) in (0_i16..).zip(parts) {
+        sqlx::query!(
+            "INSERT INTO staged_split (import_id, statement, position, part, amount,
+                                       counterparty_id, transfer_account_id, category_id,
+                                       purpose_id, description)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+            import_id,
+            statement,
+            position,
+            part,
+            s.amount,
+            s.counterparty_id,
+            s.transfer_account_id,
+            s.category_id,
+            s.purpose_id,
+            s.description,
+        )
+        .execute(&mut *db)
+        .await?;
+    }
+    Ok(())
 }
 
 /// One bank row as one file had it.

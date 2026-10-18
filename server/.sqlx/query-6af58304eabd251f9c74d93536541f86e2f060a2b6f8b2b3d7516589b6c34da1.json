@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM staged_split WHERE import_id = $1 AND statement = $2 AND position = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6af58304eabd251f9c74d93536541f86e2f060a2b6f8b2b3d7516589b6c34da1"
+}

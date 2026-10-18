@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO staged_split (import_id, statement, position, part, amount,\n                                       counterparty_id, transfer_account_id, category_id,\n                                       purpose_id, description)\n             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2",
+        "Int4",
+        "Int2",
+        "Numeric",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c7060a63c696b9c644a8d81a07c2be8f82862084bb179872b8472ea335a74a4f"
+}

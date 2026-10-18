@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 from uuid import UUID
 
 from attrs import define as _attrs_define
@@ -9,6 +9,10 @@ from attrs import define as _attrs_define
 from ..models.decision import Decision
 from ..models.label import Label
 from ..types import UNSET, Unset
+
+if TYPE_CHECKING:
+    from ..models.row_split import RowSplit
+
 
 T = TypeVar("T", bound="RowUpdate")
 
@@ -25,6 +29,10 @@ class RowUpdate:
         revert (list[Label] | Unset): Labels to stop choosing, so their suggestions apply again. Setting a
             label (to a value or `null`) makes it your choice.
         set_description (None | str | Unset):
+        splits (list[RowSplit] | None | Unset): Split the row into these parts (two or more, adding up to its
+            amount), each a split of the new transaction; `null` or `[]`: not
+            split. Only for a row added as new that isn't a transfer match; a
+            split row can't change its decision until the parts are cleared.
         transfer_account_id (None | Unset | UUID): One of your accounts as the other side: the row is a transfer. It
             sets the counterparty label (as yours), so not with
             `counterparty_id`; `null` is the same as `counterparty_id: null`.
@@ -36,6 +44,7 @@ class RowUpdate:
     purpose_id: None | Unset | UUID = UNSET
     revert: list[Label] | Unset = UNSET
     set_description: None | str | Unset = UNSET
+    splits: list[RowSplit] | None | Unset = UNSET
     transfer_account_id: None | Unset | UUID = UNSET
 
     def to_dict(self) -> dict[str, Any]:
@@ -84,6 +93,18 @@ class RowUpdate:
         else:
             set_description = self.set_description
 
+        splits: list[dict[str, Any]] | None | Unset
+        if isinstance(self.splits, Unset):
+            splits = UNSET
+        elif isinstance(self.splits, list):
+            splits = []
+            for splits_type_0_item_data in self.splits:
+                splits_type_0_item = splits_type_0_item_data.to_dict()
+                splits.append(splits_type_0_item)
+
+        else:
+            splits = self.splits
+
         transfer_account_id: None | str | Unset
         if isinstance(self.transfer_account_id, Unset):
             transfer_account_id = UNSET
@@ -107,6 +128,8 @@ class RowUpdate:
             field_dict["revert"] = revert
         if set_description is not UNSET:
             field_dict["set_description"] = set_description
+        if splits is not UNSET:
+            field_dict["splits"] = splits
         if transfer_account_id is not UNSET:
             field_dict["transfer_account_id"] = transfer_account_id
 
@@ -114,6 +137,8 @@ class RowUpdate:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.row_split import RowSplit  # noqa: PLC0415
+
         d = dict(src_dict)
 
         def _parse_category_id(data: object) -> None | Unset | UUID:
@@ -202,6 +227,28 @@ class RowUpdate:
 
         set_description = _parse_set_description(d.pop("set_description", UNSET))
 
+        def _parse_splits(data: object) -> list[RowSplit] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                splits_type_0 = []
+                _splits_type_0 = data
+                for splits_type_0_item_data in _splits_type_0:
+                    splits_type_0_item = RowSplit.from_dict(splits_type_0_item_data)
+
+                    splits_type_0.append(splits_type_0_item)
+
+                return splits_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[RowSplit] | None | Unset, data)
+
+        splits = _parse_splits(d.pop("splits", UNSET))
+
         def _parse_transfer_account_id(data: object) -> None | Unset | UUID:
             if data is None:
                 return data
@@ -226,6 +273,7 @@ class RowUpdate:
             purpose_id=purpose_id,
             revert=revert,
             set_description=set_description,
+            splits=splits,
             transfer_account_id=transfer_account_id,
         )
 

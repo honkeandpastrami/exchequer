@@ -121,6 +121,7 @@ from .refresh_request import RefreshRequest
 from .refreshed import Refreshed
 from .row import Row
 from .row_counts import RowCounts
+from .row_split import RowSplit
 from .row_status import RowStatus
 from .row_update import RowUpdate
 from .rule_script import RuleScript
@@ -272,6 +273,7 @@ __all__ = (
     "RefreshRequest",
     "Row",
     "RowCounts",
+    "RowSplit",
     "RowStatus",
     "RowUpdate",
     "RuleScript",

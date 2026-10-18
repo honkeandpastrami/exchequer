@@ -747,3 +747,168 @@ async fn ready_imports_are_committed_together(pool: PgPool) {
     );
     assert_eq!(read(&pool, &h, &cash_id).await.status, StatusCode::OK);
 }
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn a_split_row_becomes_one_transaction_of_its_parts(pool: PgPool) {
+    let h = H::new(&pool).await;
+    let id = upload(&pool, &h, "?file_name=march.ofx", &ofx()).await.id();
+    let groceries = common::household::create(
+        &pool,
+        &h.t,
+        "/api/v1/categories",
+        json!({ "name": "Groceries" }),
+    )
+    .await;
+    let split = |parts: Value| json!({ "splits": parts });
+    // No account yet: nothing to split from.
+    let two = json!([
+        { "amount": "50.00", "counterparty_id": h.store, "category_id": groceries,
+          "description": "food" },
+        { "amount": "30.00", "transfer_account_id": h.alex_checking }
+    ]);
+    let r = set_row(&pool, &h, &id, 0, split(two.clone())).await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
+
+    let etag = read(&pool, &h, &id).await.etag();
+    call(&pool, "PATCH", format!("/api/v1/imports/{id}/statements/0"))
+        .token(&h.t)
+        .if_match(&etag)
+        .json(json!({ "account_id": h.alex_credit }))
+        .send()
+        .await;
+    for (parts, says) in [
+        (json!([{ "amount": "80.00" }]), "two or more"),
+        (
+            json!([{ "amount": "50.00" }, { "amount": "20.00" }]),
+            "add up to 70.00, the row is 80.00",
+        ),
+        (
+            json!([{ "amount": "80.00" }, { "amount": "0" }]),
+            "split 2: the amount must be more than zero",
+        ),
+        (
+            json!([{ "amount": "50.00" }, { "amount": "30.00", "transfer_account_id": h.alex_credit }]),
+            "split 2: transfer_account_id is the statement's own account",
+        ),
+        (
+            json!([{ "amount": "50.00" },
+                   { "amount": "30.00", "transfer_account_id": h.alex_checking,
+                     "category_id": groceries }]),
+            "split 2: a transfer has no category or purpose",
+        ),
+    ] {
+        let r = set_row(&pool, &h, &id, 0, split(parts)).await;
+        assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
+        assert!(
+            r.body["detail"].as_str().unwrap().contains(says),
+            "{says}: {}",
+            r.body
+        );
+    }
+    // Only a row added as new is split.
+    let r = set_row(
+        &pool,
+        &h,
+        &id,
+        0,
+        json!({ "decision": "skip", "splits": two }),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
+
+    // Split: its labels are the parts', so it needs none of its own.
+    let r = set_row(&pool, &h, &id, 0, split(two.clone())).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(r.body["missing"], json!([]));
+    assert_eq!(r.body["splits"].as_array().unwrap().len(), 2);
+    assert_eq!(r.body["splits"][0]["description"], json!("food"));
+    let r = set_row(&pool, &h, &id, 0, json!({ "decision": "skip" })).await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
+    assert!(
+        r.body["detail"]
+            .as_str()
+            .unwrap()
+            .contains("clear its splits first")
+    );
+    // Unsplit, its labels are needed again; split once more.
+    let r = set_row(&pool, &h, &id, 0, json!({ "splits": null })).await;
+    assert_eq!(
+        (
+            &r.body["splits"],
+            r.body["missing"].as_array().unwrap().len()
+        ),
+        (&json!([]), 3)
+    );
+    let r = set_row(&pool, &h, &id, 0, split(two)).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+
+    label_none(&pool, &h, &id).await;
+    let r = read(&pool, &h, &id).await;
+    assert_eq!(r.body["readiness"]["state"], json!("ready"), "{}", r.body);
+    let r = commit(&pool, &h, &id, &r.etag()).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(r.body["created"], json!(2));
+    let batch = r.body["import_batch_id"].as_str().unwrap().to_owned();
+    let list = h
+        .send(
+            &pool,
+            "GET",
+            &format!("/api/v1/transactions?import_batch_id={batch}&q=GROCER"),
+            None,
+        )
+        .await;
+    let t = &list.body["items"][0];
+    let got: Vec<(Value, Value, Value, Value, Value, Value)> = t["splits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            (
+                s["from"]["account_id"].clone(),
+                s["to"]["counterparty_id"].clone(),
+                s["to"]["account_id"].clone(),
+                s["from"]["quantity"].clone(),
+                s["category_id"].clone(),
+                s["kind"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (
+                json!(h.alex_credit),
+                json!(h.store),
+                Value::Null,
+                json!("50.00"),
+                json!(groceries),
+                json!("expense")
+            ),
+            (
+                json!(h.alex_credit),
+                Value::Null,
+                json!(h.alex_checking),
+                json!("30.00"),
+                Value::Null,
+                json!("transfer")
+            ),
+        ]
+    );
+    // The bank row is recorded with it: the same file again is a duplicate.
+    let again = upload(&pool, &h, "?file_name=march.ofx", &ofx()).await.id();
+    let etag = read(&pool, &h, &again).await.etag();
+    call(
+        &pool,
+        "PATCH",
+        format!("/api/v1/imports/{again}/statements/0"),
+    )
+    .token(&h.t)
+    .if_match(&etag)
+    .json(json!({ "account_id": h.alex_credit }))
+    .send()
+    .await;
+    assert_eq!(
+        rows(&pool, &h, &again).await[0]["status"],
+        json!("duplicate")
+    );
+}

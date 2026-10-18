@@ -16,6 +16,7 @@ from ..types import UNSET, Unset
 if TYPE_CHECKING:
     from ..models.decision_suggestion import DecisionSuggestion
     from ..models.label_suggestion import LabelSuggestion
+    from ..models.row_split import RowSplit
     from ..models.staged_row_raw import StagedRowRaw
     from ..models.transfer_match import TransferMatch
 
@@ -39,6 +40,9 @@ class StagedRow:
             §3.2).
         position (int):
         raw (StagedRowRaw): The row's fields as the file had them.
+        splits (list[RowSplit]): The row split into parts, each a split of the new transaction; empty
+            if it isn't split. A split row is added as new, and its labels are
+            the parts': the row's own, and its suggestions, don't apply.
         statement (int):
         status (RowStatus): What a row would become.
         suggestions (list[LabelSuggestion]): At most one per label, confident or not.
@@ -67,6 +71,7 @@ class StagedRow:
     not_applicable: list[Label]
     position: int
     raw: StagedRowRaw
+    splits: list[RowSplit]
     statement: int
     status: RowStatus
     suggestions: list[LabelSuggestion]
@@ -112,6 +117,11 @@ class StagedRow:
         position = self.position
 
         raw = self.raw.to_dict()
+
+        splits = []
+        for splits_item_data in self.splits:
+            splits_item = splits_item_data.to_dict()
+            splits.append(splits_item)
 
         statement = self.statement
 
@@ -211,6 +221,7 @@ class StagedRow:
                 "not_applicable": not_applicable,
                 "position": position,
                 "raw": raw,
+                "splits": splits,
                 "statement": statement,
                 "status": status,
                 "suggestions": suggestions,
@@ -243,6 +254,7 @@ class StagedRow:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.decision_suggestion import DecisionSuggestion  # noqa: PLC0415
         from ..models.label_suggestion import LabelSuggestion  # noqa: PLC0415
+        from ..models.row_split import RowSplit  # noqa: PLC0415
         from ..models.staged_row_raw import StagedRowRaw  # noqa: PLC0415
         from ..models.transfer_match import TransferMatch  # noqa: PLC0415
 
@@ -279,6 +291,13 @@ class StagedRow:
         position = d.pop("position")
 
         raw = StagedRowRaw.from_dict(d.pop("raw"))
+
+        splits = []
+        _splits = d.pop("splits")
+        for splits_item_data in _splits:
+            splits_item = RowSplit.from_dict(splits_item_data)
+
+            splits.append(splits_item)
 
         statement = d.pop("statement")
 
@@ -455,6 +474,7 @@ class StagedRow:
             not_applicable=not_applicable,
             position=position,
             raw=raw,
+            splits=splits,
             statement=statement,
             status=status,
             suggestions=suggestions,

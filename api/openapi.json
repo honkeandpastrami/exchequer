@@ -8210,6 +8210,7 @@
                 "suggestions",
                 "missing",
                 "not_applicable",
+                "splits",
                 "raw"
               ],
               "properties": {
@@ -8313,6 +8314,13 @@
                     "null"
                   ],
                   "description": "The new transaction's description, if not the bank's."
+                },
+                "splits": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RowSplit"
+                  },
+                  "description": "The row split into parts, each a split of the new transaction; empty\nif it isn't split. A split row is added as new, and its labels are\nthe parts': the row's own, and its suggestions, don't apply."
                 },
                 "statement": {
                   "type": "integer",
@@ -9100,6 +9108,60 @@
           }
         }
       },
+      "RowSplit": {
+        "type": "object",
+        "description": "One part of a row split before commit: a split of the new transaction\nbetween the statement's account and this part's other side.",
+        "required": [
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "Positive; the parts add up to the row's amount, unsigned.",
+            "example": "500.00"
+          },
+          "category_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Absent: none. Not for a transfer (unless a liquidation)."
+          },
+          "counterparty_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Who's on the other side; with neither this nor\n`transfer_account_id`, outside the household, unknown who."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The split's own note, 1-500 characters."
+          },
+          "purpose_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Absent: the account's owner. Not for a transfer (unless a\nliquidation)."
+          },
+          "transfer_account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The other side when it's one of your accounts."
+          }
+        },
+        "additionalProperties": false
+      },
       "RowStatus": {
         "type": "string",
         "description": "What a row would become.",
@@ -9160,6 +9222,16 @@
               "string",
               "null"
             ]
+          },
+          "splits": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RowSplit"
+            },
+            "description": "Split the row into these parts (two or more, adding up to its\namount), each a split of the new transaction; `null` or `[]`: not\nsplit. Only for a row added as new that isn't a transfer match; a\nsplit row can't change its decision until the parts are cleared."
           },
           "transfer_account_id": {
             "type": [
@@ -9493,6 +9565,7 @@
           "suggestions",
           "missing",
           "not_applicable",
+          "splits",
           "raw"
         ],
         "properties": {
@@ -9596,6 +9669,13 @@
               "null"
             ],
             "description": "The new transaction's description, if not the bank's."
+          },
+          "splits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RowSplit"
+            },
+            "description": "The row split into parts, each a split of the new transaction; empty\nif it isn't split. A split row is added as new, and its labels are\nthe parts': the row's own, and its suggestions, don't apply."
           },
           "statement": {
             "type": "integer",

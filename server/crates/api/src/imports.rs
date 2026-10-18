@@ -17,6 +17,7 @@ use import::matching::{
     Near, Side, Staged, near_confidence, one_to_one, transfer_confidence, transfer_matches,
 };
 use import::params::{MATCHER, NEAR_DAYS, SURE};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -24,7 +25,7 @@ use sqlx::PgConnection;
 use store::audit::Action;
 use store::imports::{
     CONFIDENT, Fingerprint, ImportRow, ImportedRow, Matchable, NearCandidate, Outcome, RowKey,
-    RowRow, StatementRow, StatusUpdate, SuggesterRow, SuggestionRow,
+    RowRow, StagedSplit, StatementRow, StatusUpdate, SuggesterRow, SuggestionRow,
 };
 use time::{Date, OffsetDateTime};
 use utoipa::{IntoParams, ToSchema};
@@ -38,7 +39,9 @@ use crate::common::{audit, nullable, write_error};
 use crate::conventions::{IfMatch, Page, PageParams, etag};
 use crate::problem::{Json, Path, Problem, Query};
 use crate::suggestions;
-use crate::transactions::{Leg, NewTransaction, Relabel, create_in, replace_with_row, replaceable};
+use crate::transactions::{
+    Leg, MAX_SPLITS, NewSplit, NewTransaction, Relabel, create_in, replace_with_row, replaceable,
+};
 
 /// Bank files bigger than this are refused.
 const MAX_FILE: usize = 10 * 1024 * 1024;
@@ -419,9 +422,53 @@ pub struct StagedRow {
     /// Labels that don't apply: a transfer's category and purpose (design
     /// §3.2).
     not_applicable: Vec<Label>,
+    /// The row split into parts, each a split of the new transaction; empty
+    /// if it isn't split. A split row is added as new, and its labels are
+    /// the parts': the row's own, and its suggestions, don't apply.
+    splits: Vec<RowSplit>,
     /// The row's fields as the file had them.
     #[schema(value_type = Object)]
     raw: serde_json::Value,
+}
+
+/// One part of a row split before commit: a split of the new transaction
+/// between the statement's account and this part's other side.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RowSplit {
+    /// Positive; the parts add up to the row's amount, unsigned.
+    #[schema(value_type = String, example = "500.00")]
+    amount: Amount,
+    /// Who's on the other side; with neither this nor
+    /// `transfer_account_id`, outside the household, unknown who.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    counterparty_id: Option<Uuid>,
+    /// The other side when it's one of your accounts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    transfer_account_id: Option<Uuid>,
+    /// Absent: none. Not for a transfer (unless a liquidation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    category_id: Option<Uuid>,
+    /// Absent: the account's owner. Not for a transfer (unless a
+    /// liquidation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    purpose_id: Option<Uuid>,
+    /// The split's own note, 1-500 characters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+}
+
+impl From<&StagedSplit> for RowSplit {
+    fn from(s: &StagedSplit) -> Self {
+        Self {
+            amount: Amount::from_decimal(s.amount),
+            counterparty_id: s.counterparty_id,
+            transfer_account_id: s.transfer_account_id,
+            category_id: s.category_id,
+            purpose_id: s.purpose_id,
+            description: s.description.clone(),
+        }
+    }
 }
 
 /// A transfer match's other side.
@@ -447,7 +494,8 @@ pub enum Decision {
     /// match one transfer. The default for those statuses.
     Match,
     /// A new transaction. The default for `new` rows; not for duplicates.
-    /// For a transfer match, it splits the pair: each row is new.
+    /// For a transfer match, it keeps the two sides separate: each row is
+    /// new.
     New,
     /// Leave the row out.
     Skip,
@@ -536,6 +584,13 @@ pub struct RowUpdate {
     /// label (to a value or `null`) makes it your choice.
     #[serde(default)]
     revert: Vec<Label>,
+    /// Split the row into these parts (two or more, adding up to its
+    /// amount), each a split of the new transaction; `null` or `[]`: not
+    /// split. Only for a row added as new that isn't a transfer match; a
+    /// split row can't change its decision until the parts are cleared.
+    #[serde(default, deserialize_with = "nullable")]
+    #[schema(value_type = Option<Vec<RowSplit>>)]
+    splits: Option<Option<Vec<RowSplit>>>,
 }
 
 /// What a commit did.
@@ -920,7 +975,8 @@ async fn rematch(db: &mut PgConnection) -> Result<HashSet<Uuid>, Problem> {
                 date: r.date,
                 amount: r.amount,
                 side: side(r),
-                eligible: open(r) && r.decision.as_deref() != Some("skip"),
+                // A split row is added as new, never one side of a transfer.
+                eligible: open(r) && r.decision.as_deref() != Some("skip") && !r.split,
             })
         })
         .collect();
@@ -1069,6 +1125,8 @@ struct Context<'a> {
     account: Option<Uuid>,
     /// A transfer match's other side's account.
     pair_account: Option<Uuid>,
+    /// The row's parts, if it's split: their labels are all yours.
+    splits: &'a [StagedSplit],
 }
 
 /// `suggestions` may hold other rows' too.
@@ -1082,6 +1140,10 @@ fn labels(r: &RowRow, suggestions: &[SuggestionRow], cx: &Context) -> Labels {
         not_applicable: Vec::new(),
         suggested_by: Vec::new(),
     };
+    // A split row's labels are its parts', all yours.
+    if !cx.splits.is_empty() {
+        return out;
+    }
     let chosen = |label: Label| r.chosen.iter().any(|c| c == label.as_str());
     let suggested = |label: Label| {
         suggestions.iter().find(|s| {
@@ -1260,6 +1322,7 @@ async fn readiness(
             })
             .collect()
     };
+    let splits = split_rows(db, id).await?;
     let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
     let mut out = Readiness {
         state: ReadinessState::Ready,
@@ -1304,6 +1367,7 @@ async fn readiness(
                 .find(|s| s.position == r.statement)
                 .and_then(StatementRow::effective_account),
             pair_account: pair.and_then(|p| p.0),
+            splits: parts(&splits, r),
         };
         let l = labels(r, &suggestions, &cx);
         if decision == Decision::New && !l.missing.is_empty() {
@@ -1343,6 +1407,7 @@ async fn shown(
     let accounts = suggestions::accounts(db).await?;
     let pairs = pairs(db, &rows).await?;
     let matcher = matcher(db).await?;
+    let splits = split_rows(db, import_id).await?;
     rows.into_iter()
         .map(|r| {
             let mine: Vec<SuggestionRow> = all
@@ -1355,10 +1420,30 @@ async fn shown(
                 accounts: &accounts,
                 account: statements.get(&r.statement).copied().flatten(),
                 pair_account: pair.as_ref().map(|p| p.account_id),
+                splits: parts(&splits, &r),
             };
             staged_row(r, &mine, &by, &matcher, &cx, pair)
         })
         .collect()
+}
+
+/// An import's split rows' parts, by row.
+async fn split_rows(
+    db: &mut PgConnection,
+    import_id: Uuid,
+) -> Result<HashMap<(i16, i32), Vec<StagedSplit>>, Problem> {
+    let mut out: HashMap<(i16, i32), Vec<StagedSplit>> = HashMap::new();
+    for s in store::imports::splits(&mut *db, import_id).await? {
+        out.entry((s.statement, s.position)).or_default().push(s);
+    }
+    Ok(out)
+}
+
+/// A row's parts; none if it isn't split.
+fn parts<'a>(splits: &'a HashMap<(i16, i32), Vec<StagedSplit>>, r: &RowRow) -> &'a [StagedSplit] {
+    splits
+        .get(&(r.statement, r.position))
+        .map_or(&[], Vec::as_slice)
 }
 
 fn pair_key(r: &RowRow) -> Option<RowKey> {
@@ -1461,6 +1546,7 @@ fn staged_row(
             Vec::new()
         },
         not_applicable: l.not_applicable,
+        splits: cx.splits.iter().map(RowSplit::from).collect(),
         raw: r.raw,
     })
 }
@@ -2046,9 +2132,33 @@ async fn set_row(
     if let Some(v) = req.purpose_id {
         row.purpose_id = v;
     }
+    // Split or not, checked against the row as it is now.
+    let was_split = !parts(&split_rows(&mut tx, id).await?, &row).is_empty();
+    let parts = match req.splits {
+        Some(Some(v)) if !v.is_empty() => Some(split_parts(&mut tx, id, &row, v).await?),
+        Some(_) => Some(Vec::new()),
+        None => None,
+    };
+    if parts.as_ref().map_or(was_split, |p| !p.is_empty()) {
+        if RowStatus::parse(&row.status)? == RowStatus::TransferMatch {
+            return Err(Problem::invalid("a transfer match can't be split"));
+        }
+        if decision_of(&row)? != Some(Decision::New) {
+            return Err(Problem::invalid(if parts.is_some() {
+                "only a row added as new can be split"
+            } else {
+                "a split row is added as new: clear its splits first"
+            }));
+        }
+    }
     store::imports::set_decision(&mut *tx, id, &row)
         .await
         .map_err(|e| write_error(e, String::new))?;
+    if let Some(p) = &parts {
+        store::imports::set_splits(&mut tx, id, statement, position, p)
+            .await
+            .map_err(|e| write_error(e, String::new))?;
+    }
     // Merged into one transfer, or kept separate: the other side decides the same.
     if req.decision.is_some()
         && row.status == RowStatus::TransferMatch.as_str()
@@ -2060,7 +2170,7 @@ async fn set_row(
             store::imports::touch(&mut *tx, k.0).await?;
         }
     }
-    // A transfer chosen, or a decision made, may make or split a transfer
+    // A transfer chosen, or a decision made, may make or undo a transfer
     // match.
     rematch(&mut tx).await?;
     store::imports::touch(&mut *tx, id).await?;
@@ -2085,6 +2195,98 @@ async fn set_row(
         .ok_or_else(Problem::internal)?;
     tx.commit().await?;
     Ok((StatusCode::OK, etag(version), axum::Json(row)).into_response())
+}
+
+/// A row's parts as a request gives them, checked: two or more, each more
+/// than zero, adding up to the row's amount, with one other side each (not
+/// the statement's own account), and no category or purpose on a transfer
+/// that isn't a liquidation.
+async fn split_parts(
+    tx: &mut PgConnection,
+    id: Uuid,
+    row: &RowRow,
+    splits: Vec<RowSplit>,
+) -> Result<Vec<StagedSplit>, Problem> {
+    if splits.len() < 2 {
+        return Err(Problem::invalid(
+            "splits: two or more (unsplit, the row is one), or none",
+        ));
+    }
+    if splits.len() > MAX_SPLITS {
+        return Err(Problem::invalid(format!("splits: at most {MAX_SPLITS}")));
+    }
+    let account = store::imports::statements(&mut *tx, &[id])
+        .await?
+        .into_iter()
+        .find(|(_, s)| s.position == row.statement)
+        .and_then(|(_, s)| s.effective_account())
+        .ok_or_else(|| Problem::invalid("splits: pick the statement's account first"))?;
+    let accounts = suggestions::accounts(tx).await?;
+    let mut out = Vec::new();
+    for (i, p) in (1..).zip(splits) {
+        let amount = p.amount.as_decimal();
+        if amount <= Decimal::ZERO {
+            return Err(Problem::invalid(format!(
+                "split {i}: the amount must be more than zero"
+            )));
+        }
+        if let Some(a) = p.transfer_account_id {
+            if p.counterparty_id.is_some() {
+                return Err(Problem::invalid(format!(
+                    "split {i}: counterparty_id and transfer_account_id: one or the other"
+                )));
+            }
+            if a == account {
+                return Err(Problem::invalid(format!(
+                    "split {i}: transfer_account_id is the statement's own account"
+                )));
+            }
+            store::accounts::get(&mut *tx, a, false)
+                .await?
+                .ok_or_else(|| {
+                    Problem::invalid(format!("split {i}: transfer_account_id: no such account"))
+                })?;
+            if (p.category_id.is_some() || p.purpose_id.is_some())
+                && !suggest::labeled(
+                    &accounts,
+                    Some(account),
+                    row.amount,
+                    suggest::Value::Account(a),
+                )
+            {
+                return Err(Problem::invalid(format!(
+                    "split {i}: a transfer has no category or purpose"
+                )));
+            }
+        }
+        let description = p.description.map(|d| d.trim().to_owned());
+        if description
+            .as_ref()
+            .is_some_and(|d| d.chars().count() > 500)
+        {
+            return Err(Problem::invalid(format!(
+                "split {i}: description is at most 500 characters"
+            )));
+        }
+        out.push(StagedSplit {
+            statement: row.statement,
+            position: row.position,
+            amount,
+            counterparty_id: p.counterparty_id,
+            transfer_account_id: p.transfer_account_id,
+            category_id: p.category_id,
+            purpose_id: p.purpose_id,
+            description: description.filter(|d| !d.is_empty()),
+        });
+    }
+    let total: Decimal = out.iter().map(|p| p.amount).sum();
+    if total != row.amount.abs() {
+        return Err(Problem::invalid(format!(
+            "splits add up to {total}, the row is {}",
+            row.amount.abs()
+        )));
+    }
+    Ok(out)
 }
 
 /// Commit the import: all or nothing. Every row's status is worked out
@@ -2178,6 +2380,7 @@ async fn carry_out(
             .map(|p| ((p.import_id, p.statement, p.position), p))
             .collect()
     };
+    let splits = split_rows(tx, id).await?;
     let context = |r: &RowRow| -> Result<Context, Problem> {
         let s = statements
             .iter()
@@ -2189,6 +2392,7 @@ async fn carry_out(
             pair_account: pair_key(r)
                 .and_then(|k| pairs.get(&k))
                 .and_then(|p| p.account_id),
+            splits: parts(&splits, r),
         })
     };
     let mut lacking = Vec::new();
@@ -2295,6 +2499,13 @@ async fn carry_out(
                 decision.as_str()
             ))));
         }
+        let mine = parts(&splits, r);
+        if !mine.is_empty() && decision != Decision::New {
+            return Err(at_row(r)(Problem::conflict(format!(
+                "a split row is added as new, not {}: clear its splits first",
+                decision.as_str()
+            ))));
+        }
         let mut batch = async |tx: &mut PgConnection| -> Result<Uuid, Problem> {
             if let Some(b) = batch_id {
                 return Ok(b);
@@ -2369,6 +2580,33 @@ async fn carry_out(
                     }
                     t
                 }
+            }
+            Decision::New if !mine.is_empty() => {
+                let parts = mine
+                    .iter()
+                    .map(|p| {
+                        let quantity = Amount::from_decimal(p.amount);
+                        let mine = Leg::new(Some(account), None, s.commodity_id, quantity);
+                        let outside = Leg::new(
+                            p.transfer_account_id,
+                            p.counterparty_id,
+                            s.commodity_id,
+                            quantity,
+                        );
+                        let (from, to) = if r.amount.is_sign_negative() {
+                            (mine, outside)
+                        } else {
+                            (outside, mine)
+                        };
+                        NewSplit::new(from, to, p.purpose_id, p.category_id, p.description.clone())
+                    })
+                    .collect();
+                let req = NewTransaction::of(r.date, description, parts);
+                let b = batch(tx).await?;
+                let t = create_in(tx, principal, req, b).await.map_err(at_row(r))?;
+                out.created += 1;
+                // The row's suggestions didn't apply: no outcomes for them.
+                t.id()
             }
             Decision::New => {
                 let l = labels(r, &suggestions, &context(r)?);

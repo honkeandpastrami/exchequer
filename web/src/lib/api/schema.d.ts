@@ -2094,6 +2094,12 @@ export interface components {
 				raw: Record<string, never>;
 				/** @description The new transaction's description, if not the bank's. */
 				set_description?: string | null;
+				/**
+				 * @description The row split into parts, each a split of the new transaction; empty
+				 *     if it isn't split. A split row is added as new, and its labels are
+				 *     the parts': the row's own, and its suggestions, don't apply.
+				 */
+				splits: components['schemas']['RowSplit'][];
 				/** Format: int32 */
 				statement: number;
 				status: components['schemas']['RowStatus'];
@@ -2384,6 +2390,41 @@ export interface components {
 			transfer_match: number;
 		};
 		/**
+		 * @description One part of a row split before commit: a split of the new transaction
+		 *     between the statement's account and this part's other side.
+		 */
+		RowSplit: {
+			/**
+			 * @description Positive; the parts add up to the row's amount, unsigned.
+			 * @example 500.00
+			 */
+			amount: string;
+			/**
+			 * Format: uuid
+			 * @description Absent: none. Not for a transfer (unless a liquidation).
+			 */
+			category_id?: string | null;
+			/**
+			 * Format: uuid
+			 * @description Who's on the other side; with neither this nor
+			 *     `transfer_account_id`, outside the household, unknown who.
+			 */
+			counterparty_id?: string | null;
+			/** @description The split's own note, 1-500 characters. */
+			description?: string | null;
+			/**
+			 * Format: uuid
+			 * @description Absent: the account's owner. Not for a transfer (unless a
+			 *     liquidation).
+			 */
+			purpose_id?: string | null;
+			/**
+			 * Format: uuid
+			 * @description The other side when it's one of your accounts.
+			 */
+			transfer_account_id?: string | null;
+		};
+		/**
 		 * @description What a row would become.
 		 * @enum {string}
 		 */
@@ -2409,6 +2450,13 @@ export interface components {
 			 */
 			revert?: components['schemas']['Label'][];
 			set_description?: string | null;
+			/**
+			 * @description Split the row into these parts (two or more, adding up to its
+			 *     amount), each a split of the new transaction; `null` or `[]`: not
+			 *     split. Only for a row added as new that isn't a transfer match; a
+			 *     split row can't change its decision until the parts are cleared.
+			 */
+			splits?: components['schemas']['RowSplit'][] | null;
 			/**
 			 * Format: uuid
 			 * @description One of your accounts as the other side: the row is a transfer. It
@@ -2580,6 +2628,12 @@ export interface components {
 			raw: Record<string, never>;
 			/** @description The new transaction's description, if not the bank's. */
 			set_description?: string | null;
+			/**
+			 * @description The row split into parts, each a split of the new transaction; empty
+			 *     if it isn't split. A split row is added as new, and its labels are
+			 *     the parts': the row's own, and its suggestions, don't apply.
+			 */
+			splits: components['schemas']['RowSplit'][];
 			/** Format: int32 */
 			statement: number;
 			status: components['schemas']['RowStatus'];

@@ -423,7 +423,8 @@ Commit is refused while information is missing:
 
 - a statement has no account (neither its own nor a confident suggestion);
 - a row that will become a new transaction has a label that is neither yours nor
-  confidently suggested;
+  confidently suggested (a row split into parts has none of its own: the parts' labels
+  are all yours, and its suggestions don't apply);
 - a row's decision is neither yours nor confidently suggested.
 
 The web app marks such an import *Needs work*, disables *Commit* and links the rows that
@@ -431,7 +432,7 @@ need labels or a decision. The server enforces the same rule (`409`, problem typ
 `urn:exchequer:problem:labels-missing` and `…:decisions-missing`, naming the rows), so
 the command line leaves such an import staged, to finish in the web app.
 
-On commit, every suggestion for a committed row, its decision included, and every
+On commit, every suggestion for a committed row (but a split one's labels), its decision included, and every
 statement's suggested account, is recorded with what was actually committed (`suggestion_outcome`). This
 measures each suggester — how often a confident suggestion was kept, an old model
 against its replacement — and doesn't depend on the ledger: it stays if the
@@ -451,6 +452,8 @@ transactions are later edited or undone.
 - `PATCH /imports/{id}/rows/{statement}/{position}`: setting a label (to a value or
   `null`) makes it yours; `transfer_account_id` sets the other side to one of your
   accounts (the counterparty label, yours); `"revert": ["category"]` hands it back to its
-  suggestion. `"decision": "new"` on a transfer match splits it.
+  suggestion. `"decision": "new"` on a transfer match keeps its two sides separate.
+  `"splits": [...]` splits a row added as new into parts (two or more, adding up to its
+  amount), each with its own other side, category, purpose and note; `null` unsplits it.
 - `PATCH /imports/{id}/statements/{position}` with an `account_id` makes it the
   statement's own; with `null`, it goes back to the suggestion, if any.

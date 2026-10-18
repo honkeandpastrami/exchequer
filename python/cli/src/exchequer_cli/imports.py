@@ -153,6 +153,8 @@ def row_line(r: StagedRow, matched: str | None = None, names: Names | None = Non
     if not isinstance(m, Unset) and m is not None:
         account = names.accounts.get(m.account_id, "?") if names else str(m.account_id)
         text += f" with {account}: {m.date} {m.description!r}"
+    if r.splits:
+        text += f", split {len(r.splits)} ways"
     return text
 
 
@@ -326,6 +328,10 @@ class Importer:
                 continue
             match = r.match_transaction_id if isinstance(r.match_transaction_id, UUID) else None
             self.ui.say(row_line(r, self.matched(match) if match else None, self.names))
+            if r.splits:
+                # Added as new, as its parts: changed in the web app.
+                self.ui.say("    added as new; change its splits in the web app")
+                continue
             options = decisions_for(r.status)
             current = r.decision if isinstance(r.decision, Decision) else options[0]
             prompt = "    " + ", ".join(f"[{KEYS[d]}]{LABELS[d][1:]}" for d in options) + "?"

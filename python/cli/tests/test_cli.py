@@ -12,6 +12,7 @@ from exchequer_sdk.models import (
     Decision,
     LedgerBalance,
     RowCounts,
+    RowSplit,
     RowStatus,
     SkippedLine,
     StagedRow,
@@ -83,6 +84,7 @@ def test_a_row_and_what_it_can_become():
         suggestions=[],
         missing=[],
         not_applicable=[],
+        splits=[],
     )
     assert row_line(r, "2026-03-01 'Groceries'") == (
         "2026-03-02        -80.00  GROCER" + " " * 34 + "  near duplicate of 2026-03-01 'Groceries'"
@@ -100,6 +102,11 @@ def test_a_row_and_what_it_can_become():
     assert row_line(r, None, Names(accounts={CARD: "Alex · Card"})).endswith(
         "transfer match with Alex · Card: 2026-03-01 'PAYMENT'"
     )
+    # A split row says so.
+    r.status = RowStatus.NEW
+    r.transfer_match = None
+    r.splits = [RowSplit(amount="50.00"), RowSplit(amount="30.00")]
+    assert row_line(r).endswith("new, split 2 ways")
     assert decisions_for(RowStatus.NEW) == [Decision.NEW, Decision.SKIP]
     assert decisions_for(RowStatus.DUPLICATE)[0] == Decision.MATCH
     assert Decision.NEW not in decisions_for(RowStatus.DUPLICATE)

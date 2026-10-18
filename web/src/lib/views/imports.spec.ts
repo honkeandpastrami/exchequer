@@ -48,7 +48,8 @@ const row = (decision: Schemas['Decision'] | null): Schemas['StagedRow'] => ({
 	chosen: [],
 	suggestions: [],
 	missing: [],
-	not_applicable: []
+	not_applicable: [],
+	splits: []
 });
 
 const suggestion = (label: Schemas['Label'], confidence: number): Schemas['LabelSuggestion'] => ({
