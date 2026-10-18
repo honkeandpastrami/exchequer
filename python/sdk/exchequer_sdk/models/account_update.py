@@ -23,7 +23,7 @@ class AccountUpdate:
         archived (bool | None | Unset):
         credit_limit (CreditLimit | None | Unset):
         kind (AccountKind | None | Unset):
-        liquid (bool | None | Unset):
+        liquid (bool | None | Unset): A mortgage is never liquid.
         name (None | str | Unset):
     """
 

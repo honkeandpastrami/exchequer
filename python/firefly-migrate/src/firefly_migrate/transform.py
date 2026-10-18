@@ -339,22 +339,23 @@ class _Builder:
         if a_from and a_to:
             if a_from is a_to and from_commodity == to_commodity:
                 raise _Skip(f"{where}: moves {from_commodity} from {a_from.key} into itself")
-            transfer = from_commodity == to_commodity
-            liquidation = transfer and not a_from.is_liquid and a_to.is_liquid
+            # Into or out of an investment or a loan: an expense or income.
+            crossing = a_from.is_liquid != a_to.is_liquid
+            transfer = from_commodity == to_commodity and not crossing
             income_or_expense = False
             owned = None
         else:
-            liquidation = transfer = False
+            crossing = transfer = False
             income_or_expense = True
             owned = a_from or a_to
 
         purpose = category = None
-        if liquidation:
-            # Proceeds become shared by default (design §4.2).
+        if crossing:
+            # For the household by default (design §4.1).
             purpose = self.purpose(j, self.m.household, where)
             category = j.category
             if not self.quiet:
-                self.report.counts["liquidations"] += 1
+                self.report.counts["into or out of investments and loans"] += 1
         elif income_or_expense and owned is not None:
             category = j.category
             if owned.is_liquid:
@@ -366,11 +367,14 @@ class _Builder:
             self.note("dropped", f"budget {j.budget!r} on a {kind}", j.group_id)
 
         if category in self.m.drop_categories:
-            if income_or_expense or liquidation:
-                kind = "liquidation" if liquidation else "income/expense"
-                self.note("dropped", f"transfer-only category {category!r} on a {kind}", j.group_id)
+            if income_or_expense or crossing:
+                self.note(
+                    "dropped",
+                    f"transfer-only category {category!r} on an income/expense",
+                    j.group_id,
+                )
             category = None
-        kept_kind = income_or_expense or liquidation
+        kept_kind = income_or_expense or crossing
         if j.category and j.category not in self.m.drop_categories and not kept_kind:
             kind = "transfer" if transfer else "conversion"
             self.note("dropped", f"category {j.category!r} on a {kind}", j.group_id)

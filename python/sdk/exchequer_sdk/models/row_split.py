@@ -18,12 +18,13 @@ class RowSplit:
 
         Attributes:
             amount (str): Positive; the parts add up to the row's amount, unsigned. Example: 500.00.
-            category_id (None | Unset | UUID): Absent: none. Not for a transfer (unless a liquidation).
+            category_id (None | Unset | UUID): Absent: none. Not for a transfer (unless between a liquid and a
+                non-liquid account).
             counterparty_id (None | Unset | UUID): Who's on the other side; with neither this nor
                 `transfer_account_id`, outside the household, unknown who.
             description (None | str | Unset): The split's own note, 1-500 characters.
-            purpose_id (None | Unset | UUID): Absent: the account's owner. Not for a transfer (unless a
-                liquidation).
+            purpose_id (None | Unset | UUID): Absent: the account's owner (the household, between a liquid and a
+                non-liquid account). Not for a transfer.
             transfer_account_id (None | Unset | UUID): The other side when it's one of your accounts.
     """
 

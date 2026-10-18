@@ -59,10 +59,10 @@ pub struct Leg {
 pub struct NewSplit {
     from: Leg,
     to: Leg,
-    /// Who the money was for. Only on income/expense of liquid accounts and
-    /// on liquidations.
+    /// Who the money was for. Only on income and expenses of liquid
+    /// accounts.
     purpose_id: Option<Uuid>,
-    /// Only on income, expenses and liquidations.
+    /// Only on income and expenses.
     category_id: Option<Uuid>,
     description: Option<String>,
     /// Settlement payments only: the month (`YYYY-MM`) this payment settles,
@@ -108,10 +108,9 @@ pub struct Split {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, pattern = r"^[0-9]{4}-[0-9]{2}$", example = "2026-06")]
     settles: Option<Month>,
-    /// Read-only.
+    /// Read-only. Money between a liquid and a non-liquid account is an
+    /// expense (into it) or income (out of it).
     kind: Kind,
-    /// Read-only: a transfer from an investment account into a liquid one.
-    liquidation: bool,
 }
 
 /// Where a transaction came from outside Exchequer, such as its ID in the
@@ -310,7 +309,6 @@ fn output(
                 description: s.description,
                 settles: s.settles,
                 kind: c.kind.into(),
-                liquidation: c.liquidation,
             })
             .collect(),
         version,

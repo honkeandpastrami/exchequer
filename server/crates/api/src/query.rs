@@ -73,7 +73,8 @@ pub enum GroupBy {
     Account,
     Owner,
     /// The split's purpose, or its default (the account's owner for income
-    /// and expenses on liquid accounts, the household for liquidations).
+    /// and expenses on liquid accounts, the household for money between a
+    /// liquid and a non-liquid account).
     Purpose,
     Category,
     Counterparty,

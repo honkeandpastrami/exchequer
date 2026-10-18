@@ -77,15 +77,16 @@ def test_brokerage_accounts_collapse_and_a_sale_is_a_conversion(m):
     assert split.category is None
 
 
-def test_liquidation_defaults_to_household(m):
+def test_money_out_of_an_investment_defaults_to_household(m):
     j = journal(4, 1, "1000.00", type="transfer", category="Card Payment")
     split = only(plan(m, group(10, "2026-03-01", j))).splits[0]
     assert split.purpose == "Household"
     assert split.category is None  # transfer-only categories don't migrate
-    assert plan(m, group(10, "2026-03-01", j)).report.counts["liquidations"] == 1
+    counts = plan(m, group(10, "2026-03-01", j)).report.counts
+    assert counts["into or out of investments and loans"] == 1
 
 
-def test_payment_into_a_liability_becomes_a_transfer(m):
+def test_payment_into_a_mortgage_is_spending(m):
     j = journal(5, 6, "2000.00", budget="Shared", category="Mortgage")
     p = plan(m, group(10, "2026-03-01", j))
     split = only(p).splits[0]
@@ -93,11 +94,8 @@ def test_payment_into_a_liability_becomes_a_transfer(m):
         "Household · Joint Savings",
         "Household · Mortgage",
     )
-    assert (split.purpose, split.category) == (None, None)
-    assert set(p.report.dropped) == {
-        "budget 'Shared' on a transfer",
-        "category 'Mortgage' on a transfer",
-    }
+    assert (split.purpose, split.category) == ("Household", "Mortgage")
+    assert not p.report.dropped
 
 
 def test_dividends_from_the_cash_account_come_from_the_institution(m):

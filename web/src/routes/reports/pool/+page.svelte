@@ -62,7 +62,7 @@
 	{@const currency = ref.commodities.get(pool.currency_id)}
 	{@const code = currency?.code}
 	{@const none = zero(currency?.precision ?? 0)}
-	{@const income = sum([none, ...pool.income.map((l) => l.amount), pool.liquidations])}
+	{@const income = sum([none, ...pool.income.map((l) => l.amount)])}
 	{@const spent = negate(sum([none, ...pool.expenses.map((l) => l.amount)]))}
 	<section class="totals">
 		<div class="card stat">
@@ -87,10 +87,6 @@
 			{:else}
 				<p class="muted">None.</p>
 			{/if}
-			<p class="line">
-				<span>Investment proceeds made shared</span>
-				<Amount value={pool.liquidations} />
-			</p>
 		</section>
 		<section class="card">
 			<h2>Spending</h2>

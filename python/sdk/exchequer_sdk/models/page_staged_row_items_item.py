@@ -57,7 +57,8 @@ class PageStagedRowItemsItem:
         set_description (None | str | Unset): The new transaction's description, if not the bank's.
         suggested_decision (DecisionSuggestion | None | Unset):
         transfer_account_id (None | Unset | UUID): The other side when it's one of your accounts: the row is a transfer,
-            whose category and purpose don't apply (unless it's a liquidation).
+            whose category and purpose don't apply (unless one account is liquid
+            and the other isn't: an expense or income).
             A transfer match's is its other side's account.
         transfer_match (None | TransferMatch | Unset):
     """

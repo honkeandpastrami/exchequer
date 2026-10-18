@@ -320,11 +320,11 @@ fn classify(row, s) {
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
-async fn a_liquidation_keeps_its_purpose(pool: PgPool) {
+async fn money_out_of_an_investment_keeps_its_labels(pool: PgPool) {
     let h = H::new(&pool).await;
     let file = "Date,Description,Amount\n03/10/2026,FROM BROKERAGE,10000.00\n";
     let checking = upload(&pool, &h, &h.alex_checking, file).await;
-    // From an investment account into a liquid one: it still needs a
+    // From an investment account into a liquid one: income, which needs a
     // purpose and a category (design §4.1).
     let r = set_row(
         &pool,

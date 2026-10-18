@@ -21,10 +21,7 @@
 			reference(),
 			api.GET('/api/v1/settlements/{month}/statement', { params: { path: { month } } }).then(ok)
 		]);
-		const ids = statement.edges.flatMap((e) => [
-			...(e.lines ?? []).map((l) => l.transaction_id),
-			...(e.in_transit ?? []).map((t) => t.transaction_id)
-		]);
+		const ids = statement.edges.flatMap((e) => (e.lines ?? []).map((l) => l.transaction_id));
 		const txs = await transactionsById(ids);
 		return { month, ref, statement, txs };
 	}
@@ -48,8 +45,7 @@
 		['stipend', 'Stipend'],
 		['due', 'Due'],
 		['paid', 'Paid'],
-		['outstanding', 'Outstanding'],
-		['to_settle', 'To settle']
+		['outstanding', 'Outstanding']
 	] as const;
 
 	function split(txs: Map<string, Schemas['Transaction']>, p: Schemas['SplitPointer']) {
@@ -134,22 +130,6 @@
 										</div>
 									{/if}
 								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			{/if}
-
-			{#if e.in_transit?.length}
-				<h3>In transit</h3>
-				<table>
-					<tbody>
-						{#each e.in_transit as t (`${t.transaction_id}/${t.position}`)}
-							<tr>
-								<td class="date">{t.date}</td>
-								<td>{split(txs, t).tx?.description ?? '?'}</td>
-								<td class="muted">{t.cleared_by ? 'cleared' : 'not cleared yet'}</td>
-								<td class="num"><Amount value={t.amount} /></td>
 							</tr>
 						{/each}
 					</tbody>

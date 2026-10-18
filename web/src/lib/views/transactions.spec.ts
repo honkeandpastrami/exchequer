@@ -39,7 +39,6 @@ const split = (
 			? { counterparty_id: to, commodity_id: 'usd', quantity }
 			: { account_id: to, commodity_id: 'usd', quantity },
 	kind: 'expense',
-	liquidation: false,
 	category_id
 });
 const tx = (splits: Schemas['Split'][]): Schemas['Transaction'] => ({

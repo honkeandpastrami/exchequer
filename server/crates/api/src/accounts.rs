@@ -89,8 +89,9 @@ pub struct Account {
     kind: AccountKind,
     /// The party the account belongs to.
     owner_id: Uuid,
-    /// Investment accounts are not liquid; activity inside them is never
-    /// shared (design §4.1).
+    /// Investment accounts and mortgages are not liquid: activity inside them
+    /// is never shared, and money into or out of them is an expense or
+    /// income (design §4.1).
     liquid: bool,
     /// Kept for history, hidden from everyday views.
     archived: bool,
@@ -202,7 +203,8 @@ pub struct NewAccount {
     name: String,
     kind: AccountKind,
     owner_id: Uuid,
-    /// Defaults to `false` for brokerage accounts, `true` otherwise.
+    /// Defaults to `false` for brokerage accounts, `true` otherwise. A
+    /// mortgage is never liquid.
     liquid: Option<bool>,
     #[serde(default)]
     archived: bool,
@@ -215,6 +217,7 @@ pub struct NewAccount {
 pub struct AccountUpdate {
     name: Option<String>,
     kind: Option<AccountKind>,
+    /// A mortgage is never liquid.
     liquid: Option<bool>,
     archived: Option<bool>,
     /// `null` removes the limit.
@@ -257,6 +260,18 @@ async fn get(State(state): State<AppState>, Path(id): Path<Uuid>) -> Result<Resp
     Ok(respond(StatusCode::OK, &load(&mut db, row).await?))
 }
 
+/// Whether an account of `kind` is liquid: as asked, else `default`. A
+/// mortgage never is (design §4.1).
+fn liquidity(kind: AccountKind, asked: Option<bool>, default: bool) -> Result<bool, Problem> {
+    if kind != AccountKind::Mortgage {
+        return Ok(asked.unwrap_or(default));
+    }
+    if asked == Some(true) {
+        return Err(Problem::invalid("liquid: a mortgage is never liquid"));
+    }
+    Ok(false)
+}
+
 /// Create a account.
 #[utoipa::path(post, path = "/accounts", tag = "accounts", security(("bearer" = [])),
     request_body = NewAccount,
@@ -273,7 +288,7 @@ async fn create(
         name: valid_name(&req.name)?.to_owned(),
         kind: req.kind,
         owner_id: req.owner_id,
-        liquid: req.liquid.unwrap_or(req.kind != AccountKind::Brokerage),
+        liquid: liquidity(req.kind, req.liquid, req.kind != AccountKind::Brokerage)?,
         archived: req.archived,
         credit_limit: req.credit_limit,
         numbers: Vec::new(),
@@ -340,7 +355,7 @@ async fn update(
             None => before.name.clone(),
         },
         kind: req.kind.unwrap_or(before.kind),
-        liquid: req.liquid.unwrap_or(before.liquid),
+        liquid: liquidity(req.kind.unwrap_or(before.kind), req.liquid, before.liquid)?,
         archived: req.archived.unwrap_or(before.archived),
         credit_limit: match req.credit_limit {
             Some(new) => new,

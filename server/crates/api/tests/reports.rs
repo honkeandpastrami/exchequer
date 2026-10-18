@@ -89,7 +89,6 @@ async fn june_and_july(h: &H, pool: &PgPool) -> String {
     for s in body["splits"].as_array_mut().unwrap() {
         let s = s.as_object_mut().unwrap();
         s.remove("kind");
-        s.remove("liquidation");
     }
     let r = common::call(pool, "PUT", &path)
         .token(&h.t)
@@ -266,7 +265,8 @@ async fn balances(pool: PgPool) {
 async fn household_pool(pool: PgPool) {
     let h = H::new(&pool).await;
     let groceries = june_and_july(&h, &pool).await;
-    // A liquidation into Joint Savings, and funding for Studio.
+    // Money out of an investment into Joint Savings (income), and funding
+    // for Studio.
     h.tx(
         &pool,
         "2026-06-25",
@@ -290,13 +290,13 @@ async fn household_pool(pool: PgPool) {
     let p = &r.body;
     assert_eq!(
         p["income"],
-        json!([{ "category_id": null, "amount": "3000.00" }])
+        json!([{ "category_id": null, "amount": "3500.00" }])
     );
     assert_eq!(
         p["expenses"],
         json!([{ "category_id": groceries, "amount": "-80.00" }])
     );
-    assert_eq!(p["liquidations"], "500.00");
+    assert!(p.get("liquidations").is_none());
     assert_eq!(
         p["stipends"],
         json!([{ "party_id": h.alex, "amount": "650.00" }])

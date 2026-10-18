@@ -5599,7 +5599,7 @@
           },
           "liquid": {
             "type": "boolean",
-            "description": "Investment accounts are not liquid; activity inside them is never\nshared (design §4.1)."
+            "description": "Investment accounts and mortgages are not liquid: activity inside them\nis never shared, and money into or out of them is an expense or\nincome (design §4.1)."
           },
           "name": {
             "type": "string"
@@ -5737,7 +5737,8 @@
             "type": [
               "boolean",
               "null"
-            ]
+            ],
+            "description": "A mortgage is never liquid."
           },
           "name": {
             "type": [
@@ -6543,7 +6544,6 @@
           "paid",
           "carried",
           "outstanding",
-          "to_settle",
           "implied_stipend"
         ],
         "properties": {
@@ -6567,15 +6567,6 @@
             "type": "string",
             "description": "`claims − paid`: the stipend that would explain the payments made."
           },
-          "in_transit": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/InTransit"
-            }
-          },
           "lines": {
             "type": [
               "array",
@@ -6587,7 +6578,7 @@
           },
           "outstanding": {
             "type": "string",
-            "description": "`carried + due − paid` (and in-transit proceeds): everything up to\nthe end of this month."
+            "description": "`carried + due − paid`: everything up to the end of this month, the\ntransfer to make (positive: the child pays)."
           },
           "paid": {
             "type": "string",
@@ -6600,10 +6591,6 @@
           "stipend": {
             "type": "string",
             "description": "What the parent owes the child as stipends this month."
-          },
-          "to_settle": {
-            "type": "string",
-            "description": "`outstanding` without the proceeds still in transit: the regular\ntransfer to make (positive: the child pays)."
           }
         }
       },
@@ -6708,12 +6695,11 @@
       },
       "HouseholdPool": {
         "type": "object",
-        "description": "The household's month (design §4.3), in USD. Income, expenses,\nliquidations and savings count only amounts in USD; stipends and business\nfunding come from the settlement, which values other commodities at\nprices.",
+        "description": "The household's month (design §4.3), in USD. Income, expenses and\nsavings count only amounts in USD; stipends and business\nfunding come from the settlement, which values other commodities at\nprices.",
         "required": [
           "month",
           "currency_id",
           "income",
-          "liquidations",
           "expenses",
           "stipends",
           "business_funding",
@@ -6736,18 +6722,14 @@
             "items": {
               "$ref": "#/components/schemas/CategoryAmount"
             },
-            "description": "Spending for the household, by category (negative)."
+            "description": "Spending for the household, by category (negative). Money into an\ninvestment or a loan (a mortgage's principal) counts."
           },
           "income": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CategoryAmount"
             },
-            "description": "Income for the household, by category (positive)."
-          },
-          "liquidations": {
-            "type": "string",
-            "description": "Investment proceeds that became shared (positive)."
+            "description": "Income for the household, by category (positive). Money out of an\ninvestment into a liquid account counts."
           },
           "month": {
             "type": "string",
@@ -6933,51 +6915,6 @@
             "description": "The row's fields as that file had them."
           }
         }
-      },
-      "InTransit": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/SplitPointer"
-          },
-          {
-            "type": "object",
-            "required": [
-              "date",
-              "amount"
-            ],
-            "properties": {
-              "amount": {
-                "type": "string"
-              },
-              "cleared_by": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/SplitPointer",
-                    "description": "The payment that cleared it by the end of the month."
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "date": {
-                "type": "string",
-                "format": "date"
-              },
-              "valuation": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/ValuationOut",
-                    "description": "For a split with no leg in USD: the price that valued it."
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
-            }
-          }
-        ]
       },
       "Kind": {
         "type": "string",
@@ -7170,9 +7107,7 @@
         "type": "string",
         "enum": [
           "claim",
-          "in_transit",
-          "payment",
-          "clearing"
+          "payment"
         ]
       },
       "Measure": {
@@ -7285,7 +7220,7 @@
               "boolean",
               "null"
             ],
-            "description": "Defaults to `false` for brokerage accounts, `true` otherwise."
+            "description": "Defaults to `false` for brokerage accounts, `true` otherwise. A\nmortgage is never liquid."
           },
           "name": {
             "type": "string"
@@ -7484,7 +7419,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Only on income, expenses and liquidations."
+            "description": "Only on income and expenses."
           },
           "description": {
             "type": [
@@ -7501,7 +7436,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Who the money was for. Only on income/expense of liquid accounts and\non liquidations."
+            "description": "Who the money was for. Only on income and expenses of liquid\naccounts."
           },
           "settles": {
             "type": [
@@ -7656,7 +7591,7 @@
                 },
                 "liquid": {
                   "type": "boolean",
-                  "description": "Investment accounts are not liquid; activity inside them is never\nshared (design §4.1)."
+                  "description": "Investment accounts and mortgages are not liquid: activity inside them\nis never shared, and money into or out of them is an expense or\nincome (design §4.1)."
                 },
                 "name": {
                   "type": "string"
@@ -8353,7 +8288,7 @@
                     "null"
                   ],
                   "format": "uuid",
-                  "description": "The other side when it's one of your accounts: the row is a transfer,\nwhose category and purpose don't apply (unless it's a liquidation).\nA transfer match's is its other side's account."
+                  "description": "The other side when it's one of your accounts: the row is a transfer,\nwhose category and purpose don't apply (unless one account is liquid\nand the other isn't: an expense or income).\nA transfer match's is its other side's account."
                 },
                 "transfer_match": {
                   "oneOf": [
@@ -9126,7 +9061,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Absent: none. Not for a transfer (unless a liquidation)."
+            "description": "Absent: none. Not for a transfer (unless between a liquid and a\nnon-liquid account)."
           },
           "counterparty_id": {
             "type": [
@@ -9149,7 +9084,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Absent: the account's owner. Not for a transfer (unless a\nliquidation)."
+            "description": "Absent: the account's owner (the household, between a liquid and a\nnon-liquid account). Not for a transfer."
           },
           "transfer_account_id": {
             "type": [
@@ -9485,8 +9420,7 @@
         "required": [
           "from",
           "to",
-          "kind",
-          "liquidation"
+          "kind"
         ],
         "properties": {
           "category_id": {
@@ -9507,11 +9441,7 @@
           },
           "kind": {
             "$ref": "#/components/schemas/Kind",
-            "description": "Read-only."
-          },
-          "liquidation": {
-            "type": "boolean",
-            "description": "Read-only: a transfer from an investment account into a liquid one."
+            "description": "Read-only. Money between a liquid and a non-liquid account is an\nexpense (into it) or income (out of it)."
           },
           "purpose_id": {
             "type": [
@@ -9708,7 +9638,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "The other side when it's one of your accounts: the row is a transfer,\nwhose category and purpose don't apply (unless it's a liquidation).\nA transfer match's is its other side's account."
+            "description": "The other side when it's one of your accounts: the row is a transfer,\nwhose category and purpose don't apply (unless one account is liquid\nand the other isn't: an expense or income).\nA transfer match's is its other side's account."
           },
           "transfer_match": {
             "oneOf": [

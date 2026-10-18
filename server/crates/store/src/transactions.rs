@@ -356,7 +356,7 @@ pub struct DatedSplit {
 }
 
 /// Every split that can matter to the settlement: those with a purpose, and
-/// those between two accounts (transfers, liquidations).
+/// those between two accounts.
 pub async fn settlement_splits(db: impl PgExecutor<'_>) -> Result<Vec<DatedSplit>, sqlx::Error> {
     let rows = sqlx::query!(
         "SELECT t.date, s.transaction_id, s.position,

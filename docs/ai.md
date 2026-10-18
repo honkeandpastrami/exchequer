@@ -30,8 +30,8 @@ transfer, never an expense plus an income.
   counterparty, or **one of your accounts** — the row is then a transfer. Every level can
   suggest an account there, and you can choose one in review. A transfer has no category
   and no purpose (design §3.2), so once its other side is settled as an account, those
-  are settled as none and not asked; a liquidation (from an investment account into a
-  liquid one) keeps them.
+  are settled as none and not asked. Between a liquid and a non-liquid account it's an
+  expense or income (design §3.2), which keeps them.
 - **Potential transfer matches.** Each row comes with the rows of every staged import
   (this file's other statements, other files) that could be the other side of it: in
   another of your accounts, with the opposite amount in the same currency, dated within 5

@@ -74,7 +74,7 @@ Where outside data comes from:
 | **Account** | Something of **yours** that holds value | Required **`owner`** (a Party) and a **`liquid`** flag (investment accounts aren't liquid, §4.1). Checking, savings, credit card, brokerage, mortgage, cash. It has **no fixed currency** and holds any commodities. `kind` only affects display: sign convention, icon, credit-card metadata such as the credit limit. Import metadata: the account numbers bank files name it by. A card whose payments and purchases arrive under two numbers simply has both; a number belongs to one account only. |
 | **Counterparty** | Anyone **outside** you | Merchants, employers, utilities, tax agencies. It has **no direction**: the same store is where you spend and who refunds you. Cheap to create (imports create them), mergeable, with *aliases* (raw bank strings → canonical name). Two system counterparties: `Opening balances` and `Reconciliation`. |
 | **Transaction** | One real-world event | Date, description, notes, tags, provenance (import batch, raw row, external IDs). Contains one or more splits. |
-| **Split** | One movement inside a transaction | A **from-leg** and a **to-leg**, each `(account or counterparty, commodity, quantity)`; an outside leg may leave the counterparty unknown (none, never a placeholder name), plus **`purpose`** (a Party: *who is this money for?*), `category`, `bill`, and an optional own description. Purpose and category apply only to income/expense and liquidations, never to transfers or conversions. |
+| **Split** | One movement inside a transaction | A **from-leg** and a **to-leg**, each `(account or counterparty, commodity, quantity)`; an outside leg may leave the counterparty unknown (none, never a placeholder name), plus **`purpose`** (a Party: *who is this money for?*), `category`, `bill`, and an optional own description. Purpose and category apply only to income and expenses, never to transfers or conversions. |
 | **Category / Tag** | Classification | A category is the *class* of an income or expense (Groceries, Salary), never where the money went. Tags are free-form (trips, projects). There are **no budgets**: owner and purpose do the job budgets were often used for. |
 | **Settlement** | One month's closing | `(month, status: open/closed, closed_at)`, the month's **stipend per person** and **funder per business** (set by the client before closing), plus links to the transfers that paid it. Amounts are always computed live; nothing is frozen (§4.4). |
 | **Price** | `1 BASE = rate QUOTE` on a date | Sources: `provider:<name>` or `manual`. Records `fetched_at`, and whether it's *provisional* (a day still in progress). Covers FX and security quotes alike. |
@@ -95,10 +95,17 @@ is on each side of a split:
 |---|---|---|
 | yours | external | expense |
 | external | yours | income |
-| yours | yours, same commodity | transfer |
-| yours | yours, different commodity | conversion |
+| yours, liquid | yours, not liquid (an investment, a mortgage) | expense |
+| yours, not liquid | yours, liquid | income |
+| yours | yours, same commodity, both liquid or both not | transfer |
+| yours | yours, different commodity, both liquid or both not | conversion |
 | yours | a system counterparty, or the reverse | adjustment |
 | external | external | *rejected: doesn't involve you* |
+
+Money into an investment or a loan is gone for a long time, so for all practical purposes
+it's spent: putting savings in a brokerage or paying down a mortgage is an expense, and
+taking money out of an investment is income. On the non-liquid account's side it's only
+money arriving or leaving; reports count it once, on the liquid side (§7).
 
 An **adjustment** sets or corrects a balance: an opening balance (a debt's leaves the
 account, an asset's enters it) or a reconciliation. It isn't money earned or spent, so
@@ -134,7 +141,9 @@ other. The ledger has one invariant:
 | Warehouse store, split | Alex Credit → Store 120 *(Groceries)*; Alex Credit → Store 45 *(Home supplies)* | expense ×2 |
 | Refund | Store (USD 30) → Alex Credit | income, nets against its category |
 | Card payment | Alex Checking (USD 500) → Alex Credit | transfer |
-| Mortgage payment | Joint Savings → Mortgage *(principal)*; Joint Savings → Lender *(interest)* | transfer + expense |
+| Mortgage payment | Joint Savings → Mortgage *(principal)*; Joint Savings → Lender *(interest)* | expense ×2 |
+| Invest savings | Joint Savings (USD 5,000) → Joint Brokerage | expense |
+| Sell and withdraw | Alex Brokerage (USD 10,000) → Alex Checking | income |
 | Stock vest | Employer (ACME 10) → Alex Brokerage | income, valued in USD at the vest-date price |
 | Sell stock | Alex Brokerage (ACME 10) → Alex Brokerage (USD 1,500) | conversion, same account |
 | Buy fund | Joint Brokerage (USD 1,000) → Joint Brokerage (VTI 4) | conversion |
@@ -286,17 +295,20 @@ data through side channels:
   Account; *Sam* owns Sam Checking and Sam Credit; *Studio* owns Studio Checking and Studio
   Credit.
 - **Liquid vs. investment (per account).** Checking, savings, credit cards and cash are
-  *liquid*; brokerages are *investment* accounts. Investments are never shared while they
-  stay invested: activity inside them (vests, dividends, buys, sells, fees) has no purpose
-  and doesn't enter the settlement.
+  *liquid*; brokerages are *investment* accounts, and a mortgage is never liquid.
+  Investments are never shared while they stay invested: activity inside them (vests,
+  dividends, buys, sells, fees) has no purpose and doesn't enter the settlement. Money
+  into or out of them is an expense or income (§3.2), for the Household by default.
 - **Totals (display).** Balances are added up apart for *liquid* accounts, *investments*
-  (not liquid) and *loans* (mortgages, whatever their flag: large and slow, they'd hide
-  the rest), and mixed only in a **Net** line.
+  (not liquid) and *loans* (mortgages: large and slow, they'd hide the rest), and mixed
+  only in a **Net** line.
 - **Purpose (per split, the manual part).** The party the money was *for*. It applies only to
-  income and expenses on liquid accounts, and to *liquidations* (below). Transfers and
+  income and expenses on liquid accounts (money into or out of an investment included).
+  Transfers and
   conversions have no purpose and no category, because they don't change how much anyone
   has.
-- **Defaults:** a split's purpose defaults to its account's owner. Household accounts need
+- **Defaults:** a split's purpose defaults to its account's owner; money into or out of an
+  investment or a loan, to the Household. Household accounts need
   almost no review. On personal accounts, where a large share of spending is often
   household spending, the purpose is **predicted** (§8).
 
@@ -312,7 +324,8 @@ split no price connects to USD is listed as unpriced and left out.
 | Income/expense where owner ≠ purpose | Groceries on Alex Credit, purpose Household | Household owes Alex $80 |
 | | Salary into Alex Checking, purpose Household | Alex owes Household the salary |
 | | Studio supplies on Sam Credit, purpose Studio | Studio owes Sam |
-| **Liquidation**: transfer from an investment account into a liquid one | Alex Brokerage → Joint Savings, $10,000 | Treated like income with a purpose, **default Household**. Landing in a Household account, it simply *becomes shared*: no claim. Landing in Alex Checking with purpose Household, Alex owes it to the Household. |
+| Money out of an investment (income), purpose **default Household** | Alex Brokerage → Joint Savings, $10,000 | Landing in a Household account, it simply *becomes shared*: no claim. Landing in Alex Checking, Alex owes it to the Household, until moved on (a settlement payment) |
+| Money into an investment or a loan (an expense), purpose **default Household** | Alex Checking → Mortgage *(principal)* | The Household owes Alex |
 | **Settlement payment**: any other transfer between liquid accounts of different owners | Alex Checking → Joint Savings; Joint Savings → Sam Checking; Alex → Sam directly; Joint Savings → Studio Checking | Counts as *paid* against the claims between those parties |
 | **Stipend** | set per person each month (§4.3) | Household owes the person their stipend |
 | Owner = purpose, transfers within one owner, conversions, investment activity | — | none |
@@ -322,9 +335,8 @@ them. Sam paying a Studio expense is routed Studio → Household → Sam while S
 household-funded, and directly Studio → Sam if Sam becomes the funder. Moving a business
 only changes which edges its claims cross.
 
-**Mortgage.** A Household-owned mortgage paid from Joint Savings is Household → Household
-and never enters the settlement. A payment from a personal account counts as that person
-paying for the Household.
+**Mortgage.** Its principal is Household spending. Paid from Joint Savings it never enters
+the settlement; paid from a personal account, the Household owes that person.
 
 ### 4.3 The monthly statement and close
 
@@ -342,12 +354,6 @@ outstanding_c = Σ over all months (due − paid) = carried + due − paid
   business edge's `outstanding` is its **net funding** ("the Household has put $X into
   Studio").
 - **Refunds** net automatically: a refund is income with the original expense's purpose.
-- **Investment proceeds in transit.** A liquidation landing in a *personal* account (purpose
-  Household by default) is shown as its own line, "investment proceeds in transit: $X", not
-  mixed into the regular due. It clears when (a) the money moves on to a Household account
-  (matched by amount, not counted as a regular settlement payment), (b) a large household
-  expense offsets it, or (c) the user marks the liquidation *personal* in review. An
-  uncleared line carries forward as a reminder.
 - **Household pool view:** household income, household expenses by category, stipends, net
   business funding, and the resulting change in shared savings.
 
@@ -356,7 +362,7 @@ does it closes the month.
 
 1. Import the month's files for every account (§6).
 2. **Purpose review queue:** income/expense splits on person- and business-owned liquid
-   accounts, liquidations, and anything with low confidence. Rows come pre-filled by the
+   accounts, money into or out of investments, and anything with low confidence. Rows come pre-filled by the
    classifier (§8) with confidence and reason. Keys: `h` household, `p` account owner, `b`
    business, `enter` accept, plus *accept all above a threshold*. Rows are grouped by
    counterparty, so "all 40 grocery charges" is one decision.
@@ -446,8 +452,9 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
 4. **Transfers.** A card payment appears in both the checking and the card file; it's one
    transfer, never an expense plus an income.
    - *The other side* of a row is a counterparty or, for a transfer, one of your accounts:
-     chosen in review, or suggested (§8). A transfer has no category or purpose, unless
-     it's a liquidation (§3.2, §4.1).
+     chosen in review, or suggested (§8). A transfer has no category or purpose; between a
+     liquid and a non-liquid account it's an expense or income, which has them (§3.2,
+     §4.1).
    - *Potential transfer matches:* each row's rows in your other accounts, in any staged
      import (this file's other statements, other files), with the opposite amount in the
      same commodity, dated within 5 days. Every suggestion level sees them
@@ -577,7 +584,8 @@ takes, the API) is in [`docs/ai.md`](ai.md).
   (#9).
 - **Transfers are suggested like anything else:** the counterparty label is the row's
   *other side*, a counterparty or one of your accounts. Once it's settled as an account,
-  the row's category and purpose are settled as none (unless it's a liquidation). Every
+  the row's category and purpose are settled as none (unless one account is liquid and
+  the other isn't: then it's an expense or income). Every
   level sees each row's potential transfer matches in other staged files (§6.4), and
   local AI learns from past transfers. Pairing two staged rows into one transfer is then a
   rule, not a suggestion (§6.4).
@@ -734,8 +742,8 @@ until the output is right, and migrates **one calendar year at a time**.
     Conflicting labels are listed in the report. Budgets and the encoding tags are then
     retired.
   - **Settlement history:** transfers between personal accounts and shared savings become
-    settlement payments linked to their month; transfers out of investment accounts become
-    liquidations; transfers to a business are funding.
+    settlement payments linked to their month; transfers into or out of investments and
+    mortgages become expenses and income; transfers to a business are funding.
   - **Categories, tags and bills** carry over. **Not migrated:** budgets, piggy banks, and
     categories that only restate a transfer. Firefly rules are not carried over: the rules
     script starts empty (§8).
@@ -1006,11 +1014,11 @@ The components are independent behind the API contract, but they have a natural 
 | 10 | Balance checks | One user-entered number, optionally dated; mismatches go to the discrepancy finder | §7.1 |
 | 11 | Stipend | Set per person when closing each month | §4.3 |
 | 12 | Businesses | Their own party and settlement; the funder is set per month | §4.1 |
-| 13 | Investments | Not shared while invested; shared once liquidated into a liquid account | §4.1, §4.2 |
+| 13 | Investments | Not shared while invested; money into or out of them (a mortgage too) is an expense or income, for the Household by default | §3.2, §4.1, §4.2 |
 | 14 | Transfers between people | Settlement payments | §4.2 |
 | 15 | Privacy within the household | Everyone sees and edits everything | §10 |
-| 16 | Liquidations into personal accounts | Default purpose Household, shown as "in transit" lines cleared by matching | §4.3 |
-| 17 | Mortgage | Household-owned; paid from shared accounts it's outside the settlement | §4.2 |
+| 16 | Investment proceeds into personal accounts | Household income by default: a claim like any other, settled when moved on | §4.2 |
+| 17 | Mortgage | Household-owned and never liquid; its principal is spending | §3.2, §4.2 |
 | 18 | Stack | Rust server; Python CLI and migration; TypeScript + SvelteKit web app | §15 |
 | 19 | Code organization | One public monorepo; household data in the DB; deployment config private | §16 |
 | 20 | License | BSD-2-Clause, no GPL dependencies | §16.4 |

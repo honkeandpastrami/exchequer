@@ -81,11 +81,13 @@ fn postings_carry_signs_and_default_purposes() {
             // Transfers: two postings, no purpose.
             (h.alex_checking, "-85".into(), None),
             (h.alex_credit, "85".into(), None),
-            // Liquidations: the household by default.
-            (h.alex_brokerage, "-900".into(), Some(h.household)),
+            // Out of an investment: income for the household by default,
+            // on the liquid side only; a transfer on the investment's.
+            (h.alex_brokerage, "-900".into(), None),
             (h.joint_savings, "900".into(), Some(h.household)),
         ]
     );
+    assert_eq!((ps[4].kind, ps[5].kind), (Kind::Transfer, Kind::Income));
     assert_eq!(ps[0].counterparty, Some(h.store));
     assert_eq!(ps[2].counterparty, None);
 }

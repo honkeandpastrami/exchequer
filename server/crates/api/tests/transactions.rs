@@ -158,10 +158,8 @@ async fn kinds_are_derived(pool: PgPool) {
         .await;
     assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
     let split = &r.body["splits"][0];
-    assert_eq!(
-        (split["kind"].as_str(), split["liquidation"].as_bool()),
-        (Some("expense"), Some(false))
-    );
+    assert_eq!(split["kind"], "expense");
+    assert!(split.get("liquidation").is_none());
     // Amounts come back as the exact strings that went in.
     assert_eq!(split["from"]["quantity"], "80.00");
     assert_eq!(r.body["tags"], json!(["food", "weekly"]));
@@ -173,45 +171,45 @@ async fn kinds_are_derived(pool: PgPool) {
             account(&h.alex_checking, &h.usd, "500"),
             account(&h.alex_credit, &h.usd, "500"),
             "transfer",
-            false,
         ),
         // Refund.
         (
             external(&h.store, &h.usd, "30"),
             account(&h.alex_credit, &h.usd, "30"),
             "income",
-            false,
         ),
         // Sell stock inside one account.
         (
             account(&h.alex_brokerage, &h.acme, "10"),
             account(&h.alex_brokerage, &h.usd, "1500"),
             "conversion",
-            false,
         ),
         // FX exchange.
         (
             account(&h.alex_checking, &h.usd, "1100"),
             account(&h.alex_checking, &h.eur, "1000"),
             "conversion",
-            false,
         ),
         // Outside the household, unknown who.
         (
             account(&h.alex_credit, &h.usd, "12"),
             json!({ "commodity_id": h.usd, "quantity": "12" }),
             "expense",
-            false,
         ),
-        // Liquidation into a shared account.
+        // Out of an investment into a liquid account: income.
         (
             account(&h.alex_brokerage, &h.usd, "10000"),
             account(&h.joint_savings, &h.usd, "10000"),
-            "transfer",
-            true,
+            "income",
+        ),
+        // Into it: an expense.
+        (
+            account(&h.joint_savings, &h.usd, "5000"),
+            account(&h.alex_brokerage, &h.usd, "5000"),
+            "expense",
         ),
     ];
-    for (from, to, kind, liquidation) in cases {
+    for (from, to, kind) in cases {
         let r = h
             .post(
                 &pool,
@@ -220,7 +218,6 @@ async fn kinds_are_derived(pool: PgPool) {
             .await;
         assert_eq!(r.status, StatusCode::CREATED, "{kind}: {}", r.body);
         assert_eq!(r.body["splits"][0]["kind"], kind);
-        assert_eq!(r.body["splits"][0]["liquidation"], liquidation);
     }
 }
 

@@ -32,8 +32,8 @@ pub struct Leg {
 pub struct Split {
     pub from: Leg,
     pub to: Leg,
-    /// Who the money was for. Only on income/expense of liquid accounts and
-    /// on liquidations (design §4.1).
+    /// Who the money was for. Only on income and expenses of liquid
+    /// accounts (design §4.1).
     pub purpose: Option<PartyId>,
     /// The class of an income or expense. Never on transfers or conversions.
     pub category: Option<CategoryId>,
@@ -58,13 +58,15 @@ pub struct Transaction {
 /// Computed from who is on each side of a split; never stored or entered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
-    /// Yours → external.
+    /// Yours → external, or a liquid account → a non-liquid one: money you
+    /// can't use any more (design §4.1).
     Expense,
-    /// External → yours.
+    /// External → yours, or a non-liquid account → a liquid one.
     Income,
-    /// Yours → yours, same commodity.
+    /// Yours → yours, same commodity, both liquid or both not.
     Transfer,
-    /// Yours → yours, different commodities (possibly within one account).
+    /// Yours → yours, different commodities (possibly within one account),
+    /// both liquid or both not.
     Conversion,
     /// Yours ↔ a system counterparty (`Opening balances`, `Reconciliation`):
     /// a balance set or corrected, not money earned or spent. Takes no
@@ -84,9 +86,9 @@ pub struct ImpliedPrice {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Classified {
     pub kind: Kind,
-    /// A transfer from a non-liquid (investment) account into a liquid one:
-    /// takes a purpose like income does (design §4.2).
-    pub liquidation: bool,
+    /// Between a liquid and a non-liquid account: an expense into it, income
+    /// out of it, whose purpose defaults to the household (design §4.1).
+    pub crossing: bool,
     /// Present whenever the two legs are in different commodities.
     pub implied_price: Option<ImpliedPrice>,
 }
@@ -121,7 +123,7 @@ pub enum SplitError {
     SameAccount,
     #[error("same commodity on both legs, but {from} out and {to} in")]
     UnequalQuantities { from: Amount, to: Amount },
-    /// Purpose is only for income/expense of liquid accounts, and liquidations.
+    /// Purpose is only for income and expenses of liquid accounts.
     #[error("this {0:?} can't have a purpose")]
     PurposeNotAllowed(Kind),
     #[error("a {0:?} can't have a category")]
@@ -167,25 +169,30 @@ impl Split {
             (Some(a), Some(b)) if same_commodity && a.id == b.id => {
                 return Err(SplitError::SameAccount);
             }
+            (Some(a), Some(b)) if a.liquid != b.liquid => {
+                if a.liquid {
+                    Kind::Expense
+                } else {
+                    Kind::Income
+                }
+            }
             (Some(_), Some(_)) if same_commodity => Kind::Transfer,
             (Some(_), Some(_)) => Kind::Conversion,
         };
-        let liquidation = kind == Kind::Transfer
-            && matches!((from, to), (Some(a), Some(b)) if !a.liquid && b.liquid);
+        let crossing =
+            from.is_some() && to.is_some() && matches!(kind, Kind::Expense | Kind::Income);
 
         if let Some(party) = self.purpose {
             if !lookup.party_exists(party) {
                 return Err(SplitError::UnknownParty(party));
             }
-            // The one account on an income/expense split.
-            let liquid = from.or(to).is_some_and(|a| a.liquid);
-            let allowed = liquidation || (matches!(kind, Kind::Expense | Kind::Income) && liquid);
-            if !allowed {
+            // The liquid account on an income or expense.
+            let liquid = [from, to].into_iter().flatten().any(|a| a.liquid);
+            if !(matches!(kind, Kind::Expense | Kind::Income) && liquid) {
                 return Err(SplitError::PurposeNotAllowed(kind));
             }
         }
-        if self.category.is_some() && !(liquidation || matches!(kind, Kind::Expense | Kind::Income))
-        {
+        if self.category.is_some() && !matches!(kind, Kind::Expense | Kind::Income) {
             return Err(SplitError::CategoryNotAllowed(kind));
         }
 
@@ -210,7 +217,7 @@ impl Split {
 
         Ok(Classified {
             kind,
-            liquidation,
+            crossing,
             implied_price,
         })
     }

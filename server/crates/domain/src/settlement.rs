@@ -30,13 +30,8 @@ pub struct SplitRef {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
     /// `debtor` owes `creditor` the split's value: an income or expense whose
-    /// purpose isn't its account's owner, or a liquidation landing with
-    /// someone other than its purpose (`liquidation`, shown "in transit").
-    Claim {
-        debtor: PartyId,
-        creditor: PartyId,
-        liquidation: bool,
-    },
+    /// purpose isn't its liquid account's owner.
+    Claim { debtor: PartyId, creditor: PartyId },
     /// A transfer between liquid accounts of different owners.
     Payment { payer: PartyId, payee: PartyId },
 }
@@ -84,8 +79,14 @@ pub fn what(
     let (from, to) = (account(&split.from), account(&split.to));
 
     Some(match (classified.kind, from, to) {
-        (Kind::Expense, Some(a), None) | (Kind::Income, None, Some(a)) if a.liquid => {
-            let purpose = split.purpose.unwrap_or(a.owner);
+        // The liquid account: money left it (an expense) or arrived (income).
+        (Kind::Expense, Some(a), _) | (Kind::Income, _, Some(a)) if a.liquid => {
+            let default = if classified.crossing {
+                household
+            } else {
+                a.owner
+            };
+            let purpose = split.purpose.unwrap_or(default);
             if purpose == a.owner {
                 return None;
             }
@@ -94,22 +95,7 @@ pub fn what(
             } else {
                 (a.owner, purpose)
             };
-            Effect::Claim {
-                debtor,
-                creditor,
-                liquidation: false,
-            }
-        }
-        (Kind::Transfer, Some(_), Some(b)) if classified.liquidation => {
-            let purpose = split.purpose.unwrap_or(household);
-            if purpose == b.owner {
-                return None;
-            }
-            Effect::Claim {
-                debtor: b.owner,
-                creditor: purpose,
-                liquidation: true,
-            }
+            Effect::Claim { debtor, creditor }
         }
         (Kind::Transfer, Some(a), Some(b)) if a.liquid && b.liquid && a.owner != b.owner => {
             Effect::Payment {
@@ -197,11 +183,7 @@ pub struct MonthParams {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineKind {
     Claim,
-    /// A liquidation claim, kept apart from the regular due.
-    InTransit,
     Payment,
-    /// A payment matched to an in-transit liquidation, not a regular payment.
-    Clearing,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,17 +193,6 @@ pub struct Line {
     pub kind: LineKind,
     /// Positive: from the child towards the parent.
     pub amount: Amount,
-}
-
-/// A liquidation shown on its own line until a payment clears it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InTransit {
-    pub source: SplitRef,
-    pub date: Date,
-    /// Positive: the child holds proceeds that belong to the parent's side.
-    pub amount: Amount,
-    /// The payment that cleared it, if made by the end of the month.
-    pub cleared_by: Option<SplitRef>,
 }
 
 /// One edge of the settlement tree for one month.
@@ -241,14 +212,8 @@ pub struct Edge {
     /// including corrections to closed months, carried into this one.
     pub carried: Amount,
     /// Everything from the first month with parameters through this one:
-    /// claims and in-transit proceeds, minus stipends and every payment.
+    /// claims, minus stipends and every payment. What's left to settle.
     pub outstanding: Amount,
-    /// `outstanding` without the proceeds still in transit: the regular
-    /// transfer to make.
-    pub to_settle: Amount,
-    /// In-transit liquidations from this month, and earlier ones not yet
-    /// cleared by its start.
-    pub in_transit: Vec<InTransit>,
     /// This month's items on the edge, in date order.
     pub lines: Vec<Line>,
 }
@@ -274,22 +239,14 @@ pub struct Statement {
 struct Totals {
     parent: Option<PartyId>,
     claims: Amount,
-    in_transit: Amount,
     stipend: Amount,
     paid: Amount,
-    cleared: Amount,
     lines: Vec<Line>,
 }
 
 impl Totals {
     fn net(&self) -> Result<Amount, NumberError> {
-        Amount::sum([
-            self.claims,
-            self.in_transit,
-            -self.stipend,
-            -self.paid,
-            -self.cleared,
-        ])
+        Amount::sum([self.claims, -self.stipend, -self.paid])
     }
 }
 
@@ -300,8 +257,6 @@ pub struct Settlement {
     children: Vec<PartyId>,
     params: BTreeMap<Month, MonthParams>,
     totals: BTreeMap<Month, HashMap<PartyId, Totals>>,
-    /// Liquidations per edge, with the payment that cleared them (and when).
-    liquidations: HashMap<PartyId, Vec<(Month, InTransit, Option<Date>)>>,
 }
 
 impl Settlement {
@@ -326,15 +281,12 @@ impl Settlement {
                 .collect(),
             params: params.clone(),
             totals: BTreeMap::new(),
-            liquidations: HashMap::new(),
         };
 
         let mut items: Vec<&Item> = items.iter().collect();
         items.sort_by_key(|i| (i.date, i.source));
-        let clearing = match_clearing(&items);
 
         let mut bounds: Vec<Month> = items.iter().map(|i| i.month()).collect();
-        bounds.extend(clearing.values().map(|(_, d)| Month::of(*d)));
         bounds.extend(params.keys().copied());
         bounds.push(through);
         let (first, last) = (bounds.iter().min(), bounds.iter().max());
@@ -368,32 +320,17 @@ impl Settlement {
         }
 
         for item in items {
-            let (from, to) = match item.effect {
-                Effect::Claim {
-                    debtor, creditor, ..
-                } => (debtor, creditor),
-                Effect::Payment { payer, payee } => (payer, payee),
+            let (from, to, kind) = match item.effect {
+                Effect::Claim { debtor, creditor } => (debtor, creditor, LineKind::Claim),
+                Effect::Payment { payer, payee } => (payer, payee, LineKind::Payment),
             };
-            let (kind, month) = match item.effect {
-                Effect::Claim {
-                    liquidation: false, ..
-                } => (LineKind::Claim, item.month()),
-                Effect::Claim {
-                    liquidation: true, ..
-                } => (LineKind::InTransit, item.month()),
-                Effect::Payment { .. } if clearing.values().any(|(p, _)| *p == item.source) => {
-                    (LineKind::Clearing, Month::of(item.date))
-                }
-                Effect::Payment { .. } => (LineKind::Payment, item.month()),
-            };
+            let month = item.month();
             for (child, sign) in route(&trees[&month], from, to)? {
                 let amount = signed(item.amount, sign);
                 let t = s.totals.entry(month).or_default().entry(child).or_default();
                 let field = match kind {
                     LineKind::Claim => &mut t.claims,
-                    LineKind::InTransit => &mut t.in_transit,
                     LineKind::Payment => &mut t.paid,
-                    LineKind::Clearing => &mut t.cleared,
                 };
                 *field = field.checked_add(amount)?;
                 t.lines.push(Line {
@@ -402,19 +339,6 @@ impl Settlement {
                     kind,
                     amount,
                 });
-                if kind == LineKind::InTransit {
-                    let cleared = clearing.get(&item.source);
-                    s.liquidations.entry(child).or_default().push((
-                        month,
-                        InTransit {
-                            source: item.source,
-                            date: item.date,
-                            amount,
-                            cleared_by: cleared.map(|(p, _)| *p),
-                        },
-                        cleared.map(|(_, d)| *d),
-                    ));
-                }
             }
         }
         Ok(s)
@@ -447,25 +371,6 @@ impl Settlement {
                     outstanding = outstanding.checked_add(t.net()?)?;
                 }
             }
-            let mut in_transit = Vec::new();
-            let mut open = Amount::ZERO;
-            for (m, line, cleared_on) in self.liquidations.get(&child).into_iter().flatten() {
-                if *m > month || !since(*m) {
-                    continue;
-                }
-                let cleared_by_end = cleared_on.is_some_and(|d| d <= month.last_day());
-                if !cleared_by_end {
-                    open = open.checked_add(line.amount)?;
-                }
-                let cleared_before = cleared_on.is_some_and(|d| d < month.first_day());
-                if *m == month || !cleared_before {
-                    let mut line = line.clone();
-                    if !cleared_by_end {
-                        line.cleared_by = None;
-                    }
-                    in_transit.push(line);
-                }
-            }
             let t = this.get(&child).cloned().unwrap_or_default();
             let carried = outstanding.checked_sub(t.net()?)?;
             let mut lines = t.lines.clone();
@@ -479,8 +384,6 @@ impl Settlement {
                 paid: t.paid,
                 carried,
                 outstanding,
-                to_settle: outstanding.checked_sub(open)?,
-                in_transit,
                 lines,
             });
         }
@@ -528,38 +431,4 @@ fn route(
 
 fn signed(amount: Amount, upward: bool) -> Amount {
     if upward { amount } else { -amount }
-}
-
-/// Pairs each in-transit liquidation with the first later payment that moves
-/// exactly its amount from the same party to its purpose, and wasn't linked
-/// to a month by hand (design §4.3). Returns liquidation → (payment, date).
-fn match_clearing(items: &[&Item]) -> HashMap<SplitRef, (SplitRef, Date)> {
-    let mut used = Vec::new();
-    let mut out = HashMap::new();
-    for liq in items {
-        let Effect::Claim {
-            debtor,
-            creditor,
-            liquidation: true,
-        } = liq.effect
-        else {
-            continue;
-        };
-        let found = items.iter().find(|p| {
-            p.date >= liq.date
-                && p.settles.is_none()
-                && p.amount == liq.amount
-                && p.effect
-                    == Effect::Payment {
-                        payer: debtor,
-                        payee: creditor,
-                    }
-                && !used.contains(&p.source)
-        });
-        if let Some(p) = found {
-            used.push(p.source);
-            out.insert(liq.source, (p.source, p.date));
-        }
-    }
-    out
 }

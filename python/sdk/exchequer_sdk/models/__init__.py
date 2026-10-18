@@ -48,7 +48,6 @@ from .import_fingerprint import ImportFingerprint
 from .import_fingerprints_added import ImportFingerprintsAdded
 from .imported_row import ImportedRow
 from .imported_row_raw_type_0 import ImportedRowRawType0
-from .in_transit import InTransit
 from .kind import Kind
 from .kind_name import KindName
 from .label import Label
@@ -200,7 +199,6 @@ __all__ = (
     "ImportedRowRawType0",
     "ImportFingerprint",
     "ImportFingerprintsAdded",
-    "InTransit",
     "Kind",
     "KindName",
     "Label",

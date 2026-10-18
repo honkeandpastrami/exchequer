@@ -40,7 +40,8 @@ class Account:
     firefly: tuple[int, ...]
     kind: str
     owner: str
-    # None: the server's default (brokerages aren't liquid, everything else is).
+    # None: the server's default (brokerages and mortgages aren't liquid,
+    # everything else is). A mortgage never is.
     liquid: bool | None = None
     archived: bool = False
 
@@ -51,6 +52,8 @@ class Account:
 
     @property
     def is_liquid(self) -> bool:
+        if self.kind == "mortgage":
+            return False
         return self.liquid if self.liquid is not None else self.kind != "brokerage"
 
 
@@ -196,6 +199,8 @@ def parse(raw: dict[str, Any]) -> Mapping:
             problems.append(f"account {name}: kind must be one of {sorted(ACCOUNT_KINDS)}")
         if a.get("owner") not in known:
             problems.append(f"account {name}: owner {a.get('owner')!r} is not a party")
+        if a.get("kind") == "mortgage" and a.get("liquid"):
+            problems.append(f"account {name}: a mortgage is never liquid")
         accounts.append(
             Account(
                 name=name,

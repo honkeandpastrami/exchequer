@@ -44,7 +44,6 @@ export type Draft = {
 
 export type Preview = {
 	kind: Schemas['Kind'] | null;
-	liquidation: boolean;
 	category: boolean;
 	purpose: boolean;
 	/** Who the split is for while no purpose is picked (design §4.1). */
@@ -113,7 +112,6 @@ export function fromTransaction(tx: Schemas['Transaction'], ref: Reference): Dra
 export function preview(s: SplitDraft, ref: Reference): Preview {
 	const none: Preview = {
 		kind: null,
-		liquidation: false,
 		category: false,
 		purpose: false,
 		defaultPurpose: null,
@@ -130,7 +128,9 @@ export function preview(s: SplitDraft, ref: Reference): Preview {
 	let kind: Schemas['Kind'];
 	if (a && b) {
 		if (same && a.id === b.id) return none;
-		kind = same ? 'transfer' : 'conversion';
+		// Into or out of an investment or a loan: an expense or income.
+		if (a.liquid !== b.liquid) kind = a.liquid ? 'expense' : 'income';
+		else kind = same ? 'transfer' : 'conversion';
 	} else if (a || b) {
 		// With a system counterparty: an opening balance or a reconciliation.
 		const system = (l: LegDraft) =>
@@ -140,20 +140,19 @@ export function preview(s: SplitDraft, ref: Reference): Preview {
 			);
 		kind = system(s.from) || system(s.to) ? 'adjustment' : a ? 'expense' : 'income';
 	} else return none;
-	const liquidation = kind === 'transfer' && !!a && !!b && !a.liquid && b.liquid;
 	const flow = kind === 'expense' || kind === 'income';
-	const liquid = (a ?? b)?.liquid ?? false;
-	const purpose = liquidation || (flow && liquid);
-	// A liquidation is for the household; income or spending, for the account's owner.
+	const crossing = flow && !!a && !!b;
+	const purpose = flow && (!!a?.liquid || !!b?.liquid);
+	// Between a liquid and a non-liquid account, it's for the household;
+	// other income or spending, for the account's owner.
 	const household = [...ref.parties.values()].find((p) => p.kind === 'household');
 	return {
 		kind,
-		liquidation,
-		category: liquidation || flow,
+		category: flow,
 		purpose,
 		defaultPurpose: !purpose
 			? null
-			: liquidation
+			: crossing
 				? (household?.id ?? null)
 				: ((a ?? b)?.owner_id ?? null),
 		settles: kind === 'transfer' && !!a && !!b && a.liquid && b.liquid && a.owner_id !== b.owner_id

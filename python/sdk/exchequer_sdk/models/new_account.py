@@ -25,7 +25,8 @@ class NewAccount:
         owner_id (UUID):
         archived (bool | Unset):
         credit_limit (CreditLimit | None | Unset):
-        liquid (bool | None | Unset): Defaults to `false` for brokerage accounts, `true` otherwise.
+        liquid (bool | None | Unset): Defaults to `false` for brokerage accounts, `true` otherwise. A
+            mortgage is never liquid.
     """
 
     kind: AccountKind

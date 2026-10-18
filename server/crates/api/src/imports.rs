@@ -403,7 +403,8 @@ pub struct StagedRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     counterparty_id: Option<Uuid>,
     /// The other side when it's one of your accounts: the row is a transfer,
-    /// whose category and purpose don't apply (unless it's a liquidation).
+    /// whose category and purpose don't apply (unless one account is liquid
+    /// and the other isn't: an expense or income).
     /// A transfer match's is its other side's account.
     #[serde(skip_serializing_if = "Option::is_none")]
     transfer_account_id: Option<Uuid>,
@@ -447,11 +448,12 @@ pub struct RowSplit {
     /// The other side when it's one of your accounts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     transfer_account_id: Option<Uuid>,
-    /// Absent: none. Not for a transfer (unless a liquidation).
+    /// Absent: none. Not for a transfer (unless between a liquid and a
+    /// non-liquid account).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     category_id: Option<Uuid>,
-    /// Absent: the account's owner. Not for a transfer (unless a
-    /// liquidation).
+    /// Absent: the account's owner (the household, between a liquid and a
+    /// non-liquid account). Not for a transfer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     purpose_id: Option<Uuid>,
     /// The split's own note, 1-500 characters.
@@ -1104,7 +1106,7 @@ async fn refresh_others(
 /// confident suggestion; a label with neither is missing. The other side is
 /// a counterparty or, for a transfer, one of your accounts (a transfer
 /// match's is its other side's); a transfer has no category or purpose
-/// unless it's a liquidation (design §3.2).
+/// unless one account is liquid and the other isn't (design §3.2).
 #[derive(Debug, PartialEq, Eq)]
 struct Labels {
     counterparty: Option<Uuid>,
@@ -1119,8 +1121,8 @@ struct Labels {
 
 /// What a row's labels depend on beyond the row.
 struct Context<'a> {
-    /// Your accounts: a transfer from an investment account into a liquid
-    /// one is a liquidation.
+    /// Your accounts: money between a liquid and a non-liquid one is an
+    /// expense or income, not a transfer.
     accounts: &'a [suggest::Account],
     /// The row's statement's account.
     account: Option<Uuid>,
@@ -2214,7 +2216,7 @@ async fn set_row(
 /// A row's parts as a request gives them, checked: two or more, each more
 /// than zero, adding up to the row's amount, with one other side each (not
 /// the statement's own account), and no category or purpose on a transfer
-/// that isn't a liquidation.
+/// between two liquid or two non-liquid accounts.
 async fn split_parts(
     tx: &mut PgConnection,
     id: Uuid,

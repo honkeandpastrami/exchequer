@@ -10,7 +10,6 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.in_transit import InTransit
     from ..models.line import Line
 
 
@@ -29,14 +28,11 @@ class Edge:
             claims (str): Regular claims across the edge this month.
             due (str): `claims − stipend`.
             implied_stipend (str): `claims − paid`: the stipend that would explain the payments made.
-            outstanding (str): `carried + due − paid` (and in-transit proceeds): everything up to
-                the end of this month.
+            outstanding (str): `carried + due − paid`: everything up to the end of this month, the
+                transfer to make (positive: the child pays).
             paid (str): Regular payments that settle this month.
             parent_id (UUID):
             stipend (str): What the parent owes the child as stipends this month.
-            to_settle (str): `outstanding` without the proceeds still in transit: the regular
-                transfer to make (positive: the child pays).
-            in_transit (list[InTransit] | None | Unset):
             lines (list[Line] | None | Unset):
     """
 
@@ -49,8 +45,6 @@ class Edge:
     paid: str
     parent_id: UUID
     stipend: str
-    to_settle: str
-    in_transit: list[InTransit] | None | Unset = UNSET
     lines: list[Line] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -72,20 +66,6 @@ class Edge:
         parent_id = str(self.parent_id)
 
         stipend = self.stipend
-
-        to_settle = self.to_settle
-
-        in_transit: list[dict[str, Any]] | None | Unset
-        if isinstance(self.in_transit, Unset):
-            in_transit = UNSET
-        elif isinstance(self.in_transit, list):
-            in_transit = []
-            for in_transit_type_0_item_data in self.in_transit:
-                in_transit_type_0_item = in_transit_type_0_item_data.to_dict()
-                in_transit.append(in_transit_type_0_item)
-
-        else:
-            in_transit = self.in_transit
 
         lines: list[dict[str, Any]] | None | Unset
         if isinstance(self.lines, Unset):
@@ -112,11 +92,8 @@ class Edge:
                 "paid": paid,
                 "parent_id": parent_id,
                 "stipend": stipend,
-                "to_settle": to_settle,
             }
         )
-        if in_transit is not UNSET:
-            field_dict["in_transit"] = in_transit
         if lines is not UNSET:
             field_dict["lines"] = lines
 
@@ -124,7 +101,6 @@ class Edge:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.in_transit import InTransit  # noqa: PLC0415
         from ..models.line import Line  # noqa: PLC0415
 
         d = dict(src_dict)
@@ -145,30 +121,6 @@ class Edge:
         parent_id = UUID(d.pop("parent_id"))
 
         stipend = d.pop("stipend")
-
-        to_settle = d.pop("to_settle")
-
-        def _parse_in_transit(data: object) -> list[InTransit] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                in_transit_type_0 = []
-                _in_transit_type_0 = data
-                for in_transit_type_0_item_data in _in_transit_type_0:
-                    in_transit_type_0_item = InTransit.from_dict(in_transit_type_0_item_data)
-
-                    in_transit_type_0.append(in_transit_type_0_item)
-
-                return in_transit_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[InTransit] | None | Unset, data)
-
-        in_transit = _parse_in_transit(d.pop("in_transit", UNSET))
 
         def _parse_lines(data: object) -> list[Line] | None | Unset:
             if data is None:
@@ -202,8 +154,6 @@ class Edge:
             paid=paid,
             parent_id=parent_id,
             stipend=stipend,
-            to_settle=to_settle,
-            in_transit=in_transit,
             lines=lines,
         )
 

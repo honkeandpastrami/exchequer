@@ -301,7 +301,7 @@
 							/>
 						</label>
 						{#if p.kind}
-							<span class="kind">{kinds[p.kind]}{p.liquidation ? ', liquidation' : ''}</span>
+							<span class="kind">{kinds[p.kind]}</span>
 						{/if}
 					</div>
 				{/if}

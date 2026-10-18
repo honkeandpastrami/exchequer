@@ -158,9 +158,7 @@ class Settler:
     def link(self, firefly_id: str, month: str) -> bool:
         """Marks the payment(s) in a migrated transaction as settling `month`."""
         t = self._find(firefly_id)
-        payments = [
-            i for i, s in enumerate(t.splits) if s.kind == Kind.TRANSFER and not s.liquidation
-        ]
+        payments = [i for i, s in enumerate(t.splits) if s.kind == Kind.TRANSFER]
         if not payments:
             raise SettleError(f"Firefly transaction {firefly_id} has no transfer to link")
         if all(t.splits[i].settles == month for i in payments):

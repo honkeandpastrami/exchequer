@@ -33,9 +33,7 @@ export const kinds: Record<Schemas['Kind'], string> = {
 
 export const lineKinds: Record<Schemas['LineKind'], string> = {
 	claim: 'Claim',
-	payment: 'Payment',
-	in_transit: 'In transit',
-	clearing: 'Clearing'
+	payment: 'Payment'
 };
 
 /** Why the discrepancy finder suggests a transaction (design §7.1). */

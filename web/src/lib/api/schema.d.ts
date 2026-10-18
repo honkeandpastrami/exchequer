@@ -1022,8 +1022,9 @@ export interface components {
 			id: string;
 			kind: components['schemas']['AccountKind'];
 			/**
-			 * @description Investment accounts are not liquid; activity inside them is never
-			 *     shared (design §4.1).
+			 * @description Investment accounts and mortgages are not liquid: activity inside them
+			 *     is never shared, and money into or out of them is an expense or
+			 *     income (design §4.1).
 			 */
 			liquid: boolean;
 			name: string;
@@ -1073,6 +1074,7 @@ export interface components {
 			archived?: boolean | null;
 			credit_limit?: components['schemas']['CreditLimit'] | null;
 			kind?: components['schemas']['AccountKind'] | null;
+			/** @description A mortgage is never liquid. */
 			liquid?: boolean | null;
 			name?: string | null;
 		};
@@ -1435,11 +1437,10 @@ export interface components {
 			due: string;
 			/** @description `claims − paid`: the stipend that would explain the payments made. */
 			implied_stipend: string;
-			in_transit?: components['schemas']['InTransit'][] | null;
 			lines?: components['schemas']['Line'][] | null;
 			/**
-			 * @description `carried + due − paid` (and in-transit proceeds): everything up to
-			 *     the end of this month.
+			 * @description `carried + due − paid`: everything up to the end of this month, the
+			 *     transfer to make (positive: the child pays).
 			 */
 			outstanding: string;
 			/** @description Regular payments that settle this month. */
@@ -1448,11 +1449,6 @@ export interface components {
 			parent_id: string;
 			/** @description What the parent owes the child as stipends this month. */
 			stipend: string;
-			/**
-			 * @description `outstanding` without the proceeds still in transit: the regular
-			 *     transfer to make (positive: the child pays).
-			 */
-			to_settle: string;
 		};
 		/**
 		 * @description Where a transaction came from outside Exchequer, such as its ID in the
@@ -1493,8 +1489,8 @@ export interface components {
 			unpriced: components['schemas']['Unpriced'][];
 		};
 		/**
-		 * @description The household's month (design §4.3), in USD. Income, expenses,
-		 *     liquidations and savings count only amounts in USD; stipends and business
+		 * @description The household's month (design §4.3), in USD. Income, expenses and
+		 *     savings count only amounts in USD; stipends and business
 		 *     funding come from the settlement, which values other commodities at
 		 *     prices.
 		 */
@@ -1503,12 +1499,16 @@ export interface components {
 			business_funding: components['schemas']['PartyAmount'][];
 			/** Format: uuid */
 			currency_id: string;
-			/** @description Spending for the household, by category (negative). */
+			/**
+			 * @description Spending for the household, by category (negative). Money into an
+			 *     investment or a loan (a mortgage's principal) counts.
+			 */
 			expenses: components['schemas']['CategoryAmount'][];
-			/** @description Income for the household, by category (positive). */
+			/**
+			 * @description Income for the household, by category (positive). Money out of an
+			 *     investment into a liquid account counts.
+			 */
 			income: components['schemas']['CategoryAmount'][];
-			/** @description Investment proceeds that became shared (positive). */
-			liquidations: string;
 			/** @example 2026-06 */
 			month: string;
 			/** @description The change in the household's own liquid accounts over the month. */
@@ -1588,13 +1588,6 @@ export interface components {
 			/** @description The row's fields as that file had them. */
 			raw?: Record<string, never> | null;
 		};
-		InTransit: components['schemas']['SplitPointer'] & {
-			amount: string;
-			cleared_by?: components['schemas']['SplitPointer'] | null;
-			/** Format: date */
-			date: string;
-			valuation?: components['schemas']['ValuationOut'] | null;
-		};
 		/**
 		 * @description Derived from who is on each side; never stored or entered.
 		 * @enum {string}
@@ -1671,7 +1664,7 @@ export interface components {
 			valuation?: components['schemas']['ValuationOut'] | null;
 		};
 		/** @enum {string} */
-		LineKind: 'claim' | 'in_transit' | 'payment' | 'clearing';
+		LineKind: 'claim' | 'payment';
 		/** @enum {string} */
 		Measure: 'flow' | 'balance';
 		/**
@@ -1717,7 +1710,10 @@ export interface components {
 			archived?: boolean;
 			credit_limit?: components['schemas']['CreditLimit'] | null;
 			kind: components['schemas']['AccountKind'];
-			/** @description Defaults to `false` for brokerage accounts, `true` otherwise. */
+			/**
+			 * @description Defaults to `false` for brokerage accounts, `true` otherwise. A
+			 *     mortgage is never liquid.
+			 */
 			liquid?: boolean | null;
 			name: string;
 			/** Format: uuid */
@@ -1791,15 +1787,15 @@ export interface components {
 		NewSplit: {
 			/**
 			 * Format: uuid
-			 * @description Only on income, expenses and liquidations.
+			 * @description Only on income and expenses.
 			 */
 			category_id?: string | null;
 			description?: string | null;
 			from: components['schemas']['Leg'];
 			/**
 			 * Format: uuid
-			 * @description Who the money was for. Only on income/expense of liquid accounts and
-			 *     on liquidations.
+			 * @description Who the money was for. Only on income and expenses of liquid
+			 *     accounts.
 			 */
 			purpose_id?: string | null;
 			/**
@@ -1852,8 +1848,9 @@ export interface components {
 				id: string;
 				kind: components['schemas']['AccountKind'];
 				/**
-				 * @description Investment accounts are not liquid; activity inside them is never
-				 *     shared (design §4.1).
+				 * @description Investment accounts and mortgages are not liquid: activity inside them
+				 *     is never shared, and money into or out of them is an expense or
+				 *     income (design §4.1).
 				 */
 				liquid: boolean;
 				name: string;
@@ -2109,7 +2106,8 @@ export interface components {
 				/**
 				 * Format: uuid
 				 * @description The other side when it's one of your accounts: the row is a transfer,
-				 *     whose category and purpose don't apply (unless it's a liquidation).
+				 *     whose category and purpose don't apply (unless one account is liquid
+				 *     and the other isn't: an expense or income).
 				 *     A transfer match's is its other side's account.
 				 */
 				transfer_account_id?: string | null;
@@ -2402,7 +2400,8 @@ export interface components {
 			amount: string;
 			/**
 			 * Format: uuid
-			 * @description Absent: none. Not for a transfer (unless a liquidation).
+			 * @description Absent: none. Not for a transfer (unless between a liquid and a
+			 *     non-liquid account).
 			 */
 			category_id?: string | null;
 			/**
@@ -2415,8 +2414,8 @@ export interface components {
 			description?: string | null;
 			/**
 			 * Format: uuid
-			 * @description Absent: the account's owner. Not for a transfer (unless a
-			 *     liquidation).
+			 * @description Absent: the account's owner (the household, between a liquid and a
+			 *     non-liquid account). Not for a transfer.
 			 */
 			purpose_id?: string | null;
 			/**
@@ -2561,10 +2560,11 @@ export interface components {
 			category_id?: string | null;
 			description?: string | null;
 			from: components['schemas']['Leg'];
-			/** @description Read-only. */
+			/**
+			 * @description Read-only. Money between a liquid and a non-liquid account is an
+			 *     expense (into it) or income (out of it).
+			 */
 			kind: components['schemas']['Kind'];
-			/** @description Read-only: a transfer from an investment account into a liquid one. */
-			liquidation: boolean;
 			/** Format: uuid */
 			purpose_id?: string | null;
 			/** @example 2026-06 */
@@ -2644,7 +2644,8 @@ export interface components {
 			/**
 			 * Format: uuid
 			 * @description The other side when it's one of your accounts: the row is a transfer,
-			 *     whose category and purpose don't apply (unless it's a liquidation).
+			 *     whose category and purpose don't apply (unless one account is liquid
+			 *     and the other isn't: an expense or income).
 			 *     A transfer match's is its other side's account.
 			 */
 			transfer_account_id?: string | null;

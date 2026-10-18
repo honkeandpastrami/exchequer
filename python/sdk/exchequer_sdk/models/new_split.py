@@ -23,10 +23,10 @@ class NewSplit:
             the household). With neither, it's outside the household, unknown who.
         to (Leg): One side of a split: `account_id` (yours) or `counterparty_id` (outside
             the household). With neither, it's outside the household, unknown who.
-        category_id (None | Unset | UUID): Only on income, expenses and liquidations.
+        category_id (None | Unset | UUID): Only on income and expenses.
         description (None | str | Unset):
-        purpose_id (None | Unset | UUID): Who the money was for. Only on income/expense of liquid accounts and
-            on liquidations.
+        purpose_id (None | Unset | UUID): Who the money was for. Only on income and expenses of liquid
+            accounts.
         settles (None | str | Unset): Settlement payments only: the month (`YYYY-MM`) this payment settles,
             when not the month before it's made. Example: 2026-06.
     """

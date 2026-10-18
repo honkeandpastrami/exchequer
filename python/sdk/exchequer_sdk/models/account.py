@@ -25,8 +25,9 @@ class Account:
         archived (bool): Kept for history, hidden from everyday views.
         id (UUID):
         kind (AccountKind): Affects display only (sign convention, icon), never a split's kind.
-        liquid (bool): Investment accounts are not liquid; activity inside them is never
-            shared (design §4.1).
+        liquid (bool): Investment accounts and mortgages are not liquid: activity inside them
+            is never shared, and money into or out of them is an expense or
+            income (design §4.1).
         name (str):
         numbers (list[Number]): Numbers bank files name this account by, oldest first.
         owner_id (UUID): The party the account belongs to.

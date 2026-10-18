@@ -24,7 +24,6 @@ class Split:
         from_ (Leg): One side of a split: `account_id` (yours) or `counterparty_id` (outside
             the household). With neither, it's outside the household, unknown who.
         kind (Kind): Derived from who is on each side; never stored or entered.
-        liquidation (bool): Read-only: a transfer from an investment account into a liquid one.
         to (Leg): One side of a split: `account_id` (yours) or `counterparty_id` (outside
             the household). With neither, it's outside the household, unknown who.
         category_id (None | Unset | UUID):
@@ -35,7 +34,6 @@ class Split:
 
     from_: Leg
     kind: Kind
-    liquidation: bool
     to: Leg
     category_id: None | Unset | UUID = UNSET
     description: None | str | Unset = UNSET
@@ -47,8 +45,6 @@ class Split:
         from_ = self.from_.to_dict()
 
         kind = self.kind.value
-
-        liquidation = self.liquidation
 
         to = self.to.to_dict()
 
@@ -86,7 +82,6 @@ class Split:
             {
                 "from": from_,
                 "kind": kind,
-                "liquidation": liquidation,
                 "to": to,
             }
         )
@@ -109,8 +104,6 @@ class Split:
         from_ = Leg.from_dict(d.pop("from"))
 
         kind = Kind(d.pop("kind"))
-
-        liquidation = d.pop("liquidation")
 
         to = Leg.from_dict(d.pop("to"))
 
@@ -169,7 +162,6 @@ class Split:
         split = cls(
             from_=from_,
             kind=kind,
-            liquidation=liquidation,
             to=to,
             category_id=category_id,
             description=description,

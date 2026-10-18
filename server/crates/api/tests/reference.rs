@@ -102,6 +102,15 @@ async fn accounts(pool: PgPool) {
     )
     .await;
     assert_eq!(brokerage.body["liquid"], false);
+    // A mortgage never is.
+    let mortgage = json!({ "name": "Mortgage", "kind": "mortgage", "owner_id": alex });
+    let r = post(&pool, &t, "/api/v1/accounts", mortgage.clone()).await;
+    assert_eq!(r.body["liquid"], false);
+    let mut liquid = mortgage;
+    liquid["name"] = json!("Second mortgage");
+    liquid["liquid"] = json!(true);
+    let r = post(&pool, &t, "/api/v1/accounts", liquid).await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
 
     // Names are unique per owner.
     let r = post(

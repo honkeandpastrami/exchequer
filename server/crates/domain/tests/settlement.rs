@@ -15,17 +15,13 @@ use time::macros::date;
 #[test]
 fn effects_follow_the_claims_table() {
     let h = H::new();
-    let claim = |debtor, creditor, liquidation| Effect::Claim {
-        debtor,
-        creditor,
-        liquidation,
-    };
+    let claim = |debtor, creditor| Effect::Claim { debtor, creditor };
 
     // Groceries on Alex Credit for the Household: the Household owes Alex.
     assert_eq!(
         h.effect(&spend(&h, h.alex_credit, "80", h.household))
             .unwrap(),
-        Some((claim(h.household, h.alex, false), amt("80")))
+        Some((claim(h.household, h.alex), amt("80")))
     );
     // Salary into Alex Checking for the Household: Alex owes the Household.
     let salary = Split {
@@ -39,12 +35,12 @@ fn effects_follow_the_claims_table() {
     };
     assert_eq!(
         h.effect(&salary).unwrap(),
-        Some((claim(h.alex, h.household, false), amt("3000")))
+        Some((claim(h.alex, h.household), amt("3000")))
     );
     // Studio supplies on Sam Credit: Studio owes Sam.
     assert_eq!(
         h.effect(&spend(&h, h.sam_credit, "100", h.studio)).unwrap(),
-        Some((claim(h.studio, h.sam, false), amt("100")))
+        Some((claim(h.studio, h.sam), amt("100")))
     );
     // Owner = purpose, or no purpose: nothing.
     assert_eq!(
@@ -59,14 +55,15 @@ fn effects_follow_the_claims_table() {
     );
     assert_eq!(h.effect(&unlabelled).unwrap(), None);
 
-    // Liquidations default to the Household: into Joint Savings they simply
-    // become shared; into Alex Checking, Alex holds them for the Household.
+    // Money out of an investment is income for the Household by default:
+    // into Joint Savings it simply becomes shared; into Alex Checking, Alex
+    // holds it for the Household.
     let into_joint = transfer(&h, h.alex_brokerage, h.joint_savings, "10000");
     assert_eq!(h.effect(&into_joint).unwrap(), None);
     let into_alex = transfer(&h, h.alex_brokerage, h.alex_checking, "10000");
     assert_eq!(
         h.effect(&into_alex).unwrap(),
-        Some((claim(h.alex, h.household, true), amt("10000")))
+        Some((claim(h.alex, h.household), amt("10000")))
     );
     let kept = Split {
         purpose: Some(h.alex),
@@ -74,27 +71,32 @@ fn effects_follow_the_claims_table() {
     };
     assert_eq!(h.effect(&kept).unwrap(), None);
 
-    // Transfers between liquid accounts of different owners are payments,
-    // mortgage payments from a personal account included.
+    // Money into an investment or a loan is an expense for the Household by
+    // default: from Alex Checking, the Household owes Alex.
+    assert_eq!(
+        h.effect(&transfer(&h, h.alex_checking, h.mortgage, "50"))
+            .unwrap(),
+        Some((claim(h.household, h.alex), amt("50")))
+    );
+    assert_eq!(
+        h.effect(&transfer(&h, h.joint_savings, h.mortgage, "50"))
+            .unwrap(),
+        None
+    );
+
+    // Transfers between liquid accounts of different owners are payments.
     for (from, to, payer, payee) in [
         (h.alex_checking, h.joint_savings, h.alex, h.household),
         (h.joint_savings, h.alex_checking, h.household, h.alex),
-        (h.alex_checking, h.mortgage, h.alex, h.household),
     ] {
         assert_eq!(
             h.effect(&transfer(&h, from, to, "50")).unwrap(),
             Some((Effect::Payment { payer, payee }, amt("50")))
         );
     }
-    // Within one owner, Household → Household (the mortgage from Joint
-    // Savings), and investment activity: nothing.
-    for (from, to) in [
-        (h.alex_checking, h.alex_credit),
-        (h.joint_savings, h.mortgage),
-        (h.alex_checking, h.alex_brokerage),
-    ] {
-        assert_eq!(h.effect(&transfer(&h, from, to, "50")).unwrap(), None);
-    }
+    // Within one owner: nothing.
+    let card = transfer(&h, h.alex_checking, h.alex_credit, "50");
+    assert_eq!(h.effect(&card).unwrap(), None);
     let buy = Split {
         to: Leg {
             side: Side::Account(h.alex_brokerage),
@@ -237,9 +239,9 @@ fn routing_follows_the_funder() {
 }
 
 #[test]
-fn liquidations_stay_in_transit_until_moved() {
+fn proceeds_moved_on_settle_like_any_claim() {
     let h = H::new();
-    let mut items = h.items(&[
+    let items = h.items(&[
         (
             date!(2026 - 05 - 20),
             transfer(&h, h.alex_brokerage, h.alex_checking, "10000"),
@@ -248,12 +250,11 @@ fn liquidations_stay_in_transit_until_moved() {
             date!(2026 - 05 - 28),
             spend(&h, h.alex_credit, "80", h.household),
         ),
-        // Moved on to shared savings in June: clears the line.
+        // Moved on to shared savings in June: a payment for May.
         (
             date!(2026 - 06 - 03),
             transfer(&h, h.alex_checking, h.joint_savings, "10000"),
         ),
-        // The regular settlement of May.
         (
             date!(2026 - 06 - 05),
             transfer(&h, h.joint_savings, h.alex_checking, "80"),
@@ -268,48 +269,15 @@ fn liquidations_stay_in_transit_until_moved() {
             .find(|e| e.child == h.alex)
             .unwrap()
     };
-
     let may = alex("2026-05");
-    assert_eq!(
-        may.claims,
-        amt("-80"),
-        "the liquidation isn't a regular claim"
-    );
-    assert_eq!(
-        may.paid,
-        amt("-80"),
-        "the clearing transfer isn't a regular payment"
-    );
-    assert_eq!(may.in_transit.len(), 1);
-    assert_eq!(may.in_transit[0].amount, amt("10000"));
-    assert_eq!(
-        may.in_transit[0].cleared_by, None,
-        "not cleared by the end of May"
-    );
-    assert_eq!(may.outstanding, amt("10000"));
-    assert_eq!(may.to_settle, Amount::ZERO);
-
-    let june = alex("2026-06");
-    assert_eq!(june.in_transit.len(), 1);
-    assert!(june.in_transit[0].cleared_by.is_some());
-    assert_eq!(
-        (june.outstanding, june.to_settle),
-        (Amount::ZERO, Amount::ZERO)
-    );
-    assert!(june.lines.iter().any(|l| l.kind == LineKind::Clearing));
+    assert_eq!(may.claims, amt("9920"));
+    assert_eq!(may.paid, amt("9920"));
+    assert_eq!(may.outstanding, Amount::ZERO);
     assert!(
-        alex("2026-07").in_transit.is_empty(),
-        "cleared lines don't carry forward"
+        may.lines
+            .iter()
+            .all(|l| matches!(l.kind, LineKind::Claim | LineKind::Payment))
     );
-
-    // Linked by hand to a month, the same transfer is a regular payment and
-    // the line stays open.
-    items[2].settles = Some(month("2026-06"));
-    let s = Settlement::compute(&h.parties, &BTreeMap::new(), &items, month("2026-12")).unwrap();
-    let july = s.statement(month("2026-07")).unwrap();
-    let alex = july.edges.iter().find(|e| e.child == h.alex).unwrap();
-    assert_eq!(alex.in_transit.len(), 1, "carried forward as a reminder");
-    assert_eq!(alex.in_transit[0].cleared_by, None);
 }
 
 #[test]
@@ -359,7 +327,7 @@ proptest! {
             items.push(Item {
                 source: source(i),
                 date,
-                effect: Effect::Claim { debtor: ids[a], creditor: ids[b], liquidation: false },
+                effect: Effect::Claim { debtor: ids[a], creditor: ids[b] },
                 amount,
                 settles: None,
             });

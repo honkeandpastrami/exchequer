@@ -147,7 +147,7 @@ async fn statement_and_implied_stipend(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
-async fn settles_and_liquidations(pool: PgPool) {
+async fn settles_and_investment_proceeds(pool: PgPool) {
     let h = H::new(&pool).await;
 
     // A payment linked by hand to the month it's made in.
@@ -181,7 +181,8 @@ async fn settles_and_liquidations(pool: PgPool) {
         .body;
     assert_eq!(edge(&st, &h.alex)["paid"], "-70.00");
 
-    // A liquidation into Alex's account is held in transit for the Household.
+    // Money out of Alex's brokerage into Alex's account is Household income
+    // Alex holds: a claim like any other.
     h.tx(
         &pool,
         "2026-05-20",
@@ -196,10 +197,9 @@ async fn settles_and_liquidations(pool: PgPool) {
         .await
         .body;
     let alex = edge(&st, &h.alex);
-    assert_eq!(alex["in_transit"][0]["amount"], "1000.00");
-    assert_eq!(alex["claims"], "0.00");
-    // The Household's 70 owed nothing, so Alex owes it back.
-    assert_eq!(alex["to_settle"], "70.00");
+    assert!(alex.get("in_transit").is_none() && alex.get("to_settle").is_none());
+    assert_eq!(alex["claims"], "1000.00");
+    // The Household's 70 owed nothing, so Alex owes it back too.
     assert_eq!(alex["outstanding"], "1070.00");
 }
 
@@ -242,7 +242,7 @@ async fn corrections_carry_forward(pool: PgPool) {
     );
     let alex = july_alex(&h, &pool).await;
     assert_eq!(alex["carried"], "0.00");
-    assert_eq!(alex["to_settle"], "0.00");
+    assert_eq!(alex["outstanding"], "0.00");
 
     // A charge June missed: reopen, add it, close again. June's due
     // changes; what was paid doesn't, so the difference is carried.
@@ -253,7 +253,7 @@ async fn corrections_carry_forward(pool: PgPool) {
     let alex = july_alex(&h, &pool).await;
     assert_eq!(alex["carried"], "-30.00");
     assert_eq!(alex["due"], "0.00");
-    assert_eq!(alex["to_settle"], "-30.00", "the Household owes Alex 30");
+    assert_eq!(alex["outstanding"], "-30.00", "the Household owes Alex 30");
 
     // Paid whenever: here with July's settlement.
     h.tx(&pool, "2026-08-03", joint, checking, "30.00", json!({}))

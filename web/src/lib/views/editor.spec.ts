@@ -57,7 +57,6 @@ describe('editor preview', () => {
 	it('derives the kind and the fields it allows', () => {
 		expect(preview(split('alex', 'Grocer'), ref)).toEqual({
 			kind: 'expense',
-			liquidation: false,
 			category: true,
 			purpose: true,
 			defaultPurpose: 'p-alex',
@@ -70,9 +69,16 @@ describe('editor preview', () => {
 			settles: false
 		});
 		expect(preview(split('alex', 'sam'), ref).settles).toBe(true);
+		// Out of an investment, and into it: income and an expense, for the
+		// household.
 		expect(preview(split('broker', 'alex'), ref)).toMatchObject({
-			liquidation: true,
+			kind: 'income',
 			category: true,
+			purpose: true,
+			defaultPurpose: 'p-home'
+		});
+		expect(preview(split('alex', 'broker'), ref)).toMatchObject({
+			kind: 'expense',
 			purpose: true,
 			defaultPurpose: 'p-home'
 		});
@@ -172,8 +178,7 @@ describe('editor request', () => {
 				{
 					from: { account_id: 'alex', commodity_id: 'usd', quantity: '110.00' },
 					to: { account_id: 'alex2', commodity_id: 'eur', quantity: '100.00' },
-					kind: 'conversion',
-					liquidation: false
+					kind: 'conversion'
 				}
 			]
 		};

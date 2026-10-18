@@ -157,8 +157,8 @@ pub struct PartyAmount {
     amount: Amount,
 }
 
-/// The household's month (design §4.3), in USD. Income, expenses,
-/// liquidations and savings count only amounts in USD; stipends and business
+/// The household's month (design §4.3), in USD. Income, expenses and
+/// savings count only amounts in USD; stipends and business
 /// funding come from the settlement, which values other commodities at
 /// prices.
 #[derive(Debug, Serialize, ToSchema)]
@@ -166,12 +166,11 @@ pub struct HouseholdPool {
     #[schema(value_type = String, example = "2026-06")]
     month: Month,
     currency_id: Uuid,
-    /// Income for the household, by category (positive).
+    /// Income for the household, by category (positive). Money out of an
+    /// investment into a liquid account counts.
     income: Vec<CategoryAmount>,
-    /// Investment proceeds that became shared (positive).
-    #[schema(value_type = String)]
-    liquidations: Amount,
-    /// Spending for the household, by category (negative).
+    /// Spending for the household, by category (negative). Money into an
+    /// investment or a loan (a mortgage's principal) counts.
     expenses: Vec<CategoryAmount>,
     /// What the household owes each person for the month.
     stipends: Vec<PartyAmount>,
@@ -239,9 +238,7 @@ async fn household_pool(
         }
     }
 
-    // Liquidations: only the side landing in a liquid account counts.
     let accounts = store::accounts::list(&mut *db, None, i64::MAX).await?;
-    let liquid: Vec<Uuid> = accounts.iter().filter(|a| a.liquid).map(|a| a.id).collect();
     let shared: Vec<Uuid> = accounts
         .iter()
         .filter(|a| a.liquid && a.owner_id == household_id)
@@ -249,25 +246,6 @@ async fn household_pool(
         .collect();
     let c = compute(db, &state.pricing, state.today(), month).await?;
     let m = |a: Amount| money(a, c.scale);
-    let liquidations = if liquid.is_empty() {
-        Amount::ZERO
-    } else {
-        flow(
-            db,
-            QueryRequest {
-                kinds: vec![KindName::Transfer],
-                account_ids: liquid,
-                ..in_month.clone()
-            },
-            currency,
-        )
-        .await?
-        .into_iter()
-        .map(|r| r.amount)
-        .next()
-        .unwrap_or_default()
-    };
-
     let balance = async |db: &mut PgConnection, day: Date| -> Result<Amount, Problem> {
         if shared.is_empty() {
             return Ok(Amount::ZERO);
@@ -339,7 +317,6 @@ async fn household_pool(
         month,
         currency_id: currency,
         income,
-        liquidations: m(liquidations),
         expenses,
         stipends,
         business_funding,

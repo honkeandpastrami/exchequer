@@ -25,10 +25,12 @@ pub struct Posting {
     pub commodity: CommodityId,
     /// Positive into the account, negative out of it.
     pub quantity: Amount,
+    /// The split's kind, except on the non-liquid side of a crossing split
+    /// (money into or out of an investment or a loan): a transfer there, so
+    /// the income or expense counts once, on the liquid side.
     pub kind: Kind,
-    pub liquidation: bool,
     /// The split's purpose, or its default: the account's owner for income
-    /// and expenses on liquid accounts, the household for liquidations
+    /// and expenses on liquid accounts, the household for crossing splits
     /// (design §4.1–§4.2). `None` where a purpose doesn't apply.
     pub purpose: Option<PartyId>,
     pub category: Option<CategoryId>,
@@ -62,11 +64,13 @@ pub fn postings(
         let Some(account) = lookup.account(id) else {
             continue;
         };
-        let purpose = split.purpose.or(match classified.kind {
-            Kind::Expense | Kind::Income if account.liquid => Some(account.owner),
-            Kind::Transfer if classified.liquidation => Some(household),
-            _ => None,
-        });
+        let flow = matches!(classified.kind, Kind::Expense | Kind::Income);
+        let inside = classified.crossing && !account.liquid;
+        let purpose = match () {
+            () if inside || !flow || !account.liquid => None,
+            () if classified.crossing => Some(split.purpose.unwrap_or(household)),
+            () => Some(split.purpose.unwrap_or(account.owner)),
+        };
         out.push(Posting {
             source,
             date,
@@ -74,10 +78,13 @@ pub fn postings(
             owner: account.owner,
             commodity: leg.commodity,
             quantity: if sign { leg.quantity } else { -leg.quantity },
-            kind: classified.kind,
-            liquidation: classified.liquidation,
+            kind: if inside {
+                Kind::Transfer
+            } else {
+                classified.kind
+            },
             purpose,
-            category: split.category,
+            category: if inside { None } else { split.category },
             counterparty,
             tags: tags.to_vec(),
         });

@@ -11,7 +11,6 @@ const edge = (child_id: string, outstanding: string, carried: string): Schemas['
 	paid: '0',
 	carried,
 	outstanding,
-	to_settle: outstanding,
 	implied_stipend: '0'
 });
 

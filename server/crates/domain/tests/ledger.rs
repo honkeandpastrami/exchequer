@@ -82,7 +82,7 @@ impl Household {
         let alex_eur = account("Alex EUR Account", AccountKind::Checking, alex, true);
         let joint_savings = account("Joint Savings", AccountKind::Savings, household, true);
         let joint_brokerage = account("Joint Brokerage", AccountKind::Brokerage, household, false);
-        let mortgage = account("Mortgage", AccountKind::Mortgage, household, true);
+        let mortgage = account("Mortgage", AccountKind::Mortgage, household, false);
 
         let mut counterparty = |name: &str, system| {
             let c = Counterparty {
@@ -204,14 +204,15 @@ fn examples_from_the_design() {
     let card = split(acct(h.alex_checking), acct(h.alex_credit), usd, "500");
     let c = h.classify(&card).unwrap();
     assert_eq!(
-        (c.kind, c.liquidation, c.implied_price),
+        (c.kind, c.crossing, c.implied_price),
         (Kind::Transfer, false, None)
     );
 
-    // Mortgage payment: principal is a transfer, interest an expense.
+    // Mortgage payment: principal and interest are both expenses, the
+    // principal into the (non-liquid) mortgage.
     let principal = split(acct(h.joint_savings), acct(h.mortgage), usd, "1200");
     let interest = split(acct(h.joint_savings), cp(h.lender), usd, "800");
-    assert_eq!(kind(h.classify(&principal)), Kind::Transfer);
+    assert_eq!(kind(h.classify(&principal)), Kind::Expense);
     assert_eq!(kind(h.classify(&interest)), Kind::Expense);
 
     // Stock vest: income in shares, into a non-liquid account.
@@ -262,11 +263,13 @@ fn examples_from_the_design() {
 }
 
 #[test]
-fn liquidations() {
+fn between_liquid_and_not() {
     let h = Household::new();
-    // Alex Brokerage → Joint Savings: a liquidation, which may carry a purpose.
-    let liq = Split {
+    // Alex Brokerage → Joint Savings: income, which may carry a purpose and
+    // a category.
+    let sold = Split {
         purpose: Some(h.household),
+        category: Some(h.groceries),
         ..split(
             acct(h.alex_brokerage),
             acct(h.joint_savings),
@@ -274,17 +277,28 @@ fn liquidations() {
             "10000",
         )
     };
-    let c = h.classify(&liq).unwrap();
-    assert_eq!((c.kind, c.liquidation), (Kind::Transfer, true));
+    let c = h.classify(&sold).unwrap();
+    assert_eq!((c.kind, c.crossing), (Kind::Income, true));
 
-    // The reverse (investing) is a plain transfer.
+    // The reverse (investing, paying down a loan) is an expense.
     let invest = split(
         acct(h.joint_savings),
         acct(h.joint_brokerage),
         h.usd,
         "5000",
     );
-    assert!(!h.classify(&invest).unwrap().liquidation);
+    let c = h.classify(&invest).unwrap();
+    assert_eq!((c.kind, c.crossing), (Kind::Expense, true));
+
+    // Between two non-liquid accounts: a transfer.
+    let moved = split(
+        acct(h.alex_brokerage),
+        acct(h.joint_brokerage),
+        h.usd,
+        "5000",
+    );
+    let c = h.classify(&moved).unwrap();
+    assert_eq!((c.kind, c.crossing), (Kind::Transfer, false));
 }
 
 #[test]

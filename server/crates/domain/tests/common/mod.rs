@@ -73,7 +73,7 @@ impl H {
         let alex_eur = account("Alex EUR", AccountKind::Checking, alex, true);
         let sam_credit = account("Sam Credit", AccountKind::CreditCard, sam, true);
         let joint_savings = account("Joint Savings", AccountKind::Savings, household, true);
-        let mortgage = account("Mortgage", AccountKind::Mortgage, household, true);
+        let mortgage = account("Mortgage", AccountKind::Mortgage, household, false);
 
         let store = CounterpartyId::new();
         book.add_counterparty(Counterparty {

@@ -189,9 +189,9 @@ pub struct Account {
 }
 
 /// Whether a row's category and purpose apply, given its other side (design
-/// §3.2): not for a transfer between your accounts, unless it's a
-/// liquidation (from an investment account into a liquid one). Unknown
-/// accounts count as liquid.
+/// §3.2): not for a transfer between your accounts, unless one is liquid and
+/// the other isn't (then it's an expense or income). Unknown accounts count
+/// as liquid.
 #[must_use]
 pub fn labeled(accounts: &[Account], row: Option<Uuid>, amount: Decimal, other: Value) -> bool {
     let Value::Account(other) = other else {
@@ -211,7 +211,7 @@ pub fn labeled(accounts: &[Account], row: Option<Uuid>, amount: Decimal, other: 
     } else {
         (Some(other), row)
     };
-    !liquid(from) && liquid(to)
+    liquid(from) != liquid(to)
 }
 
 /// A labeled transaction from the ledger: one of your accounts and the

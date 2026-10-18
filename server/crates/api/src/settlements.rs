@@ -118,23 +118,17 @@ impl From<SplitRef> for SplitPointer {
 #[derive(Debug, Clone, Copy, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum LineKind {
-    /// Income or expense whose purpose isn't its account's owner.
+    /// Income or expense whose purpose isn't its liquid account's owner.
     Claim,
-    /// A liquidation held for someone else, kept out of the regular due.
-    InTransit,
     /// A settlement payment.
     Payment,
-    /// A payment that cleared an in-transit liquidation.
-    Clearing,
 }
 
 impl From<DLineKind> for LineKind {
     fn from(k: DLineKind) -> Self {
         match k {
             DLineKind::Claim => Self::Claim,
-            DLineKind::InTransit => Self::InTransit,
             DLineKind::Payment => Self::Payment,
-            DLineKind::Clearing => Self::Clearing,
         }
     }
 }
@@ -148,21 +142,6 @@ pub struct Line {
     kind: LineKind,
     #[schema(value_type = String)]
     amount: Amount,
-    /// For a split with no leg in USD: the price that valued it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    valuation: Option<ValuationOut>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct InTransit {
-    #[serde(flatten)]
-    split: SplitPointer,
-    date: Date,
-    #[schema(value_type = String)]
-    amount: Amount,
-    /// The payment that cleared it by the end of the month.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    cleared_by: Option<SplitPointer>,
     /// For a split with no leg in USD: the price that valued it.
     #[serde(skip_serializing_if = "Option::is_none")]
     valuation: Option<ValuationOut>,
@@ -190,19 +169,13 @@ pub struct Edge {
     /// including corrections to closed months, carried into this one.
     #[schema(value_type = String)]
     carried: Amount,
-    /// `carried + due − paid` (and in-transit proceeds): everything up to
-    /// the end of this month.
-    #[schema(value_type = String)]
-    outstanding: Amount,
-    /// `outstanding` without the proceeds still in transit: the regular
+    /// `carried + due − paid`: everything up to the end of this month, the
     /// transfer to make (positive: the child pays).
     #[schema(value_type = String)]
-    to_settle: Amount,
+    outstanding: Amount,
     /// `claims − paid`: the stipend that would explain the payments made.
     #[schema(value_type = String)]
     implied_stipend: Amount,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    in_transit: Option<Vec<InTransit>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     lines: Option<Vec<Line>>,
 }
@@ -497,19 +470,6 @@ fn statement_out(c: &Computed, month: Month, with_lines: bool) -> Result<Stateme
                 paid: m(e.paid),
                 carried: m(e.carried),
                 outstanding: m(e.outstanding),
-                to_settle: m(e.to_settle),
-                in_transit: Some(
-                    e.in_transit
-                        .into_iter()
-                        .map(|t| InTransit {
-                            split: t.source.into(),
-                            date: t.date,
-                            amount: m(t.amount),
-                            cleared_by: t.cleared_by.map(Into::into),
-                            valuation: c.valued.get(&t.source).cloned(),
-                        })
-                        .collect(),
-                ),
                 lines: with_lines.then(|| {
                     e.lines
                         .into_iter()
@@ -673,11 +633,7 @@ async fn history(
     let c = compute(&mut conn, &state.pricing, state.today(), p.to).await?;
     let mut out = Vec::new();
     for m in months {
-        let mut st = statement_out(&c, m, false)?;
-        for e in &mut st.edges {
-            e.in_transit = None;
-        }
-        out.push(st);
+        out.push(statement_out(&c, m, false)?);
     }
     Ok(axum::Json(History {
         currency_id: *c.currency.as_uuid(),

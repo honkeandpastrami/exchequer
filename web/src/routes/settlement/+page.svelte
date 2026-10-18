@@ -33,8 +33,7 @@
 		['stipend', 'Stipend'],
 		['due', 'Due'],
 		['paid', 'Paid'],
-		['outstanding', 'Outstanding'],
-		['to_settle', 'To settle']
+		['outstanding', 'Outstanding']
 	] as const;
 </script>
 

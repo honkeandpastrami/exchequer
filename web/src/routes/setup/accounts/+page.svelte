@@ -106,7 +106,8 @@
 			await accounts.update(e.id, e.etag, {
 				name: e.name.trim(),
 				kind: e.kind,
-				liquid: e.liquid,
+				// A mortgage is never liquid.
+				liquid: e.kind !== 'mortgage' && e.liquid,
 				archived: e.archived,
 				credit_limit: limit ? { commodity_id: e.limitCommodity, quantity: limit } : null
 			});
@@ -275,8 +276,15 @@
 														>{/each}
 												</select>
 											</label>
-											<label class="check"
-												><input type="checkbox" bind:checked={e.liquid} /> Liquid</label
+											<label
+												class="check"
+												title={e.kind === 'mortgage' ? 'A mortgage is never liquid' : undefined}
+												><input
+													type="checkbox"
+													checked={e.kind !== 'mortgage' && e.liquid}
+													onchange={(ev) => (e.liquid = ev.currentTarget.checked)}
+													disabled={e.kind === 'mortgage'}
+												/> Liquid</label
 											>
 											{#if e.kind === 'credit_card'}
 												<label class="field">

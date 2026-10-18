@@ -69,7 +69,8 @@ fn settled(r: &Row, picks: &Picks, accounts: &[Account]) -> Facts {
 }
 
 /// Labels for each row, in order. A row's own facts are never suggested.
-/// `accounts` are yours, to tell a transfer from a liquidation.
+/// `accounts` are yours, to tell a transfer from an expense or income
+/// between a liquid and a non-liquid account.
 #[must_use]
 pub fn labels(levels: &[&dyn Suggester], rows: &[Row], accounts: &[Account]) -> Vec<Picks> {
     let mut out: Vec<Picks> = vec![Picks::default(); rows.len()];
@@ -338,10 +339,14 @@ mod tests {
         );
         assert!(p.category.is_none() && p.purpose.is_none(), "{p:?}");
         assert!(second.seen.lock().unwrap().is_empty());
-        // Into a liquid account from an investment one: a liquidation, which
-        // keeps them.
+        // Into a liquid account from an investment one: income, which keeps
+        // them.
         let first = Transfer(Fixed::new(1, 950), Uuid::from_u128(52));
         r.amount = Decimal::ONE;
+        let p = &labels(&[&first], &[r.clone()], &accounts)[0];
+        assert!(p.category.is_some() && p.purpose.is_some(), "{p:?}");
+        // Out of a liquid account into an investment one: an expense, too.
+        r.amount = -Decimal::ONE;
         let p = &labels(&[&first], &[r], &accounts)[0];
         assert!(p.category.is_some() && p.purpose.is_some(), "{p:?}");
     }

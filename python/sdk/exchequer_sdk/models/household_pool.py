@@ -17,17 +17,18 @@ T = TypeVar("T", bound="HouseholdPool")
 
 @_attrs_define
 class HouseholdPool:
-    """The household's month (design §4.3), in USD. Income, expenses,
-    liquidations and savings count only amounts in USD; stipends and business
+    """The household's month (design §4.3), in USD. Income, expenses and
+    savings count only amounts in USD; stipends and business
     funding come from the settlement, which values other commodities at
     prices.
 
         Attributes:
             business_funding (list[PartyAmount]): How much each business's net funding grew this month.
             currency_id (UUID):
-            expenses (list[CategoryAmount]): Spending for the household, by category (negative).
-            income (list[CategoryAmount]): Income for the household, by category (positive).
-            liquidations (str): Investment proceeds that became shared (positive).
+            expenses (list[CategoryAmount]): Spending for the household, by category (negative). Money into an
+                investment or a loan (a mortgage's principal) counts.
+            income (list[CategoryAmount]): Income for the household, by category (positive). Money out of an
+                investment into a liquid account counts.
             month (str):  Example: 2026-06.
             shared_savings_change (str): The change in the household's own liquid accounts over the month.
             stipends (list[PartyAmount]): What the household owes each person for the month.
@@ -37,7 +38,6 @@ class HouseholdPool:
     currency_id: UUID
     expenses: list[CategoryAmount]
     income: list[CategoryAmount]
-    liquidations: str
     month: str
     shared_savings_change: str
     stipends: list[PartyAmount]
@@ -61,8 +61,6 @@ class HouseholdPool:
             income_item = income_item_data.to_dict()
             income.append(income_item)
 
-        liquidations = self.liquidations
-
         month = self.month
 
         shared_savings_change = self.shared_savings_change
@@ -80,7 +78,6 @@ class HouseholdPool:
                 "currency_id": currency_id,
                 "expenses": expenses,
                 "income": income,
-                "liquidations": liquidations,
                 "month": month,
                 "shared_savings_change": shared_savings_change,
                 "stipends": stipends,
@@ -118,8 +115,6 @@ class HouseholdPool:
 
             income.append(income_item)
 
-        liquidations = d.pop("liquidations")
-
         month = d.pop("month")
 
         shared_savings_change = d.pop("shared_savings_change")
@@ -136,7 +131,6 @@ class HouseholdPool:
             currency_id=currency_id,
             expenses=expenses,
             income=income,
-            liquidations=liquidations,
             month=month,
             shared_savings_change=shared_savings_change,
             stipends=stipends,
