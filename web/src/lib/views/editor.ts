@@ -8,6 +8,8 @@ import type { Reference } from '../reference';
 
 /** The select value meaning "someone outside the household". */
 export const OUTSIDE = 'outside';
+/** A category or purpose not chosen yet (a bank row's, while no one has). */
+export const UNSET = '?';
 
 /** One side: an account ID, or `OUTSIDE` with a counterparty name. */
 export type LegDraft = { account: string; outside: string };
@@ -60,8 +62,8 @@ export function blankSplit(commodity: string, like?: SplitDraft): SplitDraft {
 		converted: false,
 		toCommodity: like?.commodity ?? commodity,
 		toQuantity: '',
-		category: '',
-		purpose: '',
+		category: like?.category ?? '',
+		purpose: like?.purpose ?? '',
 		description: '',
 		settles: ''
 	};
@@ -210,7 +212,7 @@ export function problems(d: Draft, ref: Reference): string[] {
 const key = (name: string) => name.trim().toLowerCase();
 
 /** Counterparty names in the draft that don't exist yet. */
-export function newCounterparties(d: Draft, ref: Reference): string[] {
+export function newCounterparties(d: Pick<Draft, 'splits'>, ref: Reference): string[] {
 	const known = new Set([...ref.counterparties.values()].map((c) => key(c.name)));
 	const names = new Map<string, string>();
 	for (const s of d.splits)

@@ -119,3 +119,9 @@ these; a screen that can't is a reason to change this doc, not to make an except
   month) open under the line's ⋯.
 - A transaction has an address (`/transactions/<id>`): the list showing only it, its form
   open.
+- A bank row in import review opens the same form. Its account's side is fixed, the
+  amount is the bank's until it's split (then the parts must add up to it, shown with
+  `Mark`), and under each field one line says where its value came from: yours, a
+  suggestion and why, or *Pick one*. A suggestion you haven't taken is offered in the
+  field's dropdown (§5). What the row becomes on commit stays in the row, outside the form,
+  and applies at once.

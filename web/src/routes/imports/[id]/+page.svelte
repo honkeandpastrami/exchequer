@@ -8,13 +8,23 @@
 	import Failure from '#lib/components/Failure.svelte';
 	import Mark from '#lib/components/Mark.svelte';
 	import NoValue from '#lib/components/NoValue.svelte';
+	import RowForm from '#lib/components/RowForm.svelte';
+	import SplitLines, { type Field, type Offer } from '#lib/components/SplitLines.svelte';
 	import SuggestionBadge from '#lib/components/SuggestionBadge.svelte';
 	import { localDate } from '#lib/dates.ts';
-	import { partyKinds, rank } from '#lib/labels.ts';
 	import { hashQuery } from '#lib/query.ts';
 	import { accountLabel, accountsByOwner } from '#lib/names.ts';
-	import { forgetReference, reference, sorted, type Reference } from '#lib/reference.ts';
+	import { forgetReference, reference, type Reference } from '#lib/reference.ts';
 	import { transactionsById } from '#lib/transactions.ts';
+	import { newCounterparties, OUTSIDE } from '#lib/views/editor.ts';
+	import {
+		fixedSide,
+		rowDraft,
+		rowProblems,
+		rowUpdate,
+		whole,
+		type RowDraft
+	} from '#lib/views/review.ts';
 	import {
 		counted,
 		decisionLabel,
@@ -63,6 +73,15 @@
 	// a row you label stays on screen until the filter is picked again.
 	let pinned: Set<string> | null = $state(null);
 	let open: string | null = $state(null);
+	/** The open row's form: as it opened, and as it is now. */
+	type Form = {
+		before: RowDraft;
+		draft: RowDraft;
+		tried: boolean;
+		busy: boolean;
+		failure: unknown;
+	};
+	let form: Form | null = $state(null);
 	// Whether to remember each statement's number; yes unless unticked.
 	let remember: Record<number, boolean> = $state({});
 	let result: Schemas['Committed'] | null = $state(null);
@@ -113,7 +132,7 @@
 		const row = focus ? rows.find((r) => anchor(r) === focus) : undefined;
 		if (!row) return;
 		show('');
-		open = rowKey(row);
+		openRow(row);
 		await bring([row]);
 	}
 	function showOnly(s: 'unlabeled' | 'undecided') {
@@ -127,6 +146,7 @@
 			imp = null;
 			rows = [];
 			open = null;
+			form = null;
 			result = null;
 			notice = '';
 			show('');
@@ -140,13 +160,16 @@
 
 	// Edits go one at a time: each needs the ETag the one before returned.
 	let queue: Promise<unknown> = Promise.resolve();
-	function serial(work: () => Promise<void>): Promise<void> {
+	function serial(
+		work: () => Promise<void>,
+		fail: (e: unknown) => void = (e) => (failure = e)
+	): Promise<void> {
 		const next = queue.then(async () => {
 			failure = null;
 			try {
 				await work();
 			} catch (e) {
-				failure = e;
+				fail(e);
 				// Someone else changed the import: show it as it is now.
 				if (e instanceof ApiError && e.status === 412) await load();
 			}
@@ -170,8 +193,10 @@
 			await load();
 		});
 
-	const setRow = (row: Row, body: Schemas['RowUpdate']) =>
-		serial(async () => {
+	const setRow = (row: Row, body: Schemas['RowUpdate']) => serial(() => patch(row, body));
+
+	async function patch(row: Row, body: Schemas['RowUpdate']) {
+		{
 			const r = await api.PATCH('/api/v1/imports/{id}/rows/{statement}/{position}', {
 				params: {
 					path: { id, statement: row.statement, position: row.position },
@@ -189,10 +214,93 @@
 				imp = ok(i);
 				etag = i.response.headers.get('etag') ?? '';
 			}
-		});
+		}
+	}
 
-	const setLabel = (row: Row, label: Label, value: string | null) =>
-		setRow(row, { [field[label]]: value });
+	/** Where a row is: its statement's account and commodity. */
+	function bankOf(row: Row) {
+		const s = imp?.statements.find((x) => x.position === row.statement);
+		return s?.account_id ? { account: s.account_id, commodity: s.commodity_id } : undefined;
+	}
+
+	/** Details: the row's form opens under it; again, it closes. */
+	function openRow(row: Row) {
+		const bank = bankOf(row);
+		open = rowKey(row);
+		const before = bank && ref ? rowDraft(row, bank, ref) : null;
+		form = before
+			? { before, draft: structuredClone(before), tried: false, busy: false, failure: null }
+			: null;
+	}
+	function toggle(row: Row) {
+		if (open === rowKey(row)) {
+			open = null;
+			form = null;
+		} else openRow(row);
+	}
+
+	async function save(row: Row) {
+		const f = form;
+		if (!f || !ref) return;
+		f.tried = true;
+		if (rowProblems(row, f.draft, ref).length) return;
+		f.busy = true;
+		f.failure = null;
+		await serial(
+			async () => {
+				let r = ref!;
+				const fresh = newCounterparties(f.draft, r);
+				for (const name of fresh) ok(await api.POST('/api/v1/counterparties', { body: { name } }));
+				if (fresh.length) {
+					forgetReference();
+					r = ref = await reference();
+				}
+				const body = rowUpdate(row, $state.snapshot(f.before), $state.snapshot(f.draft), r);
+				if (Object.keys(body).length) await patch(row, body);
+				open = null;
+				form = null;
+			},
+			(e) => (f.failure = e)
+		);
+		f.busy = false;
+	}
+
+	/** The other side of a form's one split: the leg that isn't the bank's. */
+	const otherLeg = (row: Row, f: Form) =>
+		fixedSide(row) === 'from' ? f.draft.splits[0].to : f.draft.splits[0].from;
+
+	/** What a field's dropdown offers: the row's suggestion, while it's one split. */
+	function offers(r: Reference, row: Row, f: Form, i: number): Partial<Record<Field, Offer>> {
+		if (i > 0 || f.draft.splits.length > 1 || row.splits.length) return {};
+		const out: Partial<Record<Field, Offer>> = {};
+		const cp = offered(r, row, 'counterparty');
+		if (cp && !row.not_applicable.includes('counterparty')) {
+			const side = suggestedSide(cp);
+			out.other = {
+				label: suggested(r, row, 'counterparty', cp),
+				apply: () => {
+					const l = otherLeg(row, f);
+					if (side && 'account' in side) Object.assign(l, { account: side.account, outside: '' });
+					else
+						Object.assign(l, {
+							account: OUTSIDE,
+							outside: side?.counterparty
+								? (r.counterparties.get(side.counterparty)?.name ?? '')
+								: ''
+						});
+				}
+			};
+		}
+		for (const label of ['category', 'purpose'] as const) {
+			const sg = row.not_applicable.includes(label) ? undefined : offered(r, row, label);
+			if (sg)
+				out[label] = {
+					label: suggested(r, row, label, sg),
+					apply: () => (f.draft.splits[0][label] = sg.value ?? '')
+				};
+		}
+		return out;
+	}
 
 	const matching = (s: Exclude<Shown, ''>) =>
 		s === 'unlabeled'
@@ -228,12 +336,6 @@
 			: noneNames.counterparty;
 	}
 
-	/** Accounts a row's other side can be: not archived, not its own. */
-	function transferAccounts(r: Reference, row: Row): Schemas['Account'][] {
-		const own = imp?.statements.find((s) => s.position === row.statement)?.account_id;
-		return accountsByOwner(r).filter((a) => !a.archived && a.id !== own);
-	}
-
 	/** The owner of a row's account: who an unset purpose means (design §4.1). */
 	function ownerOf(r: Reference, row: Row): string | undefined {
 		const own = imp?.statements.find((s) => s.position === row.statement)?.account_id;
@@ -253,17 +355,6 @@
 		return named?.name ?? '?';
 	}
 
-	/**
-	 * A select's value: an ID, NONE, or '' while missing. An unset purpose
-	 * is the account's owner, picked by name like any other.
-	 */
-	function selected(r: Reference, row: Row, label: Label): string {
-		const v = valueOf(row, label);
-		if (v === undefined || labelState(row, label).kind === 'unsure') return '';
-		if (v === null && label === 'purpose') return ownerOf(r, row) ?? '';
-		return v ?? NONE;
-	}
-
 	/** A select's option for a value: an unset purpose is the owner, no category NONE. */
 	function optionOf(r: Reference, row: Row, label: Label, v: string | null): string {
 		if (v !== null) return v;
@@ -277,7 +368,7 @@
 			const a = r.accounts.get(side.account);
 			return a ? accountLabel(a, r) : '';
 		}
-		return side.counterparty ? (r.counterparties.get(side.counterparty)?.name ?? '') : 'none';
+		return side.counterparty ? (r.counterparties.get(side.counterparty)?.name ?? '') : '';
 	}
 
 	/**
@@ -300,37 +391,9 @@
 
 	/** A suggestion's value, by name. */
 	const suggested = (r: Reference, row: Row, label: Label, sg: Schemas['LabelSuggestion']) =>
-		label === 'counterparty' ? typed(r, suggestedSide(sg)) : nameOf(r, row, label, sg.value);
-
-	/**
-	 * A typed other side: one of your accounts by its label (a transfer),
-	 * else an existing counterparty by name, else a new one.
-	 */
-	async function counterparty(row: Row, name: string) {
-		const r = ref;
-		if (!r) return;
-		const wanted = name.trim();
-		// Cleared, or "none": deliberately no counterparty.
-		if (!wanted || wanted.toLowerCase() === 'none') return setLabel(row, 'counterparty', null);
-		const account = transferAccounts(r, row).find(
-			(a) => accountLabel(a, r).toLowerCase() === wanted.toLowerCase()
-		);
-		if (account) return setRow(row, { transfer_account_id: account.id });
-		let c = [...r.counterparties.values()].find(
-			(c) => c.name.toLowerCase() === wanted.toLowerCase()
-		);
-		if (!c) {
-			try {
-				c = ok(await api.POST('/api/v1/counterparties', { body: { name: wanted } }));
-				forgetReference();
-				ref = await reference();
-			} catch (e) {
-				failure = e;
-				return;
-			}
-		}
-		return setRow(row, { counterparty_id: c.id });
-	}
+		label === 'counterparty'
+			? typed(r, suggestedSide(sg)) || noneNames.counterparty
+			: nameOf(r, row, label, sg.value);
 
 	async function commit() {
 		busy = true;
@@ -383,14 +446,6 @@
 	const planned = $derived(plan(rows));
 	const visible = $derived(pinned ? rows.filter((r) => pinned?.has(rowKey(r))) : rows);
 	const allCounts = $derived(imp ? counted(totals(imp.statements)) : []);
-	const owners = $derived(
-		ref
-			? [...ref.parties.values()].sort(
-					(a, b) =>
-						rank(partyKinds, a.kind) - rank(partyKinds, b.kind) || a.name.localeCompare(b.name)
-				)
-			: []
-	);
 </script>
 
 <p class="back"><a href={resolve('/imports')}>← Imports</a></p>
@@ -578,7 +633,25 @@
 							{#if labeled}
 								<!-- One slot per label, always in the same place. -->
 								<div class="chips small">
-									{#each labels as label (label)}
+									{#if row.splits.length}
+										<!-- Split: where each part goes, in order. -->
+										<span class="chip whole">
+											<span class="muted">Split {row.splits.length} ways:</span>
+											<span class="v"
+												>{row.splits
+													.map((p) =>
+														sideName(
+															r,
+															p.transfer_account_id
+																? { account: p.transfer_account_id }
+																: { counterparty: p.counterparty_id ?? null }
+														)
+													)
+													.join(', ')}</span
+											>
+										</span>
+									{/if}
+									{#each row.splits.length ? [] : labels as label (label)}
 										{@const st = labelState(row, label)}
 										{@const kept =
 											row.decision === 'replace' && st.kind !== 'yours' && st.kind !== 'confident'}
@@ -669,10 +742,8 @@
 							{:else}
 								<span class="muted">Pick the account</span>
 							{/if}
-							<button
-								class="link"
-								aria-expanded={open === key}
-								onclick={() => (open = open === key ? null : key)}>Details</button
+							<button class="link" aria-expanded={open === key} onclick={() => toggle(row)}
+								>Details</button
 							>
 						</td>
 					</tr>
@@ -698,114 +769,82 @@
 										>
 									</p>
 								{/if}
-								{#if labeled}
-									<label class="field">
-										<span>Description</span>
-										<input
-											value={row.set_description ?? ''}
-											placeholder={row.description}
-											onchange={(e) =>
-												setRow(row, { set_description: e.currentTarget.value.trim() || null })}
-										/>
-									</label>
-									<!-- Three fixed columns, each a control and one status line. -->
-									<div class="fields">
-										{#each labels as label (label)}
+								{#snippet facts()}
+									{#if row.native_id}<span>Bank ID {row.native_id}</span>{/if}
+									{#each Object.entries(row.raw as Record<string, unknown>) as [k, v] (k)}
+										<span>{k} {typeof v === 'string' ? v : JSON.stringify(v)}</span>
+									{/each}
+								{/snippet}
+								{#if labeled && form}
+									{@const f = form}
+									{@const bank = bankOf(row)}
+									{#snippet status(i: number, field: Field)}
+										{@const label = field === 'other' ? 'counterparty' : field}
+										{#if i === 0 && f.draft.splits.length === 1 && !row.splits.length}
 											{@const st = labelState(row, label)}
-											{@const na = row.not_applicable.includes(label)}
-											{@const sg = na ? undefined : offered(r, row, label)}
+											{@const sg = offered(r, row, label)}
 											{@const kept =
 												row.decision === 'replace' &&
 												st.kind !== 'yours' &&
 												st.kind !== 'confident'}
-											<div class="field">
-												<label for="{key}-{label}">{labelNames[label]}</label>
-												{#if na}
-													<select id="{key}-{label}" disabled>
-														<option>Not for a transfer</option>
-													</select>
-												{:else if label === 'counterparty'}
-													{@const settled = st.kind === 'yours' || st.kind === 'confident'}
-													<input
-														id="{key}-{label}"
-														list="{key}-sides"
-														value={settled && typed(r, sideOf(row)) !== 'none'
-															? typed(r, sideOf(row))
-															: ''}
-														placeholder={settled ? 'none' : 'A name, or one of your accounts'}
-														onchange={(e) => counterparty(row, e.currentTarget.value)}
-													/>
-													<datalist id="{key}-sides">
-														{#if sg}<option value={suggested(r, row, label, sg)}>Suggested</option
-															>{/if}
-														<option value="none">No counterparty</option>
-														{#each transferAccounts(r, row) as a (a.id)}<option
-																value={accountLabel(a, r)}>Transfer</option
-															>{/each}
-														{#each sorted(r.counterparties) as c (c.id)}<option value={c.name}
-															></option>{/each}
-													</datalist>
-												{:else}
-													<select
-														id="{key}-{label}"
-														value={selected(r, row, label)}
-														onchange={(e) =>
-															setLabel(
-																row,
-																label,
-																e.currentTarget.value === NONE ? null : e.currentTarget.value
-															)}
-													>
-														<option value="" disabled>Choose…</option>
-														{#if sg}
-															<option value={optionOf(r, row, label, sg.value ?? null)}
-																>{suggested(r, row, label, sg)} (suggested)</option
-															>
-														{/if}
-														{#if label === 'category'}
-															<option value={NONE}>{noneNames.category}</option>
-															{#each sorted(r.categories) as c (c.id)}<option value={c.id}
-																	>{c.name}</option
-																>{/each}
-														{:else}
-															{#each owners as o (o.id)}<option value={o.id}>{o.name}</option
-																>{/each}
-														{/if}
-													</select>
-												{/if}
-												<span class="status">
-													{#if na}
-														&nbsp;
-													{:else if st.kind === 'yours'}
-														Your choice{#if sg}; suggested: {suggested(r, row, label, sg)}{/if}
-													{:else if st.kind === 'confident' || st.kind === 'unsure'}
-														<SuggestionBadge suggestion={st.suggestion} />
-														{#if kept}Keeps current; suggested: {suggested(
-																r,
-																row,
-																label,
-																st.suggestion
-															)}?{:else}<span title={st.suggestion.reason}
-																>{st.suggestion.reason}</span
-															>{/if}
-													{:else if kept}
-														Keeps current
-													{:else}
-														<span class="warn">Pick one</span>
-													{/if}
-												</span>
-											</div>
-										{/each}
-									</div>
+											{#if st.kind === 'yours'}
+												<span
+													title={sg
+														? `Your choice; suggested: ${suggested(r, row, label, sg)}`
+														: undefined}
+													>Your choice{#if sg}; suggested: {suggested(r, row, label, sg)}{/if}</span
+												>
+											{:else if st.kind === 'confident' || st.kind === 'unsure'}
+												<SuggestionBadge suggestion={st.suggestion} />
+												{#if kept}Keeps current; suggested: {suggested(
+														r,
+														row,
+														label,
+														st.suggestion
+													)}?{:else}<span title={st.suggestion.reason}>{st.suggestion.reason}</span
+													>{/if}
+											{:else if kept}
+												Keeps current
+											{:else}
+												<span class="warn">Pick one</span>
+											{/if}
+										{/if}
+									{/snippet}
+									<RowForm
+										label="Edit {row.description}"
+										busy={f.busy}
+										issues={f.tried ? rowProblems(row, f.draft, r) : []}
+										failure={f.failure}
+										onsave={() => save(row)}
+										oncancel={() => toggle(row)}
+										onreload={load}
+										{facts}
+									>
+										<label class="field description">
+											<span>Description</span>
+											<input
+												bind:value={f.draft.description}
+												placeholder={row.description}
+												maxlength="500"
+											/>
+										</label>
+										{#if bank}
+											<SplitLines
+												bind:splits={f.draft.splits}
+												ref={r}
+												commodity={bank.commodity}
+												fixed={{ account: bank.account, side: fixedSide(row) }}
+												expected={whole(row)}
+												canAdd={row.decision === 'new' && row.status !== 'transfer_match'}
+												more={false}
+												offers={(i) => offers(r, row, f, i)}
+												{status}
+											/>
+										{/if}
+									</RowForm>
+								{:else}
+									<p class="facts muted">{@render facts()}</p>
 								{/if}
-								<dl class="raw">
-									{#if row.native_id}<dt>Bank ID</dt>
-										<dd>{row.native_id}</dd>{/if}
-									{#each Object.entries(row.raw as Record<string, unknown>) as [k, v] (k)}
-										<dt>{k}</dt>
-										<dd>{typeof v === 'string' ? v : JSON.stringify(v)}</dd>
-									{/each}
-								</dl>
 							</td>
 						</tr>
 					{/if}
@@ -868,6 +907,9 @@
 		gap: var(--space-3);
 		margin-top: var(--space-1);
 	}
+	.chip.whole {
+		grid-column: 1 / -1;
+	}
 	/* A long value is cut short; its name and badge always show. */
 	.chip {
 		display: flex;
@@ -886,27 +928,31 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	.facts {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-1) var(--space-4);
+		margin: 0;
+		font-size: var(--text-xs);
+		font-family: var(--font-mono);
+	}
+	.description {
+		margin-bottom: var(--space-3);
+	}
+	.description input {
+		width: 100%;
+	}
 	.matches {
 		margin: 0 0 var(--space-3);
 		overflow-wrap: anywhere;
 	}
-	.fields {
-		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		gap: var(--space-3);
-		margin-top: var(--space-3);
-	}
 	@media (max-width: 40rem) {
-		.chips,
-		.fields {
+		.chips {
 			grid-template-columns: minmax(0, 1fr);
 			gap: var(--space-1);
 		}
 	}
-	.fields select,
-	.fields input,
-	.decide select,
-	.details .field > input {
+	.decide select {
 		width: 100%;
 	}
 	.status {
@@ -1021,20 +1067,5 @@
 		flex-direction: column;
 		gap: var(--space-1);
 		font-size: var(--text-sm);
-	}
-	.raw {
-		display: grid;
-		grid-template-columns: max-content 1fr;
-		gap: var(--space-1) var(--space-3);
-		margin: var(--space-3) 0 0;
-		font-size: var(--text-xs);
-		font-family: var(--font-mono);
-	}
-	.raw dt {
-		color: var(--color-text-muted);
-	}
-	.raw dd {
-		margin: 0;
-		word-break: break-all;
 	}
 </style>
