@@ -296,7 +296,7 @@
 			if (sg)
 				out[label] = {
 					label: suggested(r, row, label, sg),
-					value: label === 'purpose' ? (sg.value ?? ownerOf(r, row) ?? '') : (sg.value ?? ''),
+					value: sg.value ?? '',
 					apply: () => (f.draft.splits[0][label] = sg.value ?? '')
 				};
 		}
@@ -337,16 +337,9 @@
 			: noneNames.counterparty;
 	}
 
-	/** The owner of a row's account: who an unset purpose means (design §4.1). */
-	function ownerOf(r: Reference, row: Row): string | undefined {
-		const own = imp?.statements.find((s) => s.position === row.statement)?.account_id;
-		return own ? r.accounts.get(own)?.owner_id : undefined;
-	}
-
 	function nameOf(r: Reference, row: Row, label: Label, value: string | null | undefined): string {
 		if (value === undefined) return '?';
-		if (value === null && label === 'purpose') value = ownerOf(r, row) ?? null;
-		if (value === null) return noneNames[label];
+		if (value === null) return label === 'purpose' ? '?' : noneNames[label];
 		const named =
 			label === 'counterparty'
 				? r.counterparties.get(value)
@@ -356,10 +349,10 @@
 		return named?.name ?? '?';
 	}
 
-	/** A select's option for a value: an unset purpose is the owner, no category NONE. */
-	function optionOf(r: Reference, row: Row, label: Label, v: string | null): string {
+	/** A select's option for a value: no category is NONE; a purpose is never none. */
+	function optionOf(label: Label, v: string | null): string {
 		if (v !== null) return v;
-		return label === 'purpose' ? (ownerOf(r, row) ?? '') : NONE;
+		return label === 'purpose' ? '' : NONE;
 	}
 
 	/** What you'd type for a side: an account's label, a name, or "none". */
@@ -385,8 +378,7 @@
 		const same =
 			label === 'counterparty'
 				? typed(r, suggestedSide(sg)) === typed(r, sideOf(row))
-				: optionOf(r, row, label, sg.value ?? null) ===
-					optionOf(r, row, label, row[field[label]] ?? null);
+				: optionOf(label, sg.value ?? null) === optionOf(label, row[field[label]] ?? null);
 		return same ? undefined : sg;
 	}
 

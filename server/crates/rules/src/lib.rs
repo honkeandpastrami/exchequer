@@ -136,8 +136,13 @@ enum Setter {
 
 impl Setter {
     /// Whether it names an account, which can't be none.
-    const fn account(self) -> bool {
-        matches!(self, Self::Account | Self::Transfer)
+    /// Whether `()` (none) is a value: not for an account, and not for a
+    /// purpose, which names someone (design §4.1).
+    const fn takes_none(self) -> bool {
+        !matches!(
+            self,
+            Self::Account | Self::Transfer | Self::Label(Label::Purpose)
+        )
     }
 }
 
@@ -504,12 +509,12 @@ fn check(expr: &Expr, lookup: &Lookup, errors: &mut Vec<ScriptError>) {
                         errors.push(ScriptError::at(*pos, e));
                     }
                 }
-                Some(Expr::Unit(_)) if !what.account() => {}
+                Some(Expr::Unit(_)) if what.takes_none() => {}
                 _ => errors.push(ScriptError::at(
                     *pos,
                     format!(
                         "{name}(…) takes a name written out (\"…\"){}, so it can be checked",
-                        if what.account() { "" } else { " or ()" }
+                        if what.takes_none() { " or ()" } else { "" }
                     ),
                 )),
             }

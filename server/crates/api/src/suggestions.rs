@@ -378,6 +378,10 @@ pub(crate) async fn labels(
     for (r, p) in staged.iter().zip(picks) {
         for l in Label::ALL {
             let Some(pick) = p.get(l) else { continue };
+            // A purpose names someone; "none" isn't one (design §4.1).
+            if l == Label::Purpose && pick.guess.value.id().is_none() {
+                continue;
+            }
             if items
                 .iter()
                 .any(|k| k.position == r.position && k.label == l.as_str())

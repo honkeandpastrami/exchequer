@@ -200,7 +200,7 @@ fn pick(q: &Question) -> Option<String> {
         match q.name.as_str() {
             "counterparty" => "Corner Cafe",
             "category" => "Dining",
-            "purpose" => "(the account's owner)",
+            "purpose" => "Alex",
             _ => "Alex · Credit",
         }
         .into(),
@@ -219,8 +219,7 @@ fn open_labels_are_asked_and_answers_are_ledger_values() {
     );
     assert!(cp.confidence >= CONFIDENT);
     assert_eq!(p.category.as_ref().unwrap().value, Value::Id(DINING));
-    // "None" is a value: the account's owner.
-    assert_eq!(p.purpose.as_ref().unwrap().value, Value::None);
+    assert_eq!(p.purpose.as_ref().unwrap().value, Value::Id(ALEX));
     let i = l.identity();
     assert_eq!(
         (i.kind, i.name.as_str(), i.version.as_str()),
@@ -242,15 +241,7 @@ fn open_labels_are_asked_and_answers_are_ledger_values() {
         keys(&questions[0]),
         ["(cannot tell)", "(none of these)", "Corner Cafe"]
     );
-    assert_eq!(
-        keys(&questions[2]),
-        [
-            "(cannot tell)",
-            "(the account's owner)",
-            "Alex",
-            "Household"
-        ]
-    );
+    assert_eq!(keys(&questions[2]), ["(cannot tell)", "Alex", "Household"]);
     let t = &state["transaction"];
     assert_eq!(
         (

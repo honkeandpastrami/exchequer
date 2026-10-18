@@ -184,6 +184,7 @@ fn examples_from_the_design() {
 
     // Refund: income, same category.
     let refund = Split {
+        purpose: Some(h.household),
         category: Some(h.groceries),
         ..split(cp(h.store), acct(h.alex_credit), usd, "30")
     };
@@ -197,7 +198,10 @@ fn examples_from_the_design() {
         ..split(acct(h.alex_credit), unknown, usd, "12")
     };
     assert_eq!(kind(h.classify(&spent)), Kind::Expense);
-    let received = split(unknown, acct(h.alex_checking), usd, "12");
+    let received = Split {
+        purpose: Some(h.alex),
+        ..split(unknown, acct(h.alex_checking), usd, "12")
+    };
     assert_eq!(kind(h.classify(&received)), Kind::Income);
 
     // Card payment.
@@ -210,8 +214,14 @@ fn examples_from_the_design() {
 
     // Mortgage payment: principal and interest are both expenses, the
     // principal into the (non-liquid) mortgage.
-    let principal = split(acct(h.joint_savings), acct(h.mortgage), usd, "1200");
-    let interest = split(acct(h.joint_savings), cp(h.lender), usd, "800");
+    let principal = Split {
+        purpose: Some(h.household),
+        ..split(acct(h.joint_savings), acct(h.mortgage), usd, "1200")
+    };
+    let interest = Split {
+        purpose: Some(h.household),
+        ..split(acct(h.joint_savings), cp(h.lender), usd, "800")
+    };
     assert_eq!(kind(h.classify(&principal)), Kind::Expense);
     assert_eq!(kind(h.classify(&interest)), Kind::Expense);
 
@@ -287,6 +297,15 @@ fn between_liquid_and_not() {
         h.usd,
         "5000",
     );
+    // Like any expense, it says who it was for.
+    assert_eq!(
+        h.classify(&invest),
+        Err(SplitError::PurposeRequired(Kind::Expense))
+    );
+    let invest = Split {
+        purpose: Some(h.household),
+        ..invest
+    };
     let c = h.classify(&invest).unwrap();
     assert_eq!((c.kind, c.crossing), (Kind::Expense, true));
 
@@ -432,8 +451,14 @@ fn transactions_report_the_failing_split() {
         Err(TransactionError::NoSplits)
     );
 
-    let ok = split(acct(h.alex_credit), cp(h.store), h.usd, "120");
-    let bad = split(acct(h.alex_credit), cp(h.store), h.usd, "45.001");
+    let ok = Split {
+        purpose: Some(h.alex),
+        ..split(acct(h.alex_credit), cp(h.store), h.usd, "120")
+    };
+    let bad = Split {
+        purpose: Some(h.alex),
+        ..split(acct(h.alex_credit), cp(h.store), h.usd, "45.001")
+    };
     assert_eq!(
         tx(vec![ok.clone(), ok.clone()])
             .classify(&h.book)
@@ -462,7 +487,11 @@ proptest! {
         let from = if from_mine { acct(h.alex_checking) } else { cp(h.store) };
         let to = if to_mine { acct(h.joint_savings) } else { cp(h.grocer) };
         let target = if same_commodity { h.usd } else { h.eur };
-        let s = conversion(from, (h.usd, &qty), to, (target, &qty));
+        let s = Split {
+            // Income and expenses say who they were for.
+            purpose: (from_mine != to_mine).then_some(h.household),
+            ..conversion(from, (h.usd, &qty), to, (target, &qty))
+        };
         let expected = match (from_mine, to_mine, same_commodity) {
             (false, false, _) => Err(SplitError::BothExternal),
             (true, false, _) => Ok(Kind::Expense),

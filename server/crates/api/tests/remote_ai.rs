@@ -69,8 +69,7 @@ async fn spend(pool: &PgPool, h: &H, date: &str, description: &str) {
             Some(
                 json!({ "date": date, "description": description, "splits": [{
                 "from": h.leg(h.acct(&h.alex_credit), "4.50"),
-                "to": h.leg(("counterparty_id", &h.store), "4.50"),
-            }] }),
+                "to": h.leg(("counterparty_id", &h.store), "4.50"), "purpose_id": h.alex }] }),
             ),
         )
         .await;

@@ -298,7 +298,7 @@ data through side channels:
   *liquid*; brokerages are *investment* accounts, and a mortgage is never liquid.
   Investments are never shared while they stay invested: activity inside them (vests,
   dividends, buys, sells, fees) has no purpose and doesn't enter the settlement. Money
-  into or out of them is an expense or income (§3.2), for the Household by default.
+  into or out of them is an expense or income (§3.2).
 - **Totals (display).** Balances are added up apart for *liquid* accounts, *investments*
   (not liquid) and *loans* (mortgages: large and slow, they'd hide the rest), and mixed
   only in a **Net** line.
@@ -307,10 +307,10 @@ data through side channels:
   Transfers and
   conversions have no purpose and no category, because they don't change how much anyone
   has.
-- **Defaults:** a split's purpose defaults to its account's owner; money into or out of an
-  investment or a loan, to the Household. Household accounts need
-  almost no review. On personal accounts, where a large share of spending is often
-  household spending, the purpose is **predicted** (§8).
+- **No default.** Every income and expense on a liquid account names its purpose: a
+  transaction can't be saved, nor an import row committed, without one. Suggestions name
+  it too (§8), so household accounts need almost no review; on personal accounts, where a
+  large share of spending is often household spending, it's **predicted**.
 
 ### 4.2 What creates a claim between parties
 
@@ -324,8 +324,8 @@ split no price connects to USD is listed as unpriced and left out.
 | Income/expense where owner ≠ purpose | Groceries on Alex Credit, purpose Household | Household owes Alex $80 |
 | | Salary into Alex Checking, purpose Household | Alex owes Household the salary |
 | | Studio supplies on Sam Credit, purpose Studio | Studio owes Sam |
-| Money out of an investment (income), purpose **default Household** | Alex Brokerage → Joint Savings, $10,000 | Landing in a Household account, it simply *becomes shared*: no claim. Landing in Alex Checking, Alex owes it to the Household, until moved on (a settlement payment) |
-| Money into an investment or a loan (an expense), purpose **default Household** | Alex Checking → Mortgage *(principal)* | The Household owes Alex |
+| Money out of an investment (income), for the Household | Alex Brokerage → Joint Savings, $10,000 | Landing in a Household account, it simply *becomes shared*: no claim. Landing in Alex Checking, Alex owes it to the Household, until moved on (a settlement payment) |
+| Money into an investment or a loan (an expense), for the Household | Alex Checking → Mortgage *(principal)* | The Household owes Alex |
 | **Settlement payment**: any other transfer between liquid accounts of different owners | Alex Checking → Joint Savings; Joint Savings → Sam Checking; Alex → Sam directly; Joint Savings → Studio Checking | Counts as *paid* against the claims between those parties |
 | **Stipend** | set per person each month (§4.3) | Household owes the person their stipend |
 | Owner = purpose, transfers within one owner, conversions, investment activity | — | none |
@@ -620,7 +620,7 @@ The levels:
        if d.starts_with("ACME CORP PAYROLL") && row.amount > 0 {
            s.counterparty("ACME Corp"); s.category("Salary"); s.purpose("Household");
        } else if d.contains("CITY WATER") && row.account == "Household · Joint Checking" {
-           s.counterparty("City Water"); s.category("Utilities"); s.purpose(());
+           s.counterparty("City Water"); s.category("Utilities"); s.purpose("Household");
        }
    }
    ```
@@ -739,6 +739,7 @@ until the output is right, and migrates **one calendar year at a time**.
   - **Owner and purpose.** Each account gets an owner. Each split's purpose is derived from
     whatever the household used to encode it (typically a tag such as "Shared" and/or
     per-person budgets), with the mapping declaring which tag or budget means which party.
+    A split neither names is an error, in the dry run too: there's no default (§4.1).
     Conflicting labels are listed in the report. Budgets and the encoding tags are then
     retired.
   - **Settlement history:** transfers between personal accounts and shared savings become
@@ -1014,10 +1015,10 @@ The components are independent behind the API contract, but they have a natural 
 | 10 | Balance checks | One user-entered number, optionally dated; mismatches go to the discrepancy finder | §7.1 |
 | 11 | Stipend | Set per person when closing each month | §4.3 |
 | 12 | Businesses | Their own party and settlement; the funder is set per month | §4.1 |
-| 13 | Investments | Not shared while invested; money into or out of them (a mortgage too) is an expense or income, for the Household by default | §3.2, §4.1, §4.2 |
+| 13 | Investments | Not shared while invested; money into or out of them (a mortgage too) is an expense or income | §3.2, §4.1, §4.2 |
 | 14 | Transfers between people | Settlement payments | §4.2 |
 | 15 | Privacy within the household | Everyone sees and edits everything | §10 |
-| 16 | Investment proceeds into personal accounts | Household income by default: a claim like any other, settled when moved on | §4.2 |
+| 16 | Investment proceeds into personal accounts | Income with a purpose like any other: a claim, settled when moved on | §4.2 |
 | 17 | Mortgage | Household-owned and never liquid; its principal is spending | §3.2, §4.2 |
 | 18 | Stack | Rust server; Python CLI and migration; TypeScript + SvelteKit web app | §15 |
 | 19 | Code organization | One public monorepo; household data in the DB; deployment config private | §16 |

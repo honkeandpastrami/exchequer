@@ -17,12 +17,12 @@ def only(p):
     return t
 
 
-def test_expense_purpose_from_budget_tag_or_owner(m):
+def test_expense_purpose_from_budget_or_tag(m):
     p = plan(
         m,
         group(10, "2026-03-01", journal(2, "Expense:Grocer", "80.00", budget="Shared")),
         group(11, "2026-03-02", journal(2, "Expense:Grocer", "5.00", tags=["Shared"])),
-        group(12, "2026-03-03", journal(2, "Expense:Books", "9.00")),
+        group(12, "2026-03-03", journal(2, "Expense:Books", "9.00", budget="Alex's")),
     )
     purposes = {t.firefly_id: t.splits[0].purpose for t in p.transactions}
     assert purposes == {"10": "Household", "11": "Household", "12": "Alex"}
@@ -30,7 +30,19 @@ def test_expense_purpose_from_budget_tag_or_owner(m):
     assert t.splits[0].from_.account == "Alex · Credit"
     assert t.splits[0].to.counterparty == "Grocer"
     assert t.splits[0].from_.quantity == Decimal("80.00")
-    assert p.report.counts["purpose from owner"] == 1
+    assert not p.report.errors
+
+
+def test_no_purpose_is_an_error(m):
+    p = plan(
+        m,
+        group(10, "2026-03-01", journal(2, "Expense:Books", "9.00", budget=None)),
+        group(11, "2026-03-02", journal(2, "Expense:Books", "9.00", budget="Holiday")),
+    )
+    assert not [t for t in p.transactions if t.firefly_id]
+    [none, unmapped] = p.report.errors
+    assert "no budget or purpose tag says who it's for" in none
+    assert "budget 'Holiday' is not in the mapping" in unmapped
 
 
 def test_conflicting_labels_use_the_budget_and_are_reported(m):
@@ -77,8 +89,8 @@ def test_brokerage_accounts_collapse_and_a_sale_is_a_conversion(m):
     assert split.category is None
 
 
-def test_money_out_of_an_investment_defaults_to_household(m):
-    j = journal(4, 1, "1000.00", type="transfer", category="Card Payment")
+def test_money_out_of_an_investment_is_income(m):
+    j = journal(4, 1, "1000.00", type="transfer", budget="Shared", category="Card Payment")
     split = only(plan(m, group(10, "2026-03-01", j))).splits[0]
     assert split.purpose == "Household"
     assert split.category is None  # transfer-only categories don't migrate

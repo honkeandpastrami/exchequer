@@ -99,7 +99,7 @@ describe('a bank row as a form', () => {
 			to: { account: OUTSIDE, outside: 'lender' },
 			quantity: '1,200.00',
 			category: 'principal',
-			purpose: ''
+			purpose: 'home'
 		};
 		after.splits.push({ ...blankSplit('usd', after.splits[0]), quantity: '500.00' });
 		after.splits.push({
@@ -118,14 +118,14 @@ describe('a bank row as a form', () => {
 					amount: '1200.00',
 					counterparty_id: 'lender',
 					category_id: 'principal',
-					purpose_id: null,
+					purpose_id: 'home',
 					description: null
 				},
 				{
 					amount: '500.00',
 					counterparty_id: 'lender',
 					category_id: 'principal',
-					purpose_id: null,
+					purpose_id: 'home',
 					description: null
 				},
 				{
@@ -146,7 +146,12 @@ describe('a bank row as a form', () => {
 	it('unsplits into the row with every label yours', () => {
 		const r = row({
 			splits: [
-				{ amount: '1000.00', counterparty_id: 'lender', category_id: 'principal' },
+				{
+					amount: '1000.00',
+					counterparty_id: 'lender',
+					category_id: 'principal',
+					purpose_id: 'home'
+				},
 				{ amount: '900.00', transfer_account_id: 'escrow' }
 			]
 		});
@@ -161,7 +166,7 @@ describe('a bank row as a form', () => {
 			splits: null,
 			counterparty_id: 'lender',
 			category_id: 'principal',
-			purpose_id: null
+			purpose_id: 'home'
 		});
 	});
 });

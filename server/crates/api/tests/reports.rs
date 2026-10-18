@@ -45,7 +45,7 @@ async fn june_and_july(h: &H, pool: &PgPool) -> String {
             h.acct(&h.alex_credit),
             store,
             "20.00",
-            json!({}),
+            json!({ "purpose_id": h.alex }),
         ),
         (
             "2026-06-15",
@@ -66,7 +66,7 @@ async fn june_and_july(h: &H, pool: &PgPool) -> String {
             h.acct(&h.joint_savings),
             store,
             "40.00",
-            json!({ "category_id": groceries }),
+            json!({ "purpose_id": household, "category_id": groceries }),
         ),
     ] {
         let r = h.tx(pool, date, from, to, qty, extra).await;
@@ -273,7 +273,7 @@ async fn household_pool(pool: PgPool) {
         h.acct(&h.alex_brokerage),
         h.acct(&h.joint_savings),
         "500.00",
-        json!({}),
+        json!({ "purpose_id": h.household }),
     )
     .await;
     h.put_params(

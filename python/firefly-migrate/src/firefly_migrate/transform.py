@@ -281,27 +281,28 @@ class _Builder:
             case _:
                 raise _Skip(f"{where}: {ftype} {fname!r} (Firefly {fid}) is not in the mapping")
 
-    def purpose(self, j: _Journal, owner: str, where: str) -> str:
+    def purpose(self, j: _Journal, where: str) -> str:
+        """Who the split is for, from its budget or purpose tags: there's no
+        default (design §4.1), so with neither it's an error."""
         labels: dict[str, str] = {}
         if j.budget is not None:
-            if j.budget in self.m.budgets:
-                labels[f"budget {j.budget!r}"] = self.m.budgets[j.budget]
-            else:
-                self.note("conflicts", f"unmapped budget {j.budget!r}: owner used", j.group_id)
+            if j.budget not in self.m.budgets:
+                raise _Skip(f"{where}: budget {j.budget!r} is not in the mapping")
+            labels[f"budget {j.budget!r}"] = self.m.budgets[j.budget]
         for tag in j.tags:
             if tag in self.m.purpose_tags:
                 labels[f"tag {tag!r}"] = self.m.purpose_tags[tag]
         parties = set(labels.values())
         if len(parties) > 1:
             said = ", ".join(f"{k} → {v}" for k, v in sorted(labels.items()))
-            chosen = labels.get(f"budget {j.budget!r}", owner)
+            chosen = labels.get(f"budget {j.budget!r}")
+            if chosen is None:
+                raise _Skip(f"{where}: {said}: no budget to settle who it's for")
             self.note("conflicts", f"{said}: {chosen} used", j.group_id)
             return chosen
-        if parties:
-            return parties.pop()
-        if not self.quiet:
-            self.report.counts["purpose from owner"] += 1
-        return owner
+        if not parties:
+            raise _Skip(f"{where}: no budget or purpose tag says who it's for")
+        return parties.pop()
 
     def split(self, j: _Journal) -> Split:
         where = f"Firefly transaction {j.group_id} ({j.date}, {j.description!r})"
@@ -346,20 +347,21 @@ class _Builder:
             owned = None
         else:
             crossing = transfer = False
-            income_or_expense = True
+            # With a system counterparty it's an adjustment: no purpose or
+            # category (design §3.2).
+            income_or_expense = "system" not in src and "system" not in dst
             owned = a_from or a_to
 
         purpose = category = None
         if crossing:
-            # For the household by default (design §4.1).
-            purpose = self.purpose(j, self.m.household, where)
+            purpose = self.purpose(j, where)
             category = j.category
             if not self.quiet:
                 self.report.counts["into or out of investments and loans"] += 1
         elif income_or_expense and owned is not None:
             category = j.category
             if owned.is_liquid:
-                purpose = self.purpose(j, owned.owner, where)
+                purpose = self.purpose(j, where)
             elif j.budget or any(t in self.m.purpose_tags for t in j.tags):
                 self.note("dropped", f"purpose label on investment account {owned.key}", j.group_id)
         elif j.budget and j.budget in self.m.budgets:

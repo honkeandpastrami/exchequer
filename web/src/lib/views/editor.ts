@@ -45,9 +45,8 @@ export type Draft = {
 export type Preview = {
 	kind: Schemas['Kind'] | null;
 	category: boolean;
+	/** Whether it takes a purpose, which must then be chosen (design §4.1). */
 	purpose: boolean;
-	/** Who the split is for while no purpose is picked (design §4.1). */
-	defaultPurpose: string | null;
 	settles: boolean;
 };
 
@@ -114,7 +113,6 @@ export function preview(s: SplitDraft, ref: Reference): Preview {
 		kind: null,
 		category: false,
 		purpose: false,
-		defaultPurpose: null,
 		settles: false
 	};
 	const account = (l: LegDraft) =>
@@ -141,20 +139,10 @@ export function preview(s: SplitDraft, ref: Reference): Preview {
 		kind = system(s.from) || system(s.to) ? 'adjustment' : a ? 'expense' : 'income';
 	} else return none;
 	const flow = kind === 'expense' || kind === 'income';
-	const crossing = flow && !!a && !!b;
-	const purpose = flow && (!!a?.liquid || !!b?.liquid);
-	// Between a liquid and a non-liquid account, it's for the household;
-	// other income or spending, for the account's owner.
-	const household = [...ref.parties.values()].find((p) => p.kind === 'household');
 	return {
 		kind,
 		category: flow,
-		purpose,
-		defaultPurpose: !purpose
-			? null
-			: crossing
-				? (household?.id ?? null)
-				: ((a ?? b)?.owner_id ?? null),
+		purpose: flow && (!!a?.liquid || !!b?.liquid),
 		settles: kind === 'transfer' && !!a && !!b && a.liquid && b.liquid && a.owner_id !== b.owner_id
 	};
 }
@@ -203,6 +191,7 @@ export function problems(d: Draft, ref: Reference): string[] {
 			const t = quantityProblem(s.toQuantity, s.toCommodity, ref);
 			if (t) say(`received: ${t}.`);
 		}
+		if (p.purpose && (!s.purpose || s.purpose === UNSET)) say("choose who it's for.");
 		if (p.settles && s.settles && !/^\d{4}-\d{2}$/.test(s.settles))
 			say('the settled month is YYYY-MM.');
 	});

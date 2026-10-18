@@ -72,9 +72,7 @@ impl From<BucketName> for Bucket {
 pub enum GroupBy {
     Account,
     Owner,
-    /// The split's purpose, or its default (the account's owner for income
-    /// and expenses on liquid accounts, the household for money between a
-    /// liquid and a non-liquid account).
+    /// The split's purpose: on income and expenses of liquid accounts.
     Purpose,
     Category,
     Counterparty,
@@ -248,10 +246,6 @@ async fn load_postings(
     from: Option<Date>,
     to: Option<Date>,
 ) -> Result<Vec<Posting>, Problem> {
-    let Some(household) = store::parties::household(&mut *db).await? else {
-        return Ok(Vec::new());
-    };
-    let household = PartyId::from_uuid(household.id);
     let accounts = (!req.account_ids.is_empty()).then_some(req.account_ids.as_slice());
     let rows = store::transactions::splits_between(&mut *db, from, to, accounts).await?;
 
@@ -302,15 +296,7 @@ async fn load_postings(
             transaction: TransactionId::from_uuid(row.split.transaction_id),
             position: usize::try_from(row.split.position).map_err(|_| Problem::internal())?,
         };
-        for p in report::postings(
-            source,
-            row.date,
-            tx_tags,
-            split,
-            &classified,
-            &book,
-            household,
-        ) {
+        for p in report::postings(source, row.date, tx_tags, split, &classified, &book) {
             if keep(req, &p) {
                 out.push(p);
             }

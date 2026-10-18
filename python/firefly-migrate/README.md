@@ -27,8 +27,8 @@ uv run firefly-migrate fingerprints MAPPING [--apply]  # record which bank rows 
   into one, e.g. one per security into a single brokerage). Account names are unique per
   owner, so two people can each have a `Checking`; elsewhere in the mapping an account is
   its name, or `Owner · Name` when several owners have one by that name;
-- `[purpose]` which Firefly budgets and tags mean which party (unlabeled splits get the
-  account's owner);
+- `[purpose]` which Firefly budgets and tags mean which party (an income or expense with
+  neither is an error, in the dry run too: there's no default);
 - `[counterparties]`, `[categories]` and `[tags]`: dividends from Firefly's cash account,
   transfer-only categories to drop, encoding tags to retire;
 - `[settlement]` (for `settle`, always in USD): `stipends.<person>` and

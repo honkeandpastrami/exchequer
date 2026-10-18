@@ -54,10 +54,9 @@ pub fn effect(
     split: &Split,
     classified: &Classified,
     lookup: &impl Lookup,
-    household: PartyId,
     currency: CommodityId,
 ) -> Result<Option<(Effect, Amount)>, SettlementError> {
-    let Some(effect) = what(split, classified, lookup, household) else {
+    let Some(effect) = what(split, classified, lookup) else {
         return Ok(None);
     };
     Ok(Some((effect, value(split, lookup, currency)?)))
@@ -66,12 +65,7 @@ pub fn effect(
 /// The split's settlement effect, or `None` when it moves nothing between
 /// parties.
 #[must_use]
-pub fn what(
-    split: &Split,
-    classified: &Classified,
-    lookup: &impl Lookup,
-    household: PartyId,
-) -> Option<Effect> {
+pub fn what(split: &Split, classified: &Classified, lookup: &impl Lookup) -> Option<Effect> {
     let account = |leg: &Leg| match leg.side {
         Side::Account(id) => lookup.account(id),
         Side::Counterparty(_) => None,
@@ -81,12 +75,8 @@ pub fn what(
     Some(match (classified.kind, from, to) {
         // The liquid account: money left it (an expense) or arrived (income).
         (Kind::Expense, Some(a), _) | (Kind::Income, _, Some(a)) if a.liquid => {
-            let default = if classified.crossing {
-                household
-            } else {
-                a.owner
-            };
-            let purpose = split.purpose.unwrap_or(default);
+            // A valid split says who it was for.
+            let purpose = split.purpose?;
             if purpose == a.owner {
                 return None;
             }

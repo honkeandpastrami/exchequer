@@ -336,7 +336,7 @@ pub(crate) async fn compute(
     today: Date,
     through: Month,
 ) -> Result<Computed, Problem> {
-    let (household, currency) = household(db).await?;
+    let (_, currency) = household(db).await?;
     let scale = currency_scale(db, currency).await?;
     let parties = store::parties::all(&mut *db)
         .await?
@@ -362,7 +362,7 @@ pub(crate) async fn compute(
             position: usize::try_from(row.split.position).map_err(|_| Problem::internal())?,
         };
         let classified = split.classify(&book).map_err(|_| Problem::internal())?;
-        let Some(effect) = ds::what(split, &classified, &book, household) else {
+        let Some(effect) = ds::what(split, &classified, &book) else {
             continue;
         };
         let item = |amount| Item {

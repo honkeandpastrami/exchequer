@@ -76,7 +76,7 @@ export function rowDraft(row: Row, bank: Bank, ref: Reference): RowDraft {
 				line(row, bank, otherLeg(ref, p.transfer_account_id, p.counterparty_id), {
 					quantity: p.amount,
 					category: p.category_id ?? '',
-					purpose: p.purpose_id ?? '',
+					purpose: p.purpose_id ?? UNSET,
 					description: p.description ?? ''
 				})
 			)
@@ -85,9 +85,10 @@ export function rowDraft(row: Row, bank: Bank, ref: Reference): RowDraft {
 	const side = shown(row, 'counterparty');
 	const transfer = row.transfer_account_id;
 	const other = transfer ? leg(transfer) : side ? otherLeg(ref, null, side.value) : leg('');
+	// A purpose names someone: none is not chosen yet.
 	const label = (l: Schemas['Label']) => {
 		const v = shown(row, l);
-		return v ? (v.value ?? '') : UNSET;
+		return !v || (l === 'purpose' && !v.value) ? UNSET : (v.value ?? '');
 	};
 	return {
 		description,
@@ -161,8 +162,8 @@ export function rowUpdate(
 		Object.assign(out, sideUpdate(other, ids));
 	if (p.category && a.category !== UNSET && (unsplit || a.category !== b.category))
 		out.category_id = value(a.category);
-	if (p.purpose && a.purpose !== UNSET && (unsplit || a.purpose !== b.purpose))
-		out.purpose_id = value(a.purpose);
+	if (p.purpose && a.purpose && a.purpose !== UNSET && (unsplit || a.purpose !== b.purpose))
+		out.purpose_id = a.purpose;
 	return out;
 }
 
@@ -181,7 +182,8 @@ export function rowProblems(row: Row, d: RowDraft, ref: Reference): string[] {
 		else amounts.push(q);
 		const p = preview(s, ref);
 		if (other.account && p.category && s.category === UNSET) out.push(`${n}choose a category.`);
-		if (other.account && p.purpose && s.purpose === UNSET) out.push(`${n}choose who it's for.`);
+		if (other.account && p.purpose && (!s.purpose || s.purpose === UNSET))
+			out.push(`${n}choose who it's for.`);
 	});
 	if (amounts.length === d.splits.length && sign(sum([...amounts, negate(whole(row))])) !== 0)
 		out.push(`The splits add up to ${sum(amounts)}; the bank's amount is ${whole(row)}.`);

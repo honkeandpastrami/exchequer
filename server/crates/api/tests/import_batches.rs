@@ -12,7 +12,8 @@ use sqlx::PgPool;
 
 fn tx(h: &H, date: &str, batch: Option<&str>) -> Value {
     let mut body = json!({ "date": date, "description": "x", "splits": [
-        { "from": h.leg(h.acct(&h.alex_credit), "10.00"), "to": h.leg(("counterparty_id", &h.store), "10.00") }] });
+        { "from": h.leg(h.acct(&h.alex_credit), "10.00"), "to": h.leg(("counterparty_id", &h.store), "10.00"),
+          "purpose_id": h.alex }] });
     if let Some(b) = batch {
         body["import_batch_id"] = json!(b);
     }

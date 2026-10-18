@@ -42,25 +42,18 @@ fn effects_follow_the_claims_table() {
         h.effect(&spend(&h, h.sam_credit, "100", h.studio)).unwrap(),
         Some((claim(h.studio, h.sam), amt("100")))
     );
-    // Owner = purpose, or no purpose: nothing.
+    // Owner = purpose: nothing.
     assert_eq!(
         h.effect(&spend(&h, h.alex_credit, "5", h.alex)).unwrap(),
         None
     );
-    let unlabelled = split(
-        Side::Account(h.alex_credit),
-        Side::Counterparty(Some(h.store)),
-        h.usd,
-        "5",
-    );
-    assert_eq!(h.effect(&unlabelled).unwrap(), None);
 
-    // Money out of an investment is income for the Household by default:
-    // into Joint Savings it simply becomes shared; into Alex Checking, Alex
-    // holds it for the Household.
-    let into_joint = transfer(&h, h.alex_brokerage, h.joint_savings, "10000");
+    // Money out of an investment is income: for the Household, into Joint
+    // Savings it simply becomes shared; into Alex Checking, Alex holds it for
+    // the Household.
+    let into_joint = crossing(&h, h.alex_brokerage, h.joint_savings, "10000", h.household);
     assert_eq!(h.effect(&into_joint).unwrap(), None);
-    let into_alex = transfer(&h, h.alex_brokerage, h.alex_checking, "10000");
+    let into_alex = crossing(&h, h.alex_brokerage, h.alex_checking, "10000", h.household);
     assert_eq!(
         h.effect(&into_alex).unwrap(),
         Some((claim(h.alex, h.household), amt("10000")))
@@ -71,18 +64,15 @@ fn effects_follow_the_claims_table() {
     };
     assert_eq!(h.effect(&kept).unwrap(), None);
 
-    // Money into an investment or a loan is an expense for the Household by
-    // default: from Alex Checking, the Household owes Alex.
+    // Money into an investment or a loan is an expense: for the Household,
+    // from Alex Checking, the Household owes Alex.
+    let principal = crossing(&h, h.alex_checking, h.mortgage, "50", h.household);
     assert_eq!(
-        h.effect(&transfer(&h, h.alex_checking, h.mortgage, "50"))
-            .unwrap(),
+        h.effect(&principal).unwrap(),
         Some((claim(h.household, h.alex), amt("50")))
     );
-    assert_eq!(
-        h.effect(&transfer(&h, h.joint_savings, h.mortgage, "50"))
-            .unwrap(),
-        None
-    );
+    let principal = crossing(&h, h.joint_savings, h.mortgage, "50", h.household);
+    assert_eq!(h.effect(&principal).unwrap(), None);
 
     // Transfers between liquid accounts of different owners are payments.
     for (from, to, payer, payee) in [
@@ -244,7 +234,7 @@ fn proceeds_moved_on_settle_like_any_claim() {
     let items = h.items(&[
         (
             date!(2026 - 05 - 20),
-            transfer(&h, h.alex_brokerage, h.alex_checking, "10000"),
+            crossing(&h, h.alex_brokerage, h.alex_checking, "10000", h.household),
         ),
         (
             date!(2026 - 05 - 28),
@@ -373,7 +363,7 @@ fn only_payments_settle_a_month() {
     assert!(payment.classify(&h.book).is_ok());
     for s in [
         transfer(&h, h.alex_checking, h.alex_credit, "50"),
-        transfer(&h, h.alex_brokerage, h.alex_checking, "50"),
+        crossing(&h, h.alex_brokerage, h.alex_checking, "50", h.household),
         spend(&h, h.alex_credit, "50", h.household),
     ] {
         let s = Split { settles, ..s };

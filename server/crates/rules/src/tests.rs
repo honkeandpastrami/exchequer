@@ -11,6 +11,7 @@ const ACME: Uuid = Uuid::from_u128(11);
 const DINING: Uuid = Uuid::from_u128(20);
 const SALARY: Uuid = Uuid::from_u128(21);
 const HOUSEHOLD: Uuid = Uuid::from_u128(30);
+const ALEX: Uuid = Uuid::from_u128(32);
 
 fn names() -> Names {
     let account = |id, name: &str, owner: &str| AccountName {
@@ -29,6 +30,7 @@ fn names() -> Names {
         parties: vec![
             (HOUSEHOLD, "Household".into()),
             (Uuid::from_u128(31), "Studio".into()),
+            (ALEX, "Alex".into()),
         ],
     }
 }
@@ -58,7 +60,7 @@ fn classify(row, s) {
     } else if d.starts_with("ACME PAYROLL") && row.amount > 0 && row.weekday <= 5 {
         s.counterparty("Acme");
         s.category("Salary");
-        s.purpose(());
+        s.purpose("Alex");
     } else if row.raw.Memo == "via app" && row.owner == "Studio" {
         s.category(());
     }
@@ -90,11 +92,11 @@ fn a_script_sets_labels_with_its_lines() {
         .classify(&row(Some(CARD), "-4.50", "corner cafe"))
         .unwrap();
     assert_eq!(set.purpose, None);
-    // `()` is "none"; integers compare with amounts.
+    // Integers compare with amounts.
     let set = s
         .classify(&row(Some(CHECKING), "2500", "ACME PAYROLL"))
         .unwrap();
-    assert_eq!(set.purpose, Some((Value::None, 13)));
+    assert_eq!(set.purpose, Some((Value::Id(ALEX), 13)));
     // Bank fields, and the owner.
     let set = s
         .classify(&row(Some(STUDIO_CHECKING), "-1", "SOMETHING"))
@@ -142,6 +144,9 @@ fn classify(row, s) {
         errors("fn classify(row, s) { s.transfer(\"Alex · Nope\"); }")[0].contains("no account")
     );
     assert!(errors("fn classify(row, s) { s.transfer(()); }")[0].contains("written out"));
+    // A purpose names someone: `()` isn't one.
+    assert!(errors("fn classify(row, s) { s.purpose(()); }")[0].contains("written out"));
+    assert!(errors("fn classify(row, s) { s.category(()); }").is_empty());
 }
 
 #[test]
@@ -190,14 +195,14 @@ fn invalid_scripts_are_refused_with_lines() {
     let e = errors(
         "fn classify(row, s) {\n\
          s.category(\"Dinning\");\n\
-         if row.account == \"Alex · Savings\" { s.purpose(\"Alex\"); }\n\
+         if row.account == \"Alex · Savings\" { s.purpose(\"Sam\"); }\n\
          if \"Nobody\" != row.owner { s.counterparty(\"Corner Cafe\"); }\n\
          }",
     );
     assert_eq!(e.len(), 4, "{e:?}");
     assert!(e[0].starts_with("line 2") && e[0].contains("no category is named \"Dinning\""));
     assert!(e[1].starts_with("line 3") && e[1].contains("no account is named"));
-    assert!(e[2].starts_with("line 3") && e[2].contains("no party is named \"Alex\""));
+    assert!(e[2].starts_with("line 3") && e[2].contains("no party is named \"Sam\""));
     assert!(e[3].starts_with("line 4") && e[3].contains("no party is named \"Nobody\""));
     // Names must be written out; an account name two accounts share must
     // name the owner.

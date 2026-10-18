@@ -59,7 +59,6 @@ describe('editor preview', () => {
 			kind: 'expense',
 			category: true,
 			purpose: true,
-			defaultPurpose: 'p-alex',
 			settles: false
 		});
 		expect(preview(split('Grocer', 'alex'), ref).kind).toBe('income');
@@ -69,24 +68,19 @@ describe('editor preview', () => {
 			settles: false
 		});
 		expect(preview(split('alex', 'sam'), ref).settles).toBe(true);
-		// Out of an investment, and into it: income and an expense, for the
-		// household.
+		// Out of an investment, and into it: income and an expense.
 		expect(preview(split('broker', 'alex'), ref)).toMatchObject({
 			kind: 'income',
 			category: true,
-			purpose: true,
-			defaultPurpose: 'p-home'
+			purpose: true
 		});
 		expect(preview(split('alex', 'broker'), ref)).toMatchObject({
 			kind: 'expense',
-			purpose: true,
-			defaultPurpose: 'p-home'
+			purpose: true
 		});
-		expect(preview(split('Grocer', 'sam'), ref).defaultPurpose).toBe('p-sam');
 		expect(preview(split('broker', 'Grocer'), ref)).toMatchObject({
 			category: true,
-			purpose: false,
-			defaultPurpose: null
+			purpose: false
 		});
 		expect(preview(split('alex', 'alex', { converted: true, toCommodity: 'eur' }), ref).kind).toBe(
 			'conversion'
@@ -105,10 +99,13 @@ describe('editor preview', () => {
 describe('editor checks', () => {
 	it('points out what the server would refuse', () => {
 		const d = { ...blankDraft('usd', '2026-03-01'), description: 'Lunch' };
-		d.splits = [split('alex', 'Grocer', { quantity: '1,234.50' })];
+		d.splits = [split('alex', 'Grocer', { quantity: '1,234.50', purpose: 'p-alex' })];
 		expect(problems(d, ref)).toEqual([]);
+		// Income and spending say who they were for: there's no default.
+		d.splits = [split('alex', 'Grocer')];
+		expect(problems(d, ref)).toEqual(["Choose who it's for."]);
 		d.splits = [
-			split('alex', 'Grocer', { quantity: '1.234' }),
+			split('alex', 'Grocer', { quantity: '1.234', purpose: 'p-alex' }),
 			{ ...split('alex', 'Grocer', { quantity: '0' }), to: { account: '', outside: '' } }
 		];
 		expect(problems(d, ref)).toEqual([
@@ -158,7 +155,7 @@ describe('editor request', () => {
 
 	it('leaves an unnamed outside side unknown', () => {
 		const d = { ...blankDraft('usd', '2026-03-01'), description: 'Cash' };
-		d.splits = [split('alex', '  ', { category: 'food' })];
+		d.splits = [split('alex', '  ', { category: 'food', purpose: 'p-alex' })];
 		expect(problems(d, ref)).toEqual([]);
 		expect(preview(d.splits[0], ref).kind).toBe('expense');
 		expect(newCounterparties(d, ref)).toEqual([]);

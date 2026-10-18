@@ -105,7 +105,7 @@ impl H {
 
     pub fn effect(&self, split: &Split) -> Result<Option<(Effect, Amount)>, SettlementError> {
         let c = split.classify(&self.book).unwrap();
-        effect(split, &c, &self.book, self.household, self.usd)
+        effect(split, &c, &self.book, self.usd)
     }
 
     /// The items for `(date, split)` pairs, as the server builds them.
@@ -171,6 +171,15 @@ pub fn spend(h: &H, account: AccountId, qty: &str, purpose: PartyId) -> Split {
 
 pub fn transfer(h: &H, from: AccountId, to: AccountId, qty: &str) -> Split {
     split(Side::Account(from), Side::Account(to), h.usd, qty)
+}
+
+/// Money between a liquid and a non-liquid account: an expense or income,
+/// for `purpose`.
+pub fn crossing(h: &H, from: AccountId, to: AccountId, qty: &str, purpose: PartyId) -> Split {
+    Split {
+        purpose: Some(purpose),
+        ..transfer(h, from, to, qty)
+    }
 }
 
 pub fn params(stipends: &[(PartyId, &str)], funders: &[(PartyId, PartyId)]) -> MonthParams {

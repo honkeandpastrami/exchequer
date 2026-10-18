@@ -214,8 +214,7 @@ async fn a_dry_run_shows_what_a_script_would_change(pool: PgPool) {
                     json!({ "date": date, "description": description, "splits": [{
                     "from": h.leg(h.acct(&h.alex_credit), "4.50"),
                     "to": h.leg(("counterparty_id", &h.store), "4.50"),
-                    "category_id": dining,
-                }] }),
+                    "category_id": dining, "purpose_id": h.alex }] }),
                 ),
             )
             .await;

@@ -22,7 +22,7 @@ fn posted(h: &H, rows: &[(Date, Split, &[&str])]) -> Vec<Posting> {
                 transaction: TransactionId::new(),
                 position: i,
             };
-            postings(source, *date, &tags, split, &c, &h.book, h.household)
+            postings(source, *date, &tags, split, &c, &h.book)
         })
         .collect()
 }
@@ -36,7 +36,7 @@ fn usd_key(h: &H, bucket: Option<Date>, values: Vec<Value>) -> Key {
 }
 
 #[test]
-fn postings_carry_signs_and_default_purposes() {
+fn postings_carry_signs_and_purposes() {
     let h = H::new();
     let ps = posted(
         &h,
@@ -48,12 +48,7 @@ fn postings_carry_signs_and_default_purposes() {
             ),
             (
                 date!(2026 - 06 - 02),
-                split(
-                    Side::Account(h.alex_credit),
-                    Side::Counterparty(Some(h.store)),
-                    h.usd,
-                    "5",
-                ),
+                spend(&h, h.alex_credit, "5", h.alex),
                 &[],
             ),
             (
@@ -63,7 +58,7 @@ fn postings_carry_signs_and_default_purposes() {
             ),
             (
                 date!(2026 - 06 - 04),
-                transfer(&h, h.alex_brokerage, h.joint_savings, "900"),
+                crossing(&h, h.alex_brokerage, h.joint_savings, "900", h.household),
                 &[],
             ),
         ],
@@ -76,13 +71,12 @@ fn postings_carry_signs_and_default_purposes() {
         summary,
         [
             (h.alex_credit, "-80".into(), Some(h.household)),
-            // No purpose given: the account's owner.
             (h.alex_credit, "-5".into(), Some(h.alex)),
             // Transfers: two postings, no purpose.
             (h.alex_checking, "-85".into(), None),
             (h.alex_credit, "85".into(), None),
-            // Out of an investment: income for the household by default,
-            // on the liquid side only; a transfer on the investment's.
+            // Out of an investment: income, on the liquid side only; a
+            // transfer on the investment's.
             (h.alex_brokerage, "-900".into(), None),
             (h.joint_savings, "900".into(), Some(h.household)),
         ]

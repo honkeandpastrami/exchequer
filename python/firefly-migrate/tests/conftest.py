@@ -92,14 +92,18 @@ def journal(
     type: str = "withdrawal",
     currency: str = "USD",
     foreign: tuple[str, str] | None = None,
-    budget: str | None = None,
+    budget: str | None = "",
     category: str | None = None,
     tags: list[str] | None = None,
     description: str = "something",
     external_id: str | None = None,
 ) -> dict:
     """`source`/`destination`: a Firefly account ID (owned), or
-    "Expense:<name>", "Revenue:<name>", "Cash", "Initial"."""
+    "Expense:<name>", "Revenue:<name>", "Cash", "Initial". `budget`: by
+    default, Shared on income and expenses (every one says who it's for) and
+    none on transfers."""
+    if budget == "":
+        budget = "Shared" if type in ("withdrawal", "deposit") else None
 
     def side(x: int | str) -> tuple[str, str, str]:
         if isinstance(x, int):

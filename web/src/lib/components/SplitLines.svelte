@@ -215,12 +215,11 @@
 					<div class="field f-purpose">
 						<label for="{uid}-{i}-purpose">For</label>
 						{#if p.purpose}
-							{@const unset = split.purpose === UNSET || (!split.purpose && !p.defaultPurpose)}
-							<!-- No purpose picked: the default party, shown by name like any other. -->
+							{@const unset = !split.purpose || split.purpose === UNSET}
 							<select
 								id="{uid}-{i}-purpose"
 								class="pick"
-								value={split.purpose === UNSET ? UNSET : split.purpose || p.defaultPurpose || UNSET}
+								value={unset ? UNSET : split.purpose}
 								onchange={(e) =>
 									pick(i, 'purpose', e.currentTarget.value, (v) => (split.purpose = v))}
 								aria-label="Split {n}: for"

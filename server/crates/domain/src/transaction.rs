@@ -32,8 +32,8 @@ pub struct Leg {
 pub struct Split {
     pub from: Leg,
     pub to: Leg,
-    /// Who the money was for. Only on income and expenses of liquid
-    /// accounts (design §4.1).
+    /// Who the money was for: required on income and expenses of liquid
+    /// accounts, and only there (design §4.1). There's no default.
     pub purpose: Option<PartyId>,
     /// The class of an income or expense. Never on transfers or conversions.
     pub category: Option<CategoryId>,
@@ -87,7 +87,7 @@ pub struct ImpliedPrice {
 pub struct Classified {
     pub kind: Kind,
     /// Between a liquid and a non-liquid account: an expense into it, income
-    /// out of it, whose purpose defaults to the household (design §4.1).
+    /// out of it (design §3.2).
     pub crossing: bool,
     /// Present whenever the two legs are in different commodities.
     pub implied_price: Option<ImpliedPrice>,
@@ -126,6 +126,9 @@ pub enum SplitError {
     /// Purpose is only for income and expenses of liquid accounts.
     #[error("this {0:?} can't have a purpose")]
     PurposeNotAllowed(Kind),
+    /// Income and expenses of liquid accounts say who they were for.
+    #[error("this {0:?} needs a purpose: who it was for")]
+    PurposeRequired(Kind),
     #[error("a {0:?} can't have a category")]
     CategoryNotAllowed(Kind),
     /// Only transfers between liquid accounts of different owners settle a month.
@@ -182,15 +185,16 @@ impl Split {
         let crossing =
             from.is_some() && to.is_some() && matches!(kind, Kind::Expense | Kind::Income);
 
-        if let Some(party) = self.purpose {
-            if !lookup.party_exists(party) {
+        // Income or an expense with a liquid account takes a purpose.
+        let liquid = [from, to].into_iter().flatten().any(|a| a.liquid);
+        let takes_purpose = matches!(kind, Kind::Expense | Kind::Income) && liquid;
+        match self.purpose {
+            Some(party) if !lookup.party_exists(party) => {
                 return Err(SplitError::UnknownParty(party));
             }
-            // The liquid account on an income or expense.
-            let liquid = [from, to].into_iter().flatten().any(|a| a.liquid);
-            if !(matches!(kind, Kind::Expense | Kind::Income) && liquid) {
-                return Err(SplitError::PurposeNotAllowed(kind));
-            }
+            Some(_) if !takes_purpose => return Err(SplitError::PurposeNotAllowed(kind)),
+            None if takes_purpose => return Err(SplitError::PurposeRequired(kind)),
+            _ => {}
         }
         if self.category.is_some() && !matches!(kind, Kind::Expense | Kind::Income) {
             return Err(SplitError::CategoryNotAllowed(kind));

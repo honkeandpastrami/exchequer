@@ -29,9 +29,8 @@ pub struct Posting {
     /// (money into or out of an investment or a loan): a transfer there, so
     /// the income or expense counts once, on the liquid side.
     pub kind: Kind,
-    /// The split's purpose, or its default: the account's owner for income
-    /// and expenses on liquid accounts, the household for crossing splits
-    /// (design §4.1–§4.2). `None` where a purpose doesn't apply.
+    /// The split's purpose, on the liquid side of an income or expense
+    /// (design §4.1). `None` where a purpose doesn't apply.
     pub purpose: Option<PartyId>,
     pub category: Option<CategoryId>,
     /// The outside party of an income or expense.
@@ -48,7 +47,6 @@ pub fn postings(
     split: &Split,
     classified: &Classified,
     lookup: &impl Lookup,
-    household: PartyId,
 ) -> Vec<Posting> {
     let counterparty = [&split.from, &split.to]
         .into_iter()
@@ -64,13 +62,8 @@ pub fn postings(
         let Some(account) = lookup.account(id) else {
             continue;
         };
-        let flow = matches!(classified.kind, Kind::Expense | Kind::Income);
         let inside = classified.crossing && !account.liquid;
-        let purpose = match () {
-            () if inside || !flow || !account.liquid => None,
-            () if classified.crossing => Some(split.purpose.unwrap_or(household)),
-            () => Some(split.purpose.unwrap_or(account.owner)),
-        };
+        let purpose = if inside { None } else { split.purpose };
         out.push(Posting {
             source,
             date,

@@ -585,7 +585,7 @@ impl Context {
     }
 
     fn purpose_question(&self, seed: &str) -> Option<Options<Value>> {
-        let mut options: Vec<(String, Value, String)> = self
+        let options: Vec<(String, Value, String)> = self
             .catalog
             .parties
             .iter()
@@ -597,11 +597,7 @@ impl Context {
                 )
             })
             .collect();
-        options.push((
-            LABELS.owner.clone(),
-            Value::None,
-            self.party_option(Value::None),
-        ));
+        // A purpose names someone: there's no "account's owner" (design §4.1).
         Some(Self::question(
             "purpose",
             options,

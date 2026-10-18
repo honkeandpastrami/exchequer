@@ -189,7 +189,7 @@ async fn settles_and_investment_proceeds(pool: PgPool) {
         h.acct(&h.alex_brokerage),
         h.acct(&h.alex_checking),
         "1000.00",
-        json!({}),
+        json!({ "purpose_id": h.household }),
     )
     .await;
     let st = h
@@ -279,13 +279,14 @@ async fn close_and_reopen(pool: PgPool) {
             h.acct(&h.alex_credit),
             store,
             "80.00",
-            json!({}),
+            json!({ "purpose_id": h.alex }),
         )
         .await;
     let tx_path = format!("/api/v1/transactions/{}", r.id());
     let tx_etag = r.etag();
     let tx_body = json!({ "date": "2026-06-05", "description": "y", "splits": [
-        { "from": h.leg(h.acct(&h.alex_credit), "81.00"), "to": h.leg(store, "81.00") }] });
+        { "from": h.leg(h.acct(&h.alex_credit), "81.00"), "to": h.leg(store, "81.00"),
+          "purpose_id": h.alex }] });
 
     // Closing needs every person's stipend and every business's funder.
     let r = h.post_month(&pool, "2026-06", "close").await;
@@ -330,7 +331,7 @@ async fn close_and_reopen(pool: PgPool) {
             h.acct(&h.alex_credit),
             store,
             "1.00",
-            json!({}),
+            json!({ "purpose_id": h.alex }),
         )
         .await,
     );
@@ -358,7 +359,7 @@ async fn close_and_reopen(pool: PgPool) {
             h.acct(&h.alex_credit),
             store,
             "1.00",
-            json!({}),
+            json!({ "purpose_id": h.alex }),
         )
         .await;
     assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);

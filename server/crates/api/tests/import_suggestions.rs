@@ -187,7 +187,7 @@ async fn a_suggested_account_counts_only_when_confident(pool: PgPool) {
             &pool,
             &h,
             format!("/api/v1/imports/{id}/rows/0/{position}"),
-            json!({ "counterparty_id": null, "category_id": null, "purpose_id": null }),
+            json!({ "counterparty_id": null, "category_id": null, "purpose_id": h.alex }),
         )
         .await;
     }
@@ -246,14 +246,15 @@ async fn confident_labels_are_committed_unless_you_choose(pool: PgPool) {
         uuid(&id),
         0,
         &[
-            // The coffee: all three confident, one of them "none".
+            // The coffee: all three confident.
             label(0, "counterparty", Some(&h.store), rule, 1000),
             label(0, "category", Some(&dining), rule, 1000),
-            label(0, "purpose", None, rule, 1000),
-            // The grocer: a confident counterparty, an unsure category, no
-            // purpose at all.
+            label(0, "purpose", Some(&h.alex), rule, 1000),
+            // The grocer: a confident counterparty, an unsure category, and
+            // a purpose of "none", which names no one: missing.
             label(1, "counterparty", Some(&h.store), remote, 930),
             label(1, "category", Some(&groceries), remote, 610),
+            label(1, "purpose", None, rule, 1000),
         ],
     )
     .await
@@ -272,7 +273,7 @@ async fn confident_labels_are_committed_unless_you_choose(pool: PgPool) {
         (
             &json!(h.store),
             &json!(dining),
-            None,
+            Some(&json!(h.alex)),
             &json!([]),
             &json!([])
         )
@@ -396,6 +397,7 @@ async fn confident_labels_are_committed_unless_you_choose(pool: PgPool) {
             // Matching's: both rows added as new, as suggested.
             ("decision".into(), 1000, true),
             ("decision".into(), 1000, true),
+            ("purpose".into(), 1000, false),
             ("purpose".into(), 1000, true),
         ]
     );
@@ -451,7 +453,7 @@ async fn history(pool: &PgPool, h: &H) -> (String, String, String) {
                         h.leg(("counterparty_id", &employer), "1000.00"),
                         h.leg(h.acct(&h.alex_checking), "1000.00"),
                         &salary,
-                        None,
+                        Some(&h.alex),
                     ),
                 ),
             ] {
@@ -652,13 +654,17 @@ async fn confident_ai_suggestions_make_an_import_suggested(pool: PgPool) {
     let rule = suggester(&pool, "rule", "rules").await;
     let remote = suggester(&pool, "remote", "a-deployment/a-model").await;
     let set = |by: [Uuid; 2], confidence: i16| {
-        let (pool, id, store) = (pool.clone(), uuid(&id), h.store.clone());
+        let (pool, id, store, alex) = (pool.clone(), uuid(&id), h.store.clone(), h.alex.clone());
         async move {
             let mut db = pool.acquire().await.unwrap();
             let mut all = Vec::new();
             for (position, by) in [0, 1].into_iter().zip(by) {
                 for l in ["counterparty", "category", "purpose"] {
-                    let value = (l == "counterparty").then_some(store.as_str());
+                    let value = match l {
+                        "counterparty" => Some(store.as_str()),
+                        "purpose" => Some(alex.as_str()),
+                        _ => None,
+                    };
                     all.push(label(position, l, value, by, confidence));
                 }
             }
@@ -703,7 +709,7 @@ async fn confident_ai_suggestions_make_an_import_suggested(pool: PgPool) {
         &pool,
         &h,
         format!("/api/v1/imports/{id}/rows/0/1"),
-        json!({ "counterparty_id": h.store, "category_id": null, "purpose_id": null }),
+        json!({ "counterparty_id": h.store, "category_id": null, "purpose_id": h.alex }),
     )
     .await;
     assert_eq!(

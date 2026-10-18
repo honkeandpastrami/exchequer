@@ -213,7 +213,16 @@ async fn kinds_are_derived(pool: PgPool) {
         let r = h
             .post(
                 &pool,
-                tx("2026-03-15", "Case", json!([{ "from": from, "to": to }])),
+                tx(
+                    "2026-03-15",
+                    "Case",
+                    // Income and expenses say who they were for.
+                    if matches!(kind, "income" | "expense") {
+                        json!([{ "from": from, "to": to, "purpose_id": h.household }])
+                    } else {
+                        json!([{ "from": from, "to": to }])
+                    },
+                ),
             )
             .await;
         assert_eq!(r.status, StatusCode::CREATED, "{kind}: {}", r.body);
@@ -224,7 +233,7 @@ async fn kinds_are_derived(pool: PgPool) {
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn ledger_rules_are_422s_naming_the_split(pool: PgPool) {
     let h = Household::new(&pool).await;
-    let ok = json!({ "from": account(&h.alex_credit, &h.usd, "5"), "to": external(&h.grocer, &h.usd, "5") });
+    let ok = json!({ "from": account(&h.alex_credit, &h.usd, "5"), "to": external(&h.grocer, &h.usd, "5"), "purpose_id": h.alex });
 
     let bad = [
         (
@@ -244,16 +253,20 @@ async fn ledger_rules_are_422s_naming_the_split(pool: PgPool) {
             "same account",
         ),
         (
-            json!({ "from": account(&h.alex_credit, &h.usd, "80.005"), "to": external(&h.grocer, &h.usd, "80.005") }),
+            json!({ "from": account(&h.alex_credit, &h.usd, "80.005"), "to": external(&h.grocer, &h.usd, "80.005"), "purpose_id": h.alex }),
             "decimal places",
         ),
         (
-            json!({ "from": account(&h.alex_credit, &h.usd, "0"), "to": external(&h.grocer, &h.usd, "0") }),
+            json!({ "from": account(&h.alex_credit, &h.usd, "0"), "to": external(&h.grocer, &h.usd, "0"), "purpose_id": h.alex }),
             "positive",
         ),
         (
             json!({ "from": account(&h.alex_checking, &h.usd, "5"), "to": account(&h.alex_credit, &h.usd, "5"), "purpose_id": h.alex }),
             "purpose",
+        ),
+        (
+            json!({ "from": account(&h.alex_credit, &h.usd, "5"), "to": external(&h.grocer, &h.usd, "5") }),
+            "needs a purpose",
         ),
         (
             json!({ "from": account(&h.alex_checking, &h.usd, "5"), "to": account(&h.alex_credit, &h.usd, "5"), "category_id": h.groceries }),
@@ -312,6 +325,7 @@ async fn list_filter_and_paginate(pool: PgPool) {
         };
         let r = h.post(&pool, tx(&format!("2026-03-0{day}"), "Grocer", json!([{
             "from": account(from, &h.usd, "10"), "to": external(&h.grocer, &h.usd, "10"),
+            "purpose_id": h.alex,
         }]))).await;
         assert_eq!(r.status, StatusCode::CREATED);
     }
@@ -355,14 +369,14 @@ async fn list_filter_and_paginate(pool: PgPool) {
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn search_text_and_tags(pool: PgPool) {
     let h = Household::new(&pool).await;
-    let pay = |qty: &str| json!([{ "from": account(&h.alex_checking, &h.usd, qty), "to": external(&h.grocer, &h.usd, qty) }]);
+    let pay = |qty: &str| json!([{ "from": account(&h.alex_checking, &h.usd, qty), "to": external(&h.grocer, &h.usd, qty), "purpose_id": h.alex }]);
     for body in [
         json!({ "date": "2026-03-01", "description": "Corner Bakery", "splits": pay("4") }),
         json!({ "date": "2026-03-02", "description": "Grocer", "notes": "for the BAKE sale",
                 "tags": ["school"], "splits": pay("6") }),
         json!({ "date": "2026-03-03", "description": "Grocer", "splits": [
             { "from": account(&h.alex_checking, &h.usd, "5"), "to": external(&h.grocer, &h.usd, "5"),
-              "description": "50% off flour" } ] }),
+              "description": "50% off flour", "purpose_id": h.alex } ] }),
         json!({ "date": "2026-03-04", "description": "Grocer 500", "tags": ["school"], "splits": pay("7") }),
     ] {
         assert_eq!(h.post(&pool, body).await.status, StatusCode::CREATED);
@@ -406,8 +420,7 @@ async fn search_text_and_tags(pool: PgPool) {
 async fn replace_and_delete(pool: PgPool) {
     let h = Household::new(&pool).await;
     let r = h.post(&pool, tx("2026-03-14", "Warehouse", json!([{
-        "from": account(&h.alex_credit, &h.usd, "165"), "to": external(&h.store, &h.usd, "165"),
-    }]))).await;
+        "from": account(&h.alex_credit, &h.usd, "165"), "to": external(&h.store, &h.usd, "165"), "purpose_id": h.alex }]))).await;
     let path = format!("/api/v1/transactions/{}", r.id());
     let v1 = r.etag();
 
@@ -416,8 +429,8 @@ async fn replace_and_delete(pool: PgPool) {
         "date": "2026-03-14",
         "description": "Warehouse",
         "splits": [
-            { "from": account(&h.alex_credit, &h.usd, "120"), "to": external(&h.store, &h.usd, "120"), "category_id": h.groceries },
-            { "from": account(&h.alex_credit, &h.usd, "45"), "to": external(&h.store, &h.usd, "45") },
+            { "from": account(&h.alex_credit, &h.usd, "120"), "to": external(&h.store, &h.usd, "120"), "category_id": h.groceries, "purpose_id": h.alex },
+            { "from": account(&h.alex_credit, &h.usd, "45"), "to": external(&h.store, &h.usd, "45"), "purpose_id": h.alex },
         ],
     });
     let r = call(&pool, "PUT", &path)
@@ -487,8 +500,7 @@ async fn external_refs_are_unique_and_findable(pool: PgPool) {
             "external_refs": refs,
             "splits": [{
                 "from": account(&h.alex_credit, &h.usd, "80.00"),
-                "to": external(&h.grocer, &h.usd, "80.00"),
-            }],
+                "to": external(&h.grocer, &h.usd, "80.00"), "purpose_id": h.alex }],
         })
     };
 
