@@ -296,6 +296,7 @@
 			if (sg)
 				out[label] = {
 					label: suggested(r, row, label, sg),
+					value: label === 'purpose' ? (sg.value ?? ownerOf(r, row) ?? '') : (sg.value ?? ''),
 					apply: () => (f.draft.splits[0][label] = sg.value ?? '')
 				};
 		}

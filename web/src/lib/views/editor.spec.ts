@@ -6,11 +6,15 @@ import {
 	blankDraft,
 	blankSplit,
 	fromTransaction,
+	legOf,
+	legText,
 	newCounterparties,
 	preview,
 	problems,
+	sideChoices,
 	splitTotals,
 	toRequest,
+	UNKNOWN,
 	type SplitDraft
 } from './editor';
 
@@ -197,5 +201,40 @@ describe('editor request', () => {
 		const d = blankDraft('usd', '2026-03-01');
 		d.splits = [split('alex', 'grocer'), split('alex', 'New Shop'), split('new shop ', 'alex')];
 		expect(newCounterparties(d, ref)).toEqual(['New Shop']);
+	});
+});
+
+describe('a side, typed', () => {
+	const home = {
+		...ref,
+		parties: new Map([
+			...ref.parties,
+			['p-alex', { id: 'p-alex', name: 'Alex', kind: 'person' as const }]
+		])
+	};
+
+	it('is an account by its label, else someone outside by name', () => {
+		expect(legOf('alex · alex2', home)).toEqual({ account: 'alex2', outside: '' });
+		expect(legOf(' grocer ', home)).toEqual({ account: OUTSIDE, outside: 'grocer' });
+		expect(legOf('Corner shop', home)).toEqual({ account: OUTSIDE, outside: 'Corner shop' });
+		expect(legOf('unknown', home)).toEqual({ account: OUTSIDE, outside: '' });
+		expect(legOf('  ', home)).toEqual({ account: '', outside: '' });
+	});
+
+	it('shows as it would be typed', () => {
+		for (const t of ['Alex · alex2', 'Grocer', UNKNOWN, ''])
+			expect(legText(legOf(t, home), home)).toBe(t);
+	});
+
+	it('offers accounts, then counterparties, matching anywhere', () => {
+		expect(sideChoices('ALEX', home).map((c) => c.text)).toEqual([
+			'Alex · alex',
+			'Alex · alex2',
+			'Alex · broker'
+		]);
+		expect(sideChoices('o', home, 'broker')).toEqual([
+			{ text: 'Grocer', kind: 'counterparty' },
+			{ text: 'Opening balances', kind: 'counterparty' }
+		]);
 	});
 });

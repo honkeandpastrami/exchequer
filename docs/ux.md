@@ -122,6 +122,11 @@ these; a screen that can't is a reason to change this doc, not to make an except
   category, For, note. A field a split can't have stays in its place, disabled. **Add
   split** copies the line above. Rarer fields (another commodity received, a settled
   month) open under the line's ⋯.
+- A split's from and to are one text box each: as you type it offers the accounts and
+  counterparties that match, alike. A name that's neither is a new counterparty, said so
+  in the list; **Unknown** is someone outside the household, unknown who.
+- A dropdown lists each option once: an offered suggestion is marked *suggested* in
+  place of its plain entry.
 - A transaction has an address (`/transactions/<id>`): the list showing only it, its form
   open.
 - A bank row in import review opens the same form. Its account's side is fixed, the

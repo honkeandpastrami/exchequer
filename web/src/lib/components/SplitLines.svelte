@@ -1,8 +1,9 @@
 <script lang="ts" module>
 	/** A field a suggestion can be for. */
 	export type Field = 'other' | 'category' | 'purpose';
-	/** A suggestion a field's dropdown offers: picking it applies it. */
-	export type Offer = { label: string; apply: () => void };
+	/** A suggestion a field's dropdown offers: picking it applies it. Its
+	 * `value` (a category's or purpose's option) isn't offered again. */
+	export type Offer = { label: string; value?: string; apply: () => void };
 </script>
 
 <script lang="ts">
@@ -29,6 +30,7 @@
 	} from '../views/editor';
 	import Amount from './Amount.svelte';
 	import Mark from './Mark.svelte';
+	import SidePicker from './SidePicker.svelte';
 
 	let {
 		splits = $bindable(),
@@ -72,10 +74,6 @@
 			(a, b) => rank(partyKinds, a.kind) - rank(partyKinds, b.kind) || a.name.localeCompare(b.name)
 		)
 	);
-	const accountsOf = (owner: string, keep: string) =>
-		sorted(ref.accounts).filter(
-			(a) => a.owner_id === owner && (!a.archived || a.id === keep) && a.id !== fixed?.account
-		);
 	const commodities = $derived(
 		[...ref.commodities.values()].sort((a, b) => a.code.localeCompare(b.code))
 	);
@@ -127,41 +125,19 @@
 			{@const a = ref.accounts.get(fixed.account)}
 			<span class="fixed" id="{uid}-{i}-{label}">{a ? accountLabel(a, ref) : '?'}</span>
 		{:else}
-			<select
+			<SidePicker
+				leg={l}
+				set={(v) => Object.assign(l, v)}
+				{ref}
 				id="{uid}-{i}-{label}"
-				value={l.account}
-				onchange={(e) => pick(i, 'other', e.currentTarget.value, (v) => (l.account = v))}
-				aria-label="Split {n}: {label}"
-			>
-				<option value="" disabled>Choose…</option>
-				{#if offer}<option value={SUGGESTED}>{offer.label} (suggested)</option>{/if}
-				{#each owners as o (o.id)}
-					{@const list = accountsOf(o.id, l.account)}
-					{#if list.length}
-						<optgroup label={o.name}>
-							<!-- The full label: a closed picker shows only the option. -->
-							{#each list as a (a.id)}<option value={a.id}>{accountLabel(a, ref)}</option>{/each}
-						</optgroup>
-					{/if}
-				{/each}
-				<option value={OUTSIDE}>Outside the household…</option>
-			</select>
-			{#if l.account === OUTSIDE}
-				<input
-					bind:value={l.outside}
-					list="{uid}-counterparties"
-					placeholder="Counterparty (blank if unknown)"
-					aria-label="Split {n}: {label}, counterparty"
-				/>
-			{/if}
+				label="Split {n}: {label}"
+				skip={fixed?.account}
+				{offer}
+			/>
 			{#if status}<div class="status">{@render status(i, 'other')}</div>{/if}
 		{/if}
 	</div>
 {/snippet}
-
-<datalist id="{uid}-counterparties">
-	{#each sorted(ref.counterparties) as c (c.id)}<option value={c.name}></option>{/each}
-</datalist>
 
 <div class="lines">
 	<!-- Wide enough: one line per split under one set of headings. -->
@@ -221,7 +197,7 @@
 								{#if offer.category}<option value={SUGGESTED}
 										>{offer.category.label} (suggested)</option
 									>{/if}
-								<option value="">None</option>
+								{#if offer.category?.value !== ''}<option value="">None</option>{/if}
 								{#each sorted(ref.categories) as c (c.id)}<option value={c.id}>{c.name}</option
 									>{/each}
 							</select>
@@ -253,7 +229,9 @@
 								{#if offer.purpose}<option value={SUGGESTED}
 										>{offer.purpose.label} (suggested)</option
 									>{/if}
-								{#each owners as o (o.id)}<option value={o.id}>{o.name}</option>{/each}
+								{#each owners as o (o.id)}{#if o.id !== offer.purpose?.value}<option value={o.id}
+											>{o.name}</option
+										>{/if}{/each}
 							</select>
 							{#if status}<div class="status">{@render status(i, 'purpose')}</div>{/if}
 						{:else}
@@ -407,8 +385,7 @@
 		font-size: var(--text-sm);
 		color: var(--color-text-muted);
 	}
-	.side select,
-	.side input {
+	.side > :global(.picker) {
 		width: 11rem;
 	}
 	.pick {
@@ -499,8 +476,7 @@
 			grid-area: tools;
 			justify-content: flex-end;
 		}
-		.side select,
-		.side input,
+		.side > :global(.picker),
 		.pick,
 		.f-note input {
 			width: 100%;

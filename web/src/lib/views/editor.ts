@@ -4,6 +4,7 @@
 
 import type { Schemas } from '../api/client';
 import { sum } from '../money';
+import { accountsByOwner, accountLabel } from '../names';
 import type { Reference } from '../reference';
 
 /** The select value meaning "someone outside the household". */
@@ -210,6 +211,52 @@ export function problems(d: Draft, ref: Reference): string[] {
 }
 
 const key = (name: string) => name.trim().toLowerCase();
+
+/** What a side shows, typed: an account's label, a counterparty's name. */
+export const UNKNOWN = 'Unknown';
+
+/** A side as text: an account's label, a name, `UNKNOWN`, or blank if unchosen. */
+export function legText(l: LegDraft, ref: Reference): string {
+	if (l.account === OUTSIDE) return l.outside.trim() || UNKNOWN;
+	const a = ref.accounts.get(l.account);
+	return a ? accountLabel(a, ref) : '';
+}
+
+/**
+ * The side `text` means: an account by its label, else someone outside by
+ * name (a new counterparty if no one has it), `UNKNOWN` for unknown who,
+ * blank for unchosen.
+ */
+export function legOf(text: string, ref: Reference): LegDraft {
+	const t = key(text);
+	if (!t) return { account: '', outside: '' };
+	const a = [...ref.accounts.values()].find((a) => key(accountLabel(a, ref)) === t);
+	if (a) return { account: a.id, outside: '' };
+	const named = [...ref.counterparties.values()].some((c) => key(c.name) === t);
+	if (t === key(UNKNOWN) && !named) return { account: OUTSIDE, outside: '' };
+	return { account: OUTSIDE, outside: text.trim() };
+}
+
+export type SideChoice = { text: string; kind: 'account' | 'counterparty' };
+
+/**
+ * What a side's box offers for `query`: accounts (by owner), then
+ * counterparties, matching anywhere in their name; `skip` (the bank's
+ * account) and archived accounts left out.
+ */
+export function sideChoices(query: string, ref: Reference, skip?: string): SideChoice[] {
+	const q = key(query);
+	const hit = (t: string) => !q || t.toLowerCase().includes(q);
+	const accounts: SideChoice[] = accountsByOwner(ref)
+		.filter((a) => !a.archived && a.id !== skip)
+		.map((a) => ({ text: accountLabel(a, ref), kind: 'account' as const }))
+		.filter((c) => hit(c.text));
+	const counterparties: SideChoice[] = [...ref.counterparties.values()]
+		.sort((a, b) => a.name.localeCompare(b.name))
+		.map((c) => ({ text: c.name, kind: 'counterparty' as const }))
+		.filter((c) => hit(c.text));
+	return [...accounts, ...counterparties];
+}
 
 /** Counterparty names in the draft that don't exist yet. */
 export function newCounterparties(d: Pick<Draft, 'splits'>, ref: Reference): string[] {
