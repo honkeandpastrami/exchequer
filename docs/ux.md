@@ -114,7 +114,10 @@ these; a screen that can't is a reason to change this doc, not to make an except
   blank, at the top of the list. There's no separate read-only view: facts about the item
   (its ID, where it came from) sit at the bottom of its form.
 - A form changes nothing until **Save**; **Cancel** closes it and drops what was typed. A
-  saved item keeps its place in the list until the page is reloaded (§2).
+  saved item keeps its place in the list until the page is reloaded (§2). The exception
+  says so where it is: an account's numbers are saved as each is added or removed.
+- A row's list shows what it is and a way to open it (**Edit**, or **Details** for an
+  import's row); **Delete** is in its form, with the other actions on the whole item.
 - A transaction's splits are one line each, under one set of headings: from, to, amount,
   category, For, note. A field a split can't have stays in its place, disabled. **Add
   split** copies the line above. Rarer fields (another commodity received, a settled

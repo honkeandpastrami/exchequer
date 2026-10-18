@@ -2,10 +2,12 @@
 	import type { Schemas } from '#lib/api/client.ts';
 	import { commodities } from '#lib/api/resources.ts';
 	import Failure from '#lib/components/Failure.svelte';
+	import RowForm from '#lib/components/RowForm.svelte';
 	import { referenceState } from '#lib/setup.svelte.ts';
 
 	type Kind = Schemas['CommodityKind'];
-	type Edit = { id: string; etag: string; code: string; kind: Kind; precision: number };
+	/** The open form: a new commodity (`id` null) or a commodity's. */
+	type Form = { id: string | null; etag: string; code: string; kind: Kind; precision: number };
 
 	const kinds: Record<Kind, string> = {
 		fiat: 'Currency',
@@ -17,8 +19,7 @@
 	const kindList = Object.entries(kinds) as [Kind, string][];
 
 	const { state: s, reload } = referenceState();
-	let editing: Edit | null = $state(null);
-	let fresh = $state({ code: '', kind: 'fiat' as Kind, precision: 2 });
+	let form: Form | null = $state(null);
 	let failure: unknown = $state(null);
 	let busy = $state(false);
 
@@ -27,6 +28,7 @@
 		failure = null;
 		try {
 			await action();
+			form = null;
 			await reload();
 		} catch (e) {
 			failure = e;
@@ -36,10 +38,14 @@
 	}
 
 	async function edit(c: Schemas['Commodity']) {
+		if (form?.id === c.id) {
+			form = null;
+			return;
+		}
 		failure = null;
 		try {
 			const { item, etag } = await commodities.read(c.id);
-			editing = { id: c.id, etag, code: item.code, kind: item.kind, precision: item.precision };
+			form = { id: c.id, etag, code: item.code, kind: item.kind, precision: item.precision };
 		} catch (e) {
 			failure = e;
 		}
@@ -47,102 +53,101 @@
 
 	const save = () =>
 		run(async () => {
-			if (!editing) return;
-			const e = editing;
-			await commodities.update(e.id, e.etag, {
-				code: e.code.trim(),
-				kind: e.kind,
-				precision: e.precision
-			});
-			editing = null;
+			if (!form) return;
+			const body = { code: form.code.trim(), kind: form.kind, precision: form.precision };
+			if (form.id) await commodities.update(form.id, form.etag, body);
+			else await commodities.create(body);
 		});
 
-	const remove = (c: Schemas['Commodity']) =>
-		run(async () => {
-			const { etag } = await commodities.read(c.id);
-			if (!confirm(`Delete ${c.code}? Only a commodity nothing refers to can go.`)) return;
-			await commodities.remove(c.id, etag);
-		});
-
-	const add = () =>
-		run(async () => {
-			await commodities.create({ ...fresh, code: fresh.code.trim() });
-			fresh.code = '';
-		});
+	async function remove(c: Schemas['Commodity']) {
+		if (!form || !confirm(`Delete ${c.code}? Only a commodity nothing refers to can go.`)) return;
+		const etag = form.etag;
+		await run(() => commodities.remove(c.id, etag));
+	}
 </script>
 
-<h1>Commodities</h1>
+{#snippet fields(f: Form, c?: Schemas['Commodity'])}
+	<RowForm
+		label={c ? `Edit ${c.code}` : 'Add commodity'}
+		{busy}
+		{failure}
+		onsave={save}
+		oncancel={() => (form = null)}
+	>
+		<div class="fields">
+			<label class="field">
+				<span>Code</span>
+				<!-- svelte-ignore a11y_autofocus -->
+				<input bind:value={f.code} placeholder="e.g. EUR" required autofocus />
+			</label>
+			<label class="field">
+				<span>Kind</span>
+				<select bind:value={f.kind}>
+					{#each kindList as [k, label] (k)}<option value={k}>{label}</option>{/each}
+				</select>
+			</label>
+			<label class="field">
+				<span>Decimals</span>
+				<!-- Decimals only grow: amounts already stored keep theirs. -->
+				<input
+					type="number"
+					min={c?.precision ?? 0}
+					max="18"
+					bind:value={f.precision}
+					class="precision"
+				/>
+			</label>
+		</div>
+		{#snippet actions()}
+			{#if c}
+				<button type="button" class="quiet danger" onclick={() => remove(c)} disabled={busy}
+					>Delete</button
+				>
+			{/if}
+		{/snippet}
+	</RowForm>
+{/snippet}
+
+<div class="heading">
+	<h1>Commodities</h1>
+	<button
+		type="button"
+		disabled={!s.ref || form?.id === null}
+		onclick={() => {
+			failure = null;
+			form = { id: null, etag: '', code: '', kind: 'fiat', precision: 2 };
+		}}>Add commodity</button
+	>
+</div>
 
 {#if s.ref}
 	{@const r = s.ref}
-	<form
-		class="add"
-		onsubmit={(e) => {
-			e.preventDefault();
-			add();
-		}}
-	>
-		<input bind:value={fresh.code} placeholder="Code, e.g. EUR" aria-label="Code" />
-		<select bind:value={fresh.kind} aria-label="Kind">
-			{#each kindList as [k, label] (k)}<option value={k}>{label}</option>{/each}
-		</select>
-		<label class="small"
-			>Decimals <input
-				type="number"
-				min="0"
-				max="18"
-				bind:value={fresh.precision}
-				class="precision"
-			/></label
-		>
-		<button type="submit" disabled={busy || !fresh.code.trim()}>Add</button>
-	</form>
-
-	{#if failure}<Failure error={failure} />{/if}
-
 	<table class="list">
 		<thead>
 			<tr><th>Code</th><th>Kind</th><th class="num">Decimals</th><th></th></tr>
 		</thead>
 		<tbody>
+			{#if form && form.id === null}
+				<tr class="open"><td colspan="4">{@render fields(form)}</td></tr>
+			{/if}
 			{#each [...r.commodities.values()].sort((a, b) => a.code.localeCompare(b.code)) as c (c.id)}
-				{#if editing?.id === c.id}
-					<tr class="editing">
-						<td><input bind:value={editing.code} aria-label="Code" /></td>
-						<td>
-							<select bind:value={editing.kind} aria-label="Kind">
-								{#each kindList as [k, label] (k)}<option value={k}>{label}</option>{/each}
-							</select>
-						</td>
-						<td class="num">
-							<input
-								type="number"
-								min={c.precision}
-								max="18"
-								bind:value={editing.precision}
-								class="precision"
-								aria-label="Decimals"
-							/>
-						</td>
-						<td class="actions">
-							<button onclick={save} disabled={busy || !editing.code.trim()}>Save</button>
-							<button class="quiet" onclick={() => (editing = null)}>Cancel</button>
-						</td>
-					</tr>
-				{:else}
-					<tr>
-						<td>{c.code}</td>
-						<td>{kinds[c.kind]}</td>
-						<td class="num">{c.precision}</td>
-						<td class="actions">
-							<button class="link" onclick={() => edit(c)} disabled={busy}>Edit</button>
-							<button class="link danger" onclick={() => remove(c)} disabled={busy}>Delete</button>
-						</td>
-					</tr>
+				<tr>
+					<td>{c.code}</td>
+					<td>{kinds[c.kind]}</td>
+					<td class="num">{c.precision}</td>
+					<td class="actions">
+						<button class="link" aria-expanded={form?.id === c.id} onclick={() => edit(c)}
+							>Edit</button
+						>
+					</td>
+				</tr>
+				{#if form && form.id === c.id}
+					<tr class="open"><td colspan="4">{@render fields(form, c)}</td></tr>
 				{/if}
 			{/each}
 		</tbody>
 	</table>
+	{#if failure && !form}<Failure error={failure} />{/if}
 {:else if s.failure}
 	<Failure error={s.failure} />
 {:else}
@@ -150,14 +155,12 @@
 {/if}
 
 <style>
-	.add {
+	.heading {
 		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--space-2) var(--space-3);
-		margin-bottom: var(--space-4);
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--space-4);
 	}
-	.small,
 	.precision {
 		width: 5rem;
 	}
@@ -167,14 +170,12 @@
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-1);
 	}
-	.editing td {
-		background: var(--color-surface-alt);
+	.open td {
+		border-top: none;
+		padding-top: 0;
 	}
 	.actions {
 		text-align: right;
 		white-space: nowrap;
-	}
-	.actions > * + * {
-		margin-left: var(--space-3);
 	}
 </style>

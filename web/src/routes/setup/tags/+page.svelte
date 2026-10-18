@@ -7,9 +7,9 @@
 	const { state: s, reload } = referenceState();
 </script>
 
-<h1>Tags</h1>
 {#if s.ref}
 	<NamedList
+		title="Tags"
 		items={[...s.ref.tags.values()]}
 		resource={tags}
 		noun="tag"

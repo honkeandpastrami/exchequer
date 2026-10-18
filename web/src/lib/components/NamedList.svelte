@@ -1,21 +1,27 @@
 <script lang="ts">
-	// Categories, counterparties or tags: add, rename, delete. Each edit reads
-	// the item first, so it carries the ETag of what's stored now.
+	// Categories, counterparties or tags: add, edit, delete (ux.md §10). Add
+	// opens a form at the top of the list, Edit one under its row. Each edit
+	// reads the item first, so it carries the ETag of what's stored now.
 	import { resolve } from '$app/paths';
 	import type { Named } from '../api/resources';
 	import Failure from './Failure.svelte';
+	import RowForm from './RowForm.svelte';
 
 	type Item = { id: string; name: string; system?: string | null };
+	type Form = { id: string | null; etag: string; name: string };
 
 	let {
 		items,
 		resource,
+		title,
 		noun,
 		filter,
 		onchange
 	}: {
 		items: Item[];
 		resource: Named;
+		/** The page's heading: "Categories". */
+		title: string;
 		/** Singular, lowercase: "category". */
 		noun: string;
 		/** The transactions filter that shows where one is used. */
@@ -26,8 +32,8 @@
 	const SHOWN = 200;
 
 	let search = $state('');
-	let fresh = $state('');
-	let editing: { id: string; name: string; etag: string } | null = $state(null);
+	/** The open form: a new one (`id` null) or an item's. */
+	let form: Form | null = $state(null);
 	let failure: unknown = $state(null);
 	let busy = $state(false);
 
@@ -36,12 +42,14 @@
 			.filter((i) => i.name.toLowerCase().includes(search.trim().toLowerCase()))
 			.sort((a, b) => a.name.localeCompare(b.name))
 	);
+	const editing = (i: Item) => form?.id === i.id;
 
 	async function run(action: () => Promise<unknown>) {
 		busy = true;
 		failure = null;
 		try {
 			await action();
+			form = null;
 			await onchange();
 		} catch (e) {
 			failure = e;
@@ -50,111 +58,123 @@
 		}
 	}
 
-	const add = () =>
-		run(async () => {
-			await resource.create({ name: fresh.trim() });
-			fresh = '';
-		});
-
-	async function startRename(i: Item) {
+	async function edit(i: Item) {
+		if (editing(i)) {
+			form = null;
+			return;
+		}
 		failure = null;
 		try {
 			const { item, etag } = await resource.read(i.id);
-			editing = { id: i.id, name: item.name, etag };
+			form = { id: i.id, etag, name: item.name };
 		} catch (e) {
 			failure = e;
 		}
 	}
 
-	const rename = () =>
+	const save = () =>
 		run(async () => {
-			if (!editing) return;
-			await resource.update(editing.id, editing.etag, { name: editing.name.trim() });
-			editing = null;
+			if (!form) return;
+			const name = form.name.trim();
+			if (form.id) await resource.update(form.id, form.etag, { name });
+			else await resource.create({ name });
 		});
 
-	const remove = (i: Item) =>
-		run(async () => {
-			const { etag } = await resource.read(i.id);
-			if (!confirm(`Delete the ${noun} “${i.name}”?`)) return;
-			await resource.remove(i.id, etag);
-		});
+	async function remove(i: Item) {
+		if (!form || !confirm(`Delete the ${noun} “${i.name}”?`)) return;
+		const etag = form.etag;
+		await run(() => resource.remove(i.id, etag));
+	}
 </script>
 
-<form
-	class="add"
-	onsubmit={(e) => {
-		e.preventDefault();
-		if (fresh.trim()) add();
-	}}
->
-	<input bind:value={fresh} placeholder="New {noun}" maxlength="100" aria-label="New {noun}" />
-	<button type="submit" disabled={busy || !fresh.trim()}>Add</button>
+{#snippet fields(f: Form, i?: Item)}
+	<RowForm
+		label={i ? `Edit ${i.name}` : `Add ${noun}`}
+		{busy}
+		{failure}
+		onsave={save}
+		oncancel={() => (form = null)}
+	>
+		<div class="fields">
+			<label class="field grow">
+				<span>Name</span>
+				<!-- svelte-ignore a11y_autofocus -->
+				<input bind:value={f.name} maxlength="100" required autofocus />
+			</label>
+		</div>
+		{#snippet actions()}
+			{#if i && !i.system}
+				<button type="button" class="quiet danger" onclick={() => remove(i)} disabled={busy}
+					>Delete</button
+				>
+			{/if}
+		{/snippet}
+	</RowForm>
+{/snippet}
+
+<div class="heading">
+	<h1>{title}</h1>
+	<button
+		type="button"
+		disabled={form?.id === null}
+		onclick={() => {
+			failure = null;
+			form = { id: null, etag: '', name: '' };
+		}}>Add {noun}</button
+	>
+</div>
+<div class="toolbar">
 	{#if items.length > 20}
-		<input class="search" type="search" bind:value={search} placeholder="Search" />
+		<input type="search" bind:value={search} placeholder="Search" aria-label="Search" />
 	{/if}
 	<span class="muted count">{items.length} in all</span>
-</form>
-
-{#if failure}<Failure error={failure} />{/if}
+</div>
 
 <table class="list">
 	<tbody>
+		{#if form && form.id === null}
+			<tr class="open"><td colspan="2">{@render fields(form)}</td></tr>
+		{/if}
 		{#each matching.slice(0, SHOWN) as i (i.id)}
 			<tr>
-				{#if editing?.id === i.id}
-					<td colspan="2">
-						<form
-							class="rename"
-							onsubmit={(e) => {
-								e.preventDefault();
-								rename();
-							}}
-						>
-							<!-- svelte-ignore a11y_autofocus -->
-							<input bind:value={editing.name} maxlength="100" autofocus aria-label="Name" />
-							<button type="submit" disabled={busy || !editing.name.trim()}>Save</button>
-							<button type="button" class="quiet" onclick={() => (editing = null)}>Cancel</button>
-						</form>
-					</td>
-				{:else}
-					<td>
-						{i.name}
-						{#if i.system}<span class="badge">built-in</span>{/if}
-					</td>
-					<td class="actions">
-						<a href={resolve(`/transactions?${filter}=${i.id}`)}>Transactions</a>
-						<button class="link" onclick={() => startRename(i)} disabled={busy}>Rename</button>
-						{#if !i.system}
-							<button class="link danger" onclick={() => remove(i)} disabled={busy}>Delete</button>
-						{/if}
-					</td>
-				{/if}
+				<td>
+					{i.name}
+					{#if i.system}<span class="badge">built-in</span>{/if}
+				</td>
+				<td class="actions">
+					<a href={resolve(`/transactions?${filter}=${i.id}`)}>Transactions</a>
+					<button class="link" aria-expanded={editing(i)} onclick={() => edit(i)}>Edit</button>
+				</td>
 			</tr>
+			{#if form && editing(i)}
+				<tr class="open"><td colspan="2">{@render fields(form, i)}</td></tr>
+			{/if}
 		{:else}
 			<tr><td class="muted">None{search ? ' match' : ' yet'}.</td></tr>
 		{/each}
 	</tbody>
 </table>
+{#if failure && !form}<Failure error={failure} />{/if}
 {#if matching.length > SHOWN}
 	<p class="muted">Showing {SHOWN} of {matching.length}; search to narrow them down.</p>
 {/if}
 
 <style>
-	.add,
-	.rename {
+	.heading {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--space-4);
+	}
+	.toolbar {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
 		gap: var(--space-2) var(--space-3);
-	}
-	.add {
 		margin-bottom: var(--space-4);
 	}
-	.search {
-		margin-left: auto;
-	}
 	.count {
+		margin-left: auto;
 		font-size: var(--text-sm);
 	}
 	.list {
@@ -162,6 +182,10 @@
 		border: var(--border-width) solid var(--color-border);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-1);
+	}
+	.open td {
+		border-top: none;
+		padding-top: 0;
 	}
 	.actions {
 		text-align: right;

@@ -146,7 +146,7 @@
 		oncancel={() => onclose()}
 		onreload={load}
 	>
-		<div class="head">
+		<div class="fields">
 			<label class="field">
 				<span>Date</span>
 				<input type="date" bind:value={draft.date} />
@@ -156,7 +156,7 @@
 				<input bind:value={draft.description} maxlength="500" />
 			</label>
 		</div>
-		<div class="head">
+		<div class="fields">
 			<label class="field grow">
 				<span>Tags, comma-separated</span>
 				<input bind:value={draft.tags} list="{uid}-tags" />
@@ -198,29 +198,3 @@
 {:else}
 	<p class="muted">Loading…</p>
 {/if}
-
-<style>
-	.head {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-3);
-		margin-bottom: var(--space-3);
-	}
-	.field {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-	}
-	.field > span {
-		font-size: var(--text-sm);
-		color: var(--color-text-muted);
-	}
-	.grow {
-		flex: 1;
-		min-width: 14rem;
-	}
-	.danger {
-		color: var(--color-negative);
-		border-color: var(--color-negative);
-	}
-</style>

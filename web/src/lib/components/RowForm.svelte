@@ -73,6 +73,38 @@
 		border: var(--border-width) solid var(--color-border);
 		border-radius: var(--radius-md);
 	}
+	/* Fields in a form: each a label over its control, wrapping as needed. */
+	.row-form :global(.fields) {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: var(--space-3);
+		margin-bottom: var(--space-3);
+	}
+	.row-form :global(.field) {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+	}
+	.row-form :global(.field > span:first-child),
+	.row-form :global(.check) {
+		font-size: var(--text-sm);
+		color: var(--color-text-muted);
+	}
+	.row-form :global(.check) {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding-bottom: var(--space-2);
+	}
+	.row-form :global(.grow) {
+		flex: 1;
+		min-width: 14rem;
+	}
+	.row-form :global(.danger) {
+		color: var(--color-negative);
+		border-color: var(--color-negative);
+	}
 	.issues {
 		padding: var(--space-3) var(--space-5);
 		border-radius: var(--radius-sm);

@@ -7,9 +7,9 @@
 	const { state: s, reload } = referenceState();
 </script>
 
-<h1>Counterparties</h1>
 {#if s.ref}
 	<NamedList
+		title="Counterparties"
 		items={[...s.ref.counterparties.values()]}
 		resource={counterparties}
 		noun="counterparty"
