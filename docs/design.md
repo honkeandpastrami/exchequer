@@ -521,9 +521,9 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      `labels-missing`, `decisions-missing`, or no account), so every client and page
      follows the same rule.
    - `suggested` (yellow): it would commit, but it relies on confident AI suggestions
-     (local or remote) or a suggested account that you haven't confirmed.
+     (local or remote) or a suggested account that you haven't confirmed, short of 100%.
    - `ready` (green): it commits exactly as shown. A suggestion from logic (the rules,
-     matching) counts as yours.
+     matching), or any at 100%, counts as yours.
 
    The web app shows the same mark and reasons on the Imports list and on an import's
    review, where its rows to label or decide are one filter away; either page can

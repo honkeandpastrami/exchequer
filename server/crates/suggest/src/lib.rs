@@ -21,7 +21,7 @@ pub mod backtest;
 pub mod params;
 pub mod stack;
 
-pub use params::{CONFIDENT, TRANSFER_DAYS};
+pub use params::{CERTAIN, CONFIDENT, TRANSFER_DAYS};
 
 /// What a row is labeled with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

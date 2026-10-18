@@ -21,8 +21,9 @@ class Readiness:
             shown, with nothing left to a guess (a rule's suggestion is yours);
             `suggested` would commit too, on confident AI suggestions you haven't
             confirmed; `needs_work` needs you first.
-        suggested_accounts (int): Statements whose account is a confident suggestion, not yet chosen.
-        suggested_rows (int): Rows that would take a confident AI suggestion.
+        suggested_accounts (int): Statements whose account is a confident suggestion short of 100%,
+            not yet chosen.
+        suggested_rows (int): Rows that would take a confident AI suggestion short of 100%.
         undecided (int): Rows whose decision is neither yours nor confidently suggested (a
             near duplicate never is). Needs work.
         unlabeled (int): New rows with a label neither chosen nor confidently suggested.

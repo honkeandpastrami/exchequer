@@ -159,6 +159,12 @@ async fn a_suggested_account_counts_only_when_confident(pool: PgPool) {
         ),
         (&json!(h.alex_checking), &json!(true), &json!(2))
     );
+    assert_eq!(r.body["readiness"]["suggested_accounts"], json!(1));
+    // At 100% it's as sure as your own choice.
+    suggest(1000).await;
+    let r = read(&pool, &h, &id).await;
+    assert_eq!(r.body["readiness"]["suggested_accounts"], json!(0));
+    suggest(950).await;
     // Picking it makes it the statement's own.
     let r = patch(
         &pool,
@@ -645,7 +651,7 @@ async fn confident_ai_suggestions_make_an_import_suggested(pool: PgPool) {
     let id = r.id();
     let rule = suggester(&pool, "rule", "rules").await;
     let remote = suggester(&pool, "remote", "a-deployment/a-model").await;
-    let set = |by: [Uuid; 2]| {
+    let set = |by: [Uuid; 2], confidence: i16| {
         let (pool, id, store) = (pool.clone(), uuid(&id), h.store.clone());
         async move {
             let mut db = pool.acquire().await.unwrap();
@@ -653,7 +659,7 @@ async fn confident_ai_suggestions_make_an_import_suggested(pool: PgPool) {
             for (position, by) in [0, 1].into_iter().zip(by) {
                 for l in ["counterparty", "category", "purpose"] {
                     let value = (l == "counterparty").then_some(store.as_str());
-                    all.push(label(position, l, value, by, 950));
+                    all.push(label(position, l, value, by, confidence));
                 }
             }
             store::imports::set_suggestions(&mut db, id, 0, &all)
@@ -662,18 +668,26 @@ async fn confident_ai_suggestions_make_an_import_suggested(pool: PgPool) {
         }
     };
     // Rules are yours: ready.
-    set([rule, rule]).await;
+    set([rule, rule], 950).await;
     assert_eq!(
         read(&pool, &h, &id).await.body["readiness"]["state"],
         json!("ready")
     );
     // A confident AI suggestion would commit too, but you haven't seen it.
-    set([rule, remote]).await;
+    set([rule, remote], 950).await;
     let ready = read(&pool, &h, &id).await.body["readiness"].clone();
     assert_eq!(
         (&ready["state"], &ready["suggested_rows"]),
         (&json!("suggested"), &json!(1))
     );
+    // One at 100% is as sure as your own choice: ready.
+    set([rule, remote], 1000).await;
+    let ready = read(&pool, &h, &id).await.body["readiness"].clone();
+    assert_eq!(
+        (&ready["state"], &ready["suggested_rows"]),
+        (&json!("ready"), &json!(0))
+    );
+    set([rule, remote], 950).await;
     // So committing every ready import leaves it.
     let r = h
         .send(

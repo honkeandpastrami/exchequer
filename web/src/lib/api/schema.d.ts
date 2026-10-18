@@ -2277,12 +2277,13 @@ export interface components {
 			state: components['schemas']['ReadinessState'];
 			/**
 			 * Format: int32
-			 * @description Statements whose account is a confident suggestion, not yet chosen.
+			 * @description Statements whose account is a confident suggestion short of 100%,
+			 *     not yet chosen.
 			 */
 			suggested_accounts: number;
 			/**
 			 * Format: int32
-			 * @description Rows that would take a confident AI suggestion.
+			 * @description Rows that would take a confident AI suggestion short of 100%.
 			 */
 			suggested_rows: number;
 			/**

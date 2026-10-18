@@ -8851,13 +8851,13 @@
           "suggested_accounts": {
             "type": "integer",
             "format": "int32",
-            "description": "Statements whose account is a confident suggestion, not yet chosen.",
+            "description": "Statements whose account is a confident suggestion short of 100%,\nnot yet chosen.",
             "minimum": 0
           },
           "suggested_rows": {
             "type": "integer",
             "format": "int32",
-            "description": "Rows that would take a confident AI suggestion.",
+            "description": "Rows that would take a confident AI suggestion short of 100%.",
             "minimum": 0
           },
           "undecided": {

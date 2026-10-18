@@ -357,9 +357,10 @@ pub struct Readiness {
     /// Rows whose decision is neither yours nor confidently suggested (a
     /// near duplicate never is). Needs work.
     undecided: u32,
-    /// Statements whose account is a confident suggestion, not yet chosen.
+    /// Statements whose account is a confident suggestion short of 100%,
+    /// not yet chosen.
     suggested_accounts: u32,
-    /// Rows that would take a confident AI suggestion.
+    /// Rows that would take a confident AI suggestion short of 100%.
     suggested_rows: u32,
 }
 
@@ -1112,8 +1113,8 @@ struct Labels {
     purpose: Option<Uuid>,
     missing: Vec<Label>,
     not_applicable: Vec<Label>,
-    /// Who made the suggestions it takes.
-    suggested_by: Vec<Uuid>,
+    /// Who made the suggestions it takes, and how sure each is.
+    suggested_by: Vec<(Uuid, i16)>,
 }
 
 /// What a row's labels depend on beyond the row.
@@ -1158,7 +1159,7 @@ fn labels(r: &RowRow, suggestions: &[SuggestionRow], cx: &Context) -> Labels {
         match suggested(Label::Counterparty) {
             Some(s) => {
                 (out.counterparty, out.transfer) = (s.value, s.account_id);
-                out.suggested_by.push(s.suggester_id);
+                out.suggested_by.push((s.suggester_id, s.confidence));
             }
             None => {
                 (out.counterparty, out.transfer) = (None, None);
@@ -1190,7 +1191,7 @@ fn labels(r: &RowRow, suggestions: &[SuggestionRow], cx: &Context) -> Labels {
         match suggested(label) {
             Some(s) => {
                 *slot = s.value;
-                out.suggested_by.push(s.suggester_id);
+                out.suggested_by.push((s.suggester_id, s.confidence));
             }
             None => {
                 *slot = None;
@@ -1299,6 +1300,11 @@ async fn matcher_id(db: &mut PgConnection) -> Result<Uuid, Problem> {
 
 /// How close an import is to committing ([`Readiness`]). `statements`
 /// are its own.
+/// Whether a confidence is as sure as your own choice.
+fn certain(confidence: i16) -> bool {
+    i32::from(confidence) >= i32::from(suggest::CERTAIN)
+}
+
 async fn readiness(
     db: &mut PgConnection,
     id: Uuid,
@@ -1337,7 +1343,11 @@ async fn readiness(
         suggested_accounts: count(
             statements
                 .iter()
-                .filter(|s| s.account_id.is_none() && s.effective_account().is_some())
+                .filter(|s| {
+                    s.account_id.is_none()
+                        && s.effective_account().is_some()
+                        && !s.suggestion.as_ref().is_some_and(|a| certain(a.confidence))
+                })
                 .count(),
         ),
         suggested_rows: 0,
@@ -1373,9 +1383,13 @@ async fn readiness(
         if decision == Decision::New && !l.missing.is_empty() {
             out.unlabeled += 1;
         }
-        if l.suggested_by.iter().any(|s| {
-            by.get(s)
-                .is_some_and(|s| matches!(s.kind, SuggesterKind::Local | SuggesterKind::Remote))
+        // An AI suggestion short of certain is worth a look; a certain one,
+        // like logic's, counts as yours.
+        if l.suggested_by.iter().any(|(s, c)| {
+            !certain(*c)
+                && by
+                    .get(s)
+                    .is_some_and(|s| matches!(s.kind, SuggesterKind::Local | SuggesterKind::Remote))
         }) {
             out.suggested_rows += 1;
         }
