@@ -162,12 +162,12 @@
 			</thead>
 			<tbody>
 				{#each staged as imp (imp.id)}
-					<tr>
-						<td>
+					<tr class="row">
+						<td class="file">
 							<a href={resolve('/imports/[id]', { id: imp.id })}>{imp.file_name ?? imp.format}</a>
 						</td>
-						<td>{localDate(imp.created_at)}</td>
-						<td>
+						<td class="uploaded">{localDate(imp.created_at)}</td>
+						<td class="statements">
 							{#each imp.statements as s (s.position)}
 								{@const a = s.account_id ? r.accounts.get(s.account_id) : undefined}
 								<div>
@@ -178,7 +178,7 @@
 								<span class="muted">none</span>
 							{/each}
 						</td>
-						<td>
+						<td class="state">
 							<Mark
 								tone={readinessTones[imp.readiness.state]}
 								label={readinessNames[imp.readiness.state]}
@@ -187,7 +187,7 @@
 								<div class="why">{why}</div>
 							{/each}
 						</td>
-						<td>
+						<td class="commit">
 							<button
 								disabled={committing || busy || imp.readiness.state === 'needs_work'}
 								onclick={() => commitOne(imp)}>Commit</button
@@ -241,5 +241,55 @@
 	.why {
 		font-size: var(--text-sm);
 		color: var(--color-text-muted);
+	}
+	/* A phone: each import a block, its file and Commit together, then why. */
+	@media (max-width: 40rem) {
+		.list table,
+		.list tbody,
+		.list tr,
+		.list td {
+			display: block;
+		}
+		.list thead {
+			display: none;
+		}
+		.list tr.row {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			grid-template-areas:
+				'file commit'
+				'state commit'
+				'statements statements'
+				'uploaded uploaded';
+			gap: var(--space-1) var(--space-3);
+			padding: var(--space-3);
+			border-top: var(--border-width) solid var(--color-border);
+		}
+		.list tr.row td {
+			padding: 0;
+			border: none;
+		}
+		.file {
+			grid-area: file;
+			overflow-wrap: anywhere;
+		}
+		.commit {
+			grid-area: commit;
+			align-self: start;
+		}
+		.state {
+			grid-area: state;
+		}
+		.statements,
+		.uploaded {
+			font-size: var(--text-sm);
+			color: var(--color-text-muted);
+		}
+		.statements {
+			grid-area: statements;
+		}
+		.uploaded {
+			grid-area: uploaded;
+		}
 	}
 </style>

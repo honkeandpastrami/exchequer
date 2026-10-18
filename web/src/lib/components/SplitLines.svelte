@@ -19,6 +19,7 @@
 	import { sorted, type Reference } from '../reference';
 	import {
 		blankSplit,
+		cleanQuantity,
 		OUTSIDE,
 		preview,
 		splitTotals,
@@ -83,6 +84,8 @@
 	const totals = $derived(
 		splitTotals(splits).map((t) => ({ code: code(t.commodity), value: t.value }))
 	);
+	/** Every split's amount typed. */
+	const typed = $derived(splits.every((s) => /^\d+(\.\d+)?$/.test(cleanQuantity(s.quantity))));
 	/** What's left to split of `expected`: positive, short; negative, over. */
 	const left = $derived(
 		expected === undefined ? undefined : minus(expected, splitTotals(splits)[0]?.value ?? '0')
@@ -118,7 +121,7 @@
 {#snippet side(label: string, s: SplitDraft, l: LegDraft, i: number)}
 	{@const n = i + 1}
 	{@const offer = offers?.(i).other}
-	<div class="field side">
+	<div class="field side {label === 'From' ? 'f-from' : 'f-to'}">
 		<label for="{uid}-{i}-{label}">{label}</label>
 		{#if fixed && l !== otherOf(s)}
 			{@const a = ref.accounts.get(fixed.account)}
@@ -183,7 +186,7 @@
 					{@render side('From', split, split.from, i)}
 					<span class="arrow" aria-hidden="true">→</span>
 					{@render side('To', split, split.to, i)}
-					<label class="field">
+					<label class="field f-amount">
 						<span>Amount</span>
 						<span class="money">
 							<input
@@ -203,7 +206,7 @@
 							</select>
 						</span>
 					</label>
-					<div class="field">
+					<div class="field f-category">
 						<label for="{uid}-{i}-category">Category</label>
 						{#if p.category}
 							<select
@@ -233,7 +236,7 @@
 							>
 						{/if}
 					</div>
-					<div class="field">
+					<div class="field f-purpose">
 						<label for="{uid}-{i}-purpose">For</label>
 						{#if p.purpose}
 							{@const unset = split.purpose === UNSET || (!split.purpose && !p.defaultPurpose)}
@@ -263,7 +266,7 @@
 							>
 						{/if}
 					</div>
-					<label class="field grow">
+					<label class="field grow f-note">
 						<span>Note</span>
 						<input bind:value={split.description} aria-label="Split {n}: note" />
 					</label>
@@ -337,7 +340,9 @@
 	{#if expected !== undefined && splits.length > 1 && left !== undefined}
 		{@const c = code(splits[0].commodity)}
 		<span class="total">
-			{#if sign(left) === 0}
+			{#if !typed}
+				<Mark tone="open" label="Incomplete" /> every split needs an amount
+			{:else if sign(left) === 0}
 				<Mark tone="ok" label="Adds up" /> to the bank's <Amount value={expected} code={c} />
 			{:else if sign(left) > 0}
 				<Mark tone="error" label="Short" /><Amount value={left} code={c} /> left to split
@@ -451,6 +456,68 @@
 		padding-inline: 0;
 	}
 	/* Wide: a grid, the headings once, a counterparty under its side. */
+	/* A phone: a split's fields in a small grid, each with its label. */
+	@container (max-width: 36rem) {
+		.line {
+			display: grid;
+			grid-template-columns: 1.5ch minmax(0, 1fr) minmax(0, 1fr);
+			grid-template-areas:
+				'n from from'
+				'n to to'
+				'n amount amount'
+				'n category purpose'
+				'n note tools';
+			align-items: end;
+		}
+		.n {
+			grid-area: n;
+			align-self: start;
+			padding-top: var(--space-5);
+		}
+		.arrow {
+			display: none;
+		}
+		.f-from {
+			grid-area: from;
+		}
+		.f-to {
+			grid-area: to;
+		}
+		.f-amount {
+			grid-area: amount;
+		}
+		.f-category {
+			grid-area: category;
+		}
+		.f-purpose {
+			grid-area: purpose;
+		}
+		.f-note {
+			grid-area: note;
+		}
+		.tools {
+			grid-area: tools;
+			justify-content: flex-end;
+		}
+		.side select,
+		.side input,
+		.pick,
+		.f-note input {
+			width: 100%;
+			min-width: 0;
+		}
+		.money {
+			width: 100%;
+		}
+		.qty {
+			flex: 1;
+			width: auto;
+			min-width: 0;
+		}
+		.extra {
+			padding-left: calc(1.5ch + var(--space-2));
+		}
+	}
 	@container (min-width: 66rem) {
 		.heads,
 		.line {

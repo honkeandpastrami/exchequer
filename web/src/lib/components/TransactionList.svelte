@@ -286,7 +286,7 @@
 			{#each items as tx, i (tx.id)}
 				<tr class="row" class:open={open[tx.id]} onclick={() => (open[tx.id] = !open[tx.id])}>
 					<td class="date">{tx.date}</td>
-					<td>
+					<td class="desc">
 						<button class="link" aria-expanded={!!open[tx.id]}
 							>{tx.description || '(no description)'}</button
 						>
@@ -295,10 +295,10 @@
 							<div class="muted notes">{tx.notes}</div>
 						{/if}
 					</td>
-					<td class="muted">{route(tx.splits, r)}</td>
-					<td class="muted">{categoryNames(tx.splits, r).join(', ')}</td>
-					<td class="num"><Quantities items={amounts(tx, r)} /></td>
-					{#if running}<td class="num"><Quantities items={running[i]} /></td>{/if}
+					<td class="muted route">{route(tx.splits, r)}</td>
+					<td class="muted category">{categoryNames(tx.splits, r).join(', ')}</td>
+					<td class="num amount"><Quantities items={amounts(tx, r)} /></td>
+					{#if running}<td class="num balance"><Quantities items={running[i]} /></td>{/if}
 				</tr>
 				{#if open[tx.id]}
 					<tr class="expanded">
@@ -403,5 +403,62 @@
 	}
 	.notes {
 		font-size: var(--text-xs);
+	}
+	/* A phone: each transaction a block, what it is and how much on top. */
+	@media (max-width: 40rem) {
+		.list,
+		.list tbody,
+		.list tr,
+		.list td {
+			display: block;
+		}
+		.list thead {
+			display: none;
+		}
+		.list tr.row {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			grid-template-areas:
+				'desc amount'
+				'date balance'
+				'route route'
+				'category category';
+			column-gap: var(--space-3);
+			padding: var(--space-2) var(--space-3);
+			border-top: var(--border-width) solid var(--color-border);
+		}
+		.list tr.row td {
+			padding: 0;
+			border: none;
+		}
+		.desc {
+			grid-area: desc;
+		}
+		.amount {
+			grid-area: amount;
+		}
+		.balance {
+			grid-area: balance;
+			font-size: var(--text-sm);
+		}
+		.date,
+		.route,
+		.category {
+			width: auto;
+			font-size: var(--text-sm);
+		}
+		.date {
+			grid-area: date;
+			color: var(--color-text-muted);
+		}
+		.route {
+			grid-area: route;
+		}
+		.category {
+			grid-area: category;
+		}
+		.list tr.expanded td {
+			padding: 0 var(--space-2) var(--space-2);
+		}
 	}
 </style>

@@ -620,11 +620,12 @@
 					{@const labeled = row.decision === 'new' || row.decision === 'replace'}
 					<tr
 						id="row-{anchor(row)}"
+						class="row"
 						class:skip={row.decision === 'skip'}
 						class:flash={flashed.has(key)}
 					>
 						<td class="date">{row.date}</td>
-						<td>
+						<td class="r-desc">
 							<div class="text">
 								{row.set_description ?? row.description}
 								{#if row.set_description}<span class="muted small">(bank: {row.description})</span
@@ -687,8 +688,8 @@
 								</div>
 							{/if}
 						</td>
-						<td class="num"><Amount value={row.amount} {code} /></td>
-						<td>
+						<td class="num r-amount"><Amount value={row.amount} {code} /></td>
+						<td class="r-state">
 							{statuses[row.status]}
 							<!-- The match on one line, cut short; Details shows it whole. -->
 							{#if row.transfer_match}
@@ -1061,6 +1062,60 @@
 	}
 	tr.details td {
 		background: var(--color-surface-alt);
+	}
+	/* A phone: each row a block (#21), the description across the full
+	   width, then date and amount, status, and what commit does. */
+	@media (max-width: 40rem) {
+		.list table,
+		.list tbody,
+		.list tr,
+		.list td {
+			display: block;
+		}
+		.list table {
+			min-width: 0;
+		}
+		.list thead,
+		.list colgroup {
+			display: none;
+		}
+		.list tr.row {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			grid-template-areas:
+				'desc desc'
+				'date amount'
+				'state state'
+				'decide decide';
+			gap: var(--space-1) var(--space-3);
+			padding: var(--space-3);
+			border-top: var(--border-width) solid var(--color-border);
+		}
+		.list tr.row td {
+			padding: 0;
+			border: none;
+		}
+		.r-desc {
+			grid-area: desc;
+		}
+		.list .date {
+			grid-area: date;
+			color: var(--color-text-muted);
+			font-size: var(--text-sm);
+		}
+		.r-amount {
+			grid-area: amount;
+		}
+		.r-state {
+			grid-area: state;
+			font-size: var(--text-sm);
+		}
+		.decide {
+			grid-area: decide;
+		}
+		.list tr.details td {
+			padding: 0 var(--space-2) var(--space-3);
+		}
 	}
 	.field {
 		display: flex;

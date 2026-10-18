@@ -97,7 +97,9 @@ these; a screen that can't is a reason to change this doc, not to make an except
   not a reduced version on one. On a laptop: mouse and keyboard, wide screens. On a phone:
   touch, narrow screens, no hover (anything shown on hover is also shown on tap), targets
   big enough for a finger.
-- At phone width the page never scrolls sideways; wide tables scroll inside themselves.
+- At phone width the page never scrolls sideways. Transactions, imports and an import's
+  rows turn each row into a block: what it is and its amount first, then the rest, its
+  actions with it. Other wide tables scroll inside themselves.
 - Works with the keyboard alone, and in dark mode.
 - Focus is always visible; every control has a label.
 - Short text: a label or a one-line hint, not a paragraph. Explanations go in the docs.
