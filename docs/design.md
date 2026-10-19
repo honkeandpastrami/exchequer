@@ -1,8 +1,9 @@
 # Exchequer — design
 
-This document describes what Exchequer is, how its pieces fit, and the independent
-components that can be designed, built and tested on their own. Requirements are in
-[`requirements.md`](requirements.md).
+This document describes Exchequer as it is built: what it is, how its pieces fit, and the
+components that are built and tested on their own. Requirements are in
+[`requirements.md`](requirements.md); how changes are merged, released and deployed is in
+[`deployment.md`](deployment.md). Work not built yet is tracked as GitHub issues (§17).
 
 Examples use a **fictional household**: *Alex* and *Sam*, a small business *Studio* run by
 Sam, and the *Household* itself. Amounts are round and illustrative.
@@ -40,15 +41,14 @@ Sam, and the *Household* itself. Amounts are round and illustrative.
 
 ```
  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
- │  CLI / TUI   │   │   Web app    │   │ future       │
- │ import,review│   │ reports,edit │   │ clients      │
+ │     CLI      │   │   Web app    │   │ any other    │
+ │ import,rules │   │ everything   │   │ client       │
  └──────┬───────┘   └──────┬───────┘   └──────┬───────┘
         │   HTTPS + bearer token (OpenAPI contract)
         └──────────────────┼──────────────────┘
                     ┌──────▼───────┐        outbound only on request:
                     │  API server  │ ─────▶ FX / quote provider (prices)
                     │  (stateless) │ ─────▶ remote AI (suggestions, §8; optional)
-                    │              │ ─────▶ OIDC JWKS (if Entra auth is on)
                     └──────┬───────┘
                     ┌──────▼───────┐
                     │  PostgreSQL  │  ◀── pg_dump timer (host systemd)
@@ -74,16 +74,15 @@ Where outside data comes from:
 | **Account** | Something of **yours** that holds value | Required **`owner`** (a Party) and a **`liquid`** flag (investment accounts aren't liquid, §4.1). Checking, savings, credit card, brokerage, mortgage, cash. It has **no fixed currency** and holds any commodities. `kind` only affects display: sign convention, icon, credit-card metadata such as the credit limit. Import metadata: the account numbers bank files name it by. A card whose payments and purchases arrive under two numbers simply has both; a number belongs to one account only. |
 | **Counterparty** | Anyone **outside** you | Merchants, employers, utilities, tax agencies. It has **no direction**: the same store is where you spend and who refunds you. Cheap to create (imports create them), mergeable, with *aliases* (raw bank strings → canonical name). Two system counterparties: `Opening balances` and `Reconciliation`. |
 | **Transaction** | One real-world event | Date, description, notes, tags, provenance (import batch, raw row, external IDs). Contains one or more splits. |
-| **Split** | One movement inside a transaction | A **from-leg** and a **to-leg**, each `(account or counterparty, commodity, quantity)`; an outside leg may leave the counterparty unknown (none, never a placeholder name), plus **`purpose`** (a Party: *who is this money for?*), `category`, `bill`, and an optional own description. Purpose and category apply only to income and expenses, never to transfers or conversions. |
+| **Split** | One movement inside a transaction | A **from-leg** and a **to-leg**, each `(account or counterparty, commodity, quantity)`; an outside leg may leave the counterparty unknown (none, never a placeholder name), plus **`purpose`** (a Party: *who is this money for?*), `category`, an optional own description, and, for a settlement payment, the month it settles when that isn't the default (§4.3). Purpose and category apply only to income and expenses, never to transfers or conversions. |
 | **Category / Tag** | Classification | A category is the *class* of an income or expense (Groceries, Salary), never where the money went. Tags are free-form (trips, projects). There are **no budgets**: owner and purpose do the job budgets were often used for. |
-| **Settlement** | One month's closing | `(month, status: open/closed, closed_at)`, the month's **stipend per person** and **funder per business** (set by the client before closing), plus links to the transfers that paid it. Amounts are always computed live; nothing is frozen (§4.4). |
+| **Settlement** | One month's closing | `(month, status: open/closed, closed_at)`, the month's **stipend per person** and **funder per business** (set by the client before closing). Amounts are always computed live; nothing is frozen (§4.4). |
 | **Price** | `1 BASE = rate QUOTE` on a date | Sources: `provider:<name>` or `manual`. Records `fetched_at`, and whether it's *provisional* (a day still in progress). Covers FX and security quotes alike. |
-| **Bill** | A recurring *expectation* | Schedule, amount *phases*, matching hints, and an explicit **lifecycle** (start, optional end). **Finite by default**: status is derived, and "probably ended" is a real state. Entered by hand or learned (§9.1). |
-| **Recurrence** | A template that generates transactions | Only *materialized* when a client calls an endpoint, never by a timer. |
 | **RuleScript** | The import conditions | One Rhai script stored as **append-only versions** `(version, source, author, created_at, note)`. The newest valid version is active (§8). |
 | **BalanceCheck** | "Account X held N of commodity C at date D" | Entered by the user from the bank's app (optionally dated), or taken from OFX `LEDGERBAL`. Mismatches go to the discrepancy finder (§7.1). |
 | **ImportBatch / StagedRow** | The import workflow state | §6. |
-| **AuditLog** | Append-only change history | Records who changed what. |
+| **AuditLog** | Append-only change history | Records which token changed what. |
+| **Token** | A client's credential | Named, stored hashed, revocable (§10). |
 
 ### 3.2 There are no transaction types
 
@@ -160,8 +159,9 @@ from conversion splits after the fact, without a schema change.
 ### 3.4 Valuation is computed when requested
 
 - Balances are stored and returned **in native commodities** first.
-- Any endpoint returning amounts accepts `?value_in=USD&price_date=…`. The server converts
-  using the most recent price on or before the date. A figure comes from **one price** (or
+- Valued figures: the balances report takes `?value_in=USD&price_date=…`, and the
+  settlement values every split in USD at its own date (§4.2). The server converts using
+  the most recent price on or before the date. A figure comes from **one price** (or
   its inverse) whenever one exists: sources disagree, and chaining two can compound the
   disagreement. Choosing among prices:
   1. **Fresh before stale:** a price at most a few days (configurable, default 5) older
@@ -226,7 +226,7 @@ computation, AI prompts and clients. A float touching one of these values is a b
 | Postgres | `NUMERIC`. Quantities are checked against the commodity's precision. Prices and rates use `NUMERIC` with a fixed high scale (e.g. 20). | A schema test fails if any column is `real` or `double precision`. |
 | Server (Rust) | Newtypes: **`Amount`** (wraps `rust_decimal::Decimal`, 28 significant digits) for amounts and quantities; **`Rate`** (wraps `bigdecimal::BigDecimal`, arbitrary precision) for prices and conversion math. Neither has any operation accepting `f32`/`f64`, so mixing is a **compile error**. `Amount` arithmetic is checked: overflow or inexact rescaling is an error, never a silent rounding. | `clippy::float_arithmetic`, `clippy::float_cmp` and `disallowed_types = [f32, f64]` are denied workspace-wide, as a guard for money. Code that needs a float for something else opts out locally (`#[expect(…, reason = …)]`); the `heuristics` crate opts out as a whole. |
 | API (JSON) | Amounts are **strings** (`"1500.00"`); the OpenAPI schema declares `type: string` with a decimal pattern. | `Amount`'s deserializer accepts only JSON strings; a JSON number is rejected with 422. |
-| CLI (Python) | `decimal.Decimal` end to end; the generated SDK maps amount strings to `Decimal`. | Ruff + a CI check ban `float(` and `: float` in client code. |
+| CLI (Python) | `decimal.Decimal` end to end; the generated SDK maps amount strings to `Decimal`. | `just python-check` fails on `float(`, `: float` or `-> float` in client code. |
 | Web app | Amounts stay strings; the rare client-side math uses a decimal library. The server returns computed totals. | Lint rule against `Number()`/`parseFloat` on amount fields. Charts map values to pixels internally; labels always come from the strings. |
 | AI | Amounts go into prompts as strings. **No arithmetic is ever taken from an LLM**: totals, differences and subset sums are computed in `Decimal`; the model only ranks and explains. | Structured outputs reference transaction IDs, never amounts the code would trust. |
 
@@ -366,23 +366,24 @@ outstanding_c = Σ over all months (due − paid) = carried + due − paid
 does it closes the month.
 
 1. Import the month's files for every account (§6).
-2. **Purpose review queue:** income/expense splits on person- and business-owned liquid
-   accounts, money into or out of investments, and anything with low confidence. Rows come pre-filled by the
-   classifier (§8) with confidence and reason. Keys: `h` household, `p` account owner, `b`
-   business, `enter` accept, plus *accept all above a threshold*. Rows are grouped by
-   counterparty, so "all 40 grocery charges" is one decision.
+2. **Review the labels** in staging: every income and expense names its purpose and
+   category, pre-filled by suggestions (§8) with confidence and reason; only unsure ones
+   need a look.
 3. **Set the month's parameters:** each person's **stipend** and each business's **funder**,
    pre-filled from the previous month. Closing requires them (a stipend of 0 is fine).
-4. **Close:** the server shows the statement and the transfers to make, then marks M closed.
-5. When those transfers arrive in a later import, they are matched and linked to M (§6).
+4. **Close:** the statement (`GET /settlements/{M}/statement`, the web app's Settlement
+   page) shows each edge's due, paid, carried and outstanding, and its lines; closing
+   marks M closed.
+5. **Pay:** a settlement payment settles the month before the one it's made in, so the
+   transfers made in M + 1 count as `paid` for M. A payment meant for another month names
+   it on its split (`settles`).
 
 ### 4.4 Closed months and reopening
 
 *Closed* only protects against **accidental** edits. It's a guard rail, not a lock.
 
 - Edits to transactions dated in a closed month are rejected with a clear error ("2026-06 is
-  closed; reopen it to edit"). Import rows dated in a closed month are flagged in staging,
-  with the option to reopen.
+  closed; reopen it to edit"), and so is a commit with a row dated in one, naming the row.
 - **Reopen** is one action, always available. Fix the mistake (a label, the stipend, the
   funder), then close again.
 - Nothing is frozen at closing: `due(M)` is always computed live. After reopen/fix/re-close,
@@ -408,10 +409,12 @@ adjustment, or a past mistake: one that the old system made and that is now carr
 - Contract-first: the OpenAPI 3.1 spec is generated from the server code, versioned under
   `/api/v1`, and committed so clients can generate typed SDKs.
 - **Resources:** parties, settlements (`GET /settlements/{month}/statement`,
-  `POST …/close`, `POST …/reopen`), commodities, accounts, counterparties, transactions
-  (splits nested), categories, tags, bills, recurrences, prices, balance checks, import
-  batches, rules, tokens.
-- **Queries:** a separate `/query` and `/reports` family (§7).
+  `POST …/close`, `POST …/reopen`), commodities, accounts (and their numbers),
+  counterparties, transactions (splits nested, and the bank rows they came from),
+  categories, tags, prices, balance checks, imports (staging, §6), import batches, import
+  fingerprints, rules, suggester backtests, tokens. `GET /healthz` and `GET /version`
+  need no token.
+- **Queries:** `POST /query` and the `/reports` family (§7).
 - **Conventions:** cursor pagination; `If-Match`/ETag on edits; idempotency keys on POSTs so
   clients can retry safely; Problem Details (RFC 9457) errors that name the violated
   invariant.
@@ -426,7 +429,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
 ```
 
 1. **Format detection and parsers.** Each format is a plugin behind one Rust trait: CSV with
-   a column-alias table and per-bank profiles, OFX/QFX/QBO via `ofx-rs` (OFX 1.x SGML and 2.x
+   a column-alias table, OFX/QFX/QBO via `ofx-rs` (OFX 1.x SGML and 2.x
    XML), and content sniffing for OFX content under unexpected extensions. `ofx-rs` 0.2.0 is
    wrapped by a hot-patch (`import::ofx`) for three bugs: bank-specific
    tags inside a transaction (kept as *extensions*, e.g. a merchant category code, useful
@@ -478,8 +481,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      account yet. Matched after exact duplicates and before near ones.
    - A transfer whose first side is committed before the other is staged is recorded as a
      transfer then; one-sided transactions in the ledger are never turned into transfers
-     afterwards. Transfers between a person and the Household are also matched against
-     open settlements (§4.3).
+     afterwards.
 5. **Suggestions** (§8): the statement's account when unknown, then each row's
    counterparty, purpose and category, each with a confidence, a reason and the exact
    suggester.
@@ -549,31 +551,38 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
 
 ## 7. Component: query and reporting engine
 
-- **One general aggregation endpoint:** filter (dates, accounts, owner, purpose, categories,
-  tags, bills, text) × group by (owner, purpose, account, category, tag, commodity, payee)
-  × bucket (day … year) × optional `value_in`.
-- **Named reports on top:** the monthly settlement statement and household pool (§4.3),
-  personal spending vs. stipend, net worth over time, income vs. expense, spending by
-  category/tag, balance history, holdings (quantity plus optional market value), bill status.
-- **Implementation:** plain SQL over postings with window functions for running balances.
-  Household-scale data aggregates in milliseconds; materialized summaries only if profiling
-  demands them.
+- **One general aggregation endpoint,** `POST /query`, over postings (one split's movement
+  on one of your accounts, signed): a **flow** (the sum over a range) or a **balance** (at
+  its end), filtered by dates, accounts, owners, purposes, categories, counterparties,
+  kinds, tags and text, grouped by account, owner, purpose, category, counterparty, kind or
+  tag, and bucketed by day, week, month, quarter or year. Rows are always per commodity:
+  the query doesn't value.
+- **Named reports:** the monthly settlement statement (§4.3), the household pool of a month
+  (`/reports/household-pool/{month}`), and balances per account and commodity on a date,
+  optionally valued (`/reports/balances?value_in=`, §3.4). The web app builds its
+  spending, balances and pool reports on these.
+- **Implementation:** splits are classified by `domain`, as everywhere else, so a report
+  can't disagree with the ledger rules. Household-scale data aggregates in milliseconds;
+  nothing is cached.
 
 ### 7.1 Balance checks and the discrepancy finder
 
-The user enters what the bank's app shows: one number, optionally with a date
-(`exchequer balance check "Alex Checking" 1234.56 --date 2026-10-11`). The server compares it
-with the ledger balance on that date.
+The user enters what the bank's app shows: one number, optionally with a date (the web
+app's Checks page, `POST /balance-checks`), as the bank shows it (the amount owed is
+positive on a card or a mortgage). An OFX file's ledger balance is recorded the same way
+on commit (§6). The server compares it with the ledger balance on that date.
 
 - **Match:** the account is *verified through D*. Later checks only search the window after
   the last verified date.
-- **Mismatch:** the **discrepancy finder** runs on that window:
-  1. **Deterministic candidates (no AI):** a transaction equal to the difference (missing or
-     duplicated); a sign flip (difference = 2 × amount); a small subset summing to the
-     difference; a near-duplicate pair; a transposition typo (difference divisible by 9);
-     transactions just before or after D; date ranges no import covered.
-  2. **AI explanation (optional):** the window, the difference and the ranked candidates go
-     to the LLM, which returns a short ranked explanation. The AI explains but never edits.
+- **Mismatch:** the **discrepancy finder** (`domain::discrepancy`, no AI) searches that
+  window and returns candidates, most likely first, each saying why: a pair of postings of
+  the same amount a few days apart, one equal to the difference (recorded twice); one
+  posting equal to the difference (recorded twice, or not yet at the bank); one dated just
+  around D (the bank dated it on the other side); a sign flip (difference = 2 × amount);
+  two or three postings summing to the difference; two adjacent digits swapped in one
+  posting; any pair of postings of the same amount a few days apart; and, when no single
+  posting accounts for it, a difference that's a multiple of 9 in the smallest unit (the
+  mark of a transposition). Nothing is changed.
 
 ## 8. Component: classification (rules and AI)
 
@@ -584,9 +593,9 @@ takes, the API) is in [`docs/ai.md`](ai.md).
 - **Targets,** in priority order: **counterparty, purpose, category**, suggested together
   as one proposal per row (they're highly correlated), each with its own confidence. A
   statement's **account** is suggested first, when the file doesn't settle it; a
-  confident one counts as the account and the rows are worked out against it. Bills and
-  tags come later (#8); near-duplicate detection moves onto the same stack afterwards
-  (#9).
+  confident one counts as the account and the rows are worked out against it. A row's
+  **decision** (match, new, replace, skip) is suggested too, by matching (§6, `docs/ai.md`).
+  Tags aren't suggested.
 - **Transfers are suggested like anything else:** the counterparty label is the row's
   *other side*, a counterparty or one of your accounts. Once it's settled as an account,
   the row's category and purpose are settled as none (unless one account is liquid and
@@ -608,8 +617,9 @@ takes, the API) is in [`docs/ai.md`](ai.md).
   (`suggestion_outcome`), to measure each suggester and compare models.
 - **Review:** badges, one hue per level, solid when confident, outlined when not; your own
   choices plain. **Commit takes what's on screen** and is refused (`409`) while a
-  statement has no account or a new row has a label neither yours nor confident.
-  *None* is an explicit choice.
+  statement has no account or a new row has a label neither yours nor confident. An
+  unknown counterparty is an explicit choice; a purpose or category never is none on an
+  income or expense (§4.1).
 
 The levels:
 
@@ -653,13 +663,13 @@ The levels:
    similarity voting on the whole combination of labels, weighted by similarity; the
    account's owner, direction and amount break ties. Confidence is calibrated by a
    backtest (train on earlier months, predict the next), so 0.9 means about 90% right on
-   the ledger's own data. Embeddings are for later (#10). No model files, no training
+   the ledger's own data. Embeddings aren't used (#10). No model files, no training
    pipeline. Local methods are interchangeable behind one interface, picked by
    `EXCHEQUER_LOCAL_AI` and measured on the ledger's past by a backtest endpoint
    (`docs/ai.md`).
 3. **Remote AI, optional:** a decision model deployed on Azure AI Foundry, asked
-   multiple-choice questions whose options are the ledger's own IDs (plus *none* and
-   *can't tell*), and answering with a probability per option. One question set per row,
+   multiple-choice questions whose options are the ledger's own names (plus *unknown
+   counterparty*, *none of these* and *can't tell*), and answering with a probability per option. One question set per row,
    one per statement for the account. The context it's given is computed from the data
    on each request (similar past transactions, usage statistics of the account and of
    each option), never hand-written descriptions that would go stale. What may be sent is
@@ -671,56 +681,26 @@ The levels:
 
 ## 9. Component: bills and recurrences
 
-- **Bills** are expectations. Imports link matching splits to them; status is derived when
-  read: *upcoming / paid / late / probably ended / ended*. A bill is never assumed infinite.
-  - **Schedule:** an interval (`n × day/week/month/year`, e.g. every 2 months, every 4 weeks)
-    or an **explicit date list** (e.g. quarterly estimated taxes on irregular dates, as one
-    bill).
-  - **Amount phases:** a price change starts a new phase instead of widening one range.
-  - **Lifecycle:** `start_date`, optional `end_date`, and a derived *probably ended*.
-- **Recurrences** (e.g. cash payments no bank file will ever show) produce transactions only
-  when a client calls `POST /recurrences/materialize?until=…`.
-
-### 9.1 Learned bills (low priority)
-
-Deterministic statistics over the transaction history, no AI:
-
-- **Series detection:** group splits by counterparty (and account/purpose), find regular
-  gaps and stable amounts; split multiple series per counterparty by amount cluster and day
-  of month.
-- **Schedule inference:** median gap and spread pick the interval, with tolerance for
-  weekends and posting lag; fixed calendar dates become a date list.
-- **Amount inference:** fixed, a range (utilities), or a step change (new phase), in
-  `Decimal`.
-- **Lifecycle inference:** start = first occurrence. When expected payments stop (e.g. two
-  missed periods), the bill becomes *probably ended*, and the user confirms to set
-  `end_date`. Payments resuming after an end start a new phase.
-- **When:** after each import commit, for the counterparties it touched, plus
-  `POST /bills/detect`. No timer.
-- **Output is proposals** in a review queue ("Track as monthly bill?", "Mark ended?", "New
-  phase?"). Rejections are remembered.
-- Migrated bills are kept as-is; the detector's disagreements with them are reported for the
-  user to resolve. Yearly bills need more than one year of history to be detected.
+Not built: bills, expectations with a schedule, amount phases and a lifecycle that imports
+would link splits to, and recurrences that produce transactions on request (#35); bills
+learned from the transaction history (#36). The ledger has no bill field yet.
 
 ## 10. Component: authentication
 
 A pluggable middleware layer: every request resolves to a principal or is rejected.
 
-- **Tier 1 (first): static bearer tokens,** created by a CLI admin command and stored
-  **hashed** (SHA-256: the secrets are 256 random bits, so a slow password hash adds cost without adding safety). One token per client, individually revocable. A bootstrap token
-  comes from a podman secret (§14.1).
-- **Tier 2 (preferred): OIDC with Microsoft Entra ID** (personal Microsoft accounts). The CLI
-  uses the device-code flow; the web app uses auth code + PKCE. The server validates JWTs
-  against Microsoft's published keys (outbound HTTPS, cached) and allows an allowlist of
-  household members' subject IDs.
-- **Not Sign in with Apple:** it needs a paid developer account and HTTPS redirect URIs on a
-  public domain, and has no device-code flow, which is a poor fit for a VPN-only service.
-  **Passkeys** are a good later option for the web app.
+- **Static bearer tokens,** created through `POST /tokens` and stored **hashed** (SHA-256:
+  the secrets are 256 random bits, so a slow password hash adds cost without adding
+  safety). One token per client, named, shown once, and individually revocable. A
+  bootstrap token from a podman secret (§14.1) is accepted only for managing tokens, to
+  create the first one.
+- **Not built:** sign-in with Microsoft Entra ID (OIDC) for each household member (#37).
+  Sign in with Apple was ruled out: it needs a paid developer account and HTTPS redirect
+  URIs on a public domain, and has no device-code flow, a poor fit for a VPN-only service.
 - **TLS** is terminated by the operator's existing reverse proxy.
 
-**One ledger, several people.** Each household member has their own login; everyone sees and
-edits everything; the audit log records who changed what. No multi-tenancy: one household
-per server.
+**One ledger, several people.** Everyone with a token sees and edits everything; the audit
+log records which token changed what. No multi-tenancy: one household per server.
 
 ## 11. Component: Firefly III migration (one-time)
 
@@ -753,7 +733,7 @@ until the output is right, and migrates **one calendar year at a time**.
   - **Settlement history:** transfers between personal accounts and shared savings become
     settlement payments linked to their month; transfers into or out of investments and
     mortgages become expenses and income; transfers to a business are funding.
-  - **Categories, tags and bills** carry over. **Not migrated:** budgets, piggy banks, and
+  - **Categories and tags** carry over. **Not migrated:** budgets, piggy banks, bills, and
     categories that only restate a transfer. Firefly rules are not carried over: the rules
     script starts empty (§8).
   - **Float-damaged amounts** are rounded to the commodity's precision and **listed in the
@@ -761,38 +741,56 @@ until the output is right, and migrates **one calendar year at a time**.
   - **Split transactions** keep their split structure.
 - **Year scope:** for year Y, one **opening-balance** transaction per account and commodity on
   Jan 1 (from Firefly's balance that day), then every transaction in Y, keeping Firefly IDs
-  as external references. Migrating an earlier year later replaces those opening balances,
-  giving the same result as migrating both years at once.
-- **Acceptance check:** a comparison report of per-account balances at several dates,
+  as external references. `run` writes only into an empty server, so a different year
+  means migrating again from scratch.
+- **Acceptance check** (`check`, `settlement`): per-account balances at every month end,
   category totals per month, and recomputed settlements vs. transfers actually made (§4.5).
   Done when it shows zero differences, or every difference is explained.
+- **After the migration:** `settle` sets the migrated months' stipends and funders and
+  closes them; `numbers` and `fingerprints` add the account numbers and the bank rows'
+  IDs, so later imports resolve accounts and recognize rows already migrated (§6).
+- **Firefly is never modified:** the tool's client refuses every request but GET.
 
-## 12. Component: CLI / TUI client
+## 12. Component: CLI
 
-A thin client built on the generated SDK; it never imports server code.
+A thin client built on the generated SDK; it never imports server code. It reads the server
+and a token file from `~/.config/exchequer/config.toml` (or `EXCHEQUER_URL` and
+`EXCHEQUER_TOKEN_FILE`), and never prints the token.
 
-- `import <files…>`: upload, then a TUI review screen for the staged batch, then commit.
-- `month review <M>`, `month close <M>` (asks for stipends and funders, shows the statement,
-  prints the transfers to make), `month reopen <M>`, `settle status`.
-- `rules show | edit | upload | log | diff | rollback | dry-run` (§8), `bills review` (§9.1).
-- `balance check`, `prices refresh`, `recur materialize`, `report <name>`.
-- `token create | revoke`, `login` (device code, tier 2).
+- `import <files…>`: upload, review each statement and row in the terminal, then commit
+  (`--yes` takes every default; `--account` names the account a file doesn't).
+- `rules show | edit | upload | log | diff | rollback | dry-run` (§8).
+- `prices refresh` (§3.4).
+
+Everything else (settlement, reports, balance checks, setup) is in the web app.
 
 ## 13. Component: web app
 
-- A static build served by the API container at `/` (same origin as `/api/v1`, no CORS).
-- First the **monthly review and settlement screens** (§4.3), then report dashboards (§7)
-  and transaction search/editing with splits, then import review.
-- Talks only through the generated TypeScript SDK.
+- A static build (SvelteKit) served by the API container at `/`, the same origin as
+  `/api/v1`, so no CORS. It works under a path when a reverse proxy strips it.
+- Sign-in is a token, kept in that browser until signing out.
+- Pages: **Accounts** (balances on a date, valued in USD, by owner and liquid,
+  investment and loan, with a link to check each against the bank); **Transactions**
+  (search, and editing with splits); **Imports** (upload, review and commit, §6);
+  **Settlement** (each month's state across a year, a month's statement, its parameters,
+  close and reopen); **Reports** (spending, balances, household pool); **Setup**
+  (parties, accounts, commodities, prices, counterparties, categories, tags); and
+  **Checks** (balance checks and the discrepancy finder, §7.1).
+- Talks only through the TypeScript types generated from the spec.
 - Looks and behaves as `docs/ux.md` says.
 
 ## 14. Component: deployment and operations
 
-- Two quadlets, `exchequer-server.container` and `exchequer-db.container`, on a private podman
-  network. The API publishes only to localhost or a reverse proxy. Examples live in
-  `deploy/examples/`; each operator keeps their real units privately.
-- Schema migrations run once at startup. `/healthz` and `/version` endpoints. Logs go to
-  stdout/journald.
+- Rootless podman quadlets on a private podman network: `exchequer-server.container` (the
+  API and the web app), `exchequer-db.container` (PostgreSQL 17, no published port) and
+  `exchequer-backup.container` with its timer (§14.2). The API publishes only to
+  localhost, behind a reverse proxy. Examples live in `deploy/examples/`, and installing
+  them is in `deploy/README.md`; each operator keeps their real units privately.
+- Schema migrations run once at startup. `/healthz` (up and reaching the database) backs
+  the container's health check; `/version` reports the release and the schema version.
+  Logs go to stdout/journald.
+- The deployment runs released images and updates through `podman auto-update`; nothing
+  is built on the server. Releasing and updating are in [`deployment.md`](deployment.md).
 
 ### 14.1 Secrets
 
@@ -806,7 +804,6 @@ secrets**, generated on the host once and handed to containers as files under
 | `exchequer_bootstrap_token` | api (first admin token, §10) |
 | `exchequer_remote_ai_key` | api (optional: remote AI, §8) |
 | `exchequer_tiingo_api_key` | api (optional: the Tiingo price source, §3.4); each keyed price source has its own, `exchequer_<source>_api_key` |
-| `exchequer_azure_backup_sas` | backup unit, offsite step (optional, §14.2) |
 
 ```bash
 openssl rand -base64 32 | tr -d '\n' | podman secret create exchequer_db_password -
@@ -843,8 +840,8 @@ Server requirements that follow:
 
 ### 14.2 Backups
 
-**Local (required).** A host systemd timer runs a oneshot `pg_dump` container to a local
-backup drive. It's a scheduled job, but it belongs to host operations, not to the app.
+A host systemd timer runs a oneshot `pg_dump` container to a local backup drive. It's a
+scheduled job, but it belongs to host operations, not to the app.
 
 - `Persistent=true`: a run missed while the machine slept fires on wake.
 - `pg_dump -Fc`; the filename includes the timestamp and the `sqlx` migration version, so a
@@ -852,17 +849,7 @@ backup drive. It's a scheduled job, but it belongs to host operations, not to th
 - Restore is a documented admin command, never an API endpoint, and is tested in CI by
   restoring into a scratch database.
 
-**Offsite to Azure cold storage (nice-to-have).** A second step of the same unit:
-
-- **Encrypted with `age` to the owner's public key** before upload. The host holds only the
-  recipient key, so neither the host nor Azure can decrypt. The private key stays with the
-  owner (e.g. on a hardware key).
-- **Write-only SAS token** (create/write, no read/list/delete), stored as a podman secret.
-- **Immutability policy** (time-based WORM) against deletion and ransomware.
-- **Archive tier:** very cheap; rehydration takes hours and there's a 180-day minimum, which
-  is fine for a last-resort copy.
-- Uploads less often than local dumps (e.g. weekly, or only when the dump changed). The
-  restore runbook is written down and rehearsed once.
+There's no offsite copy yet (#38).
 
 ## 15. Stack
 
@@ -886,21 +873,23 @@ boundary, so each side uses the language that suits it.
 
 - **OpenAPI:** `utoipa-axum` registers each route together with its spec entry. The spec is
   committed, and CI fails on drift.
-- **Auth:** SHA-256 token hashes (`sha2`); `jsonwebtoken` for Entra JWTs.
+- **Auth:** SHA-256 token hashes (`sha2`).
 - **Database:** PostgreSQL 17 (`NUMERIC`, `pg_trgm`); `sqlx` migrations compiled into the
   binary.
-- **Container:** multi-stage build, one static binary in a minimal image.
+- **Container:** multi-stage build (`Containerfile`): the web app's static build, then one
+  static binary, in a minimal image. A second, small image carries the backup script.
 - **Tests:** `proptest` for invariants and settlement math, `sqlx` test databases, synthetic
   bank-file fixtures, API contract tests against the committed spec.
 
-**CLI / TUI (Python 3.13):** Typer and Textual, on an SDK generated from the spec
-(`openapi-python-client`), amounts as `decimal.Decimal`. Distributed through Homebrew.
+**CLI (Python 3.13):** Typer, on an SDK generated from the spec (`openapi-python-client`),
+amounts as `decimal.Decimal`. Its packages are attached to each GitHub Release.
 
 **Firefly migration (Python):** reads Firefly's API, writes only through Exchequer's API
 (§11).
 
 **Web app (TypeScript):** SvelteKit with the static adapter, a client generated from the spec
-(`openapi-typescript`), and a decimal library for the rare client-side math.
+(`openapi-typescript`, `openapi-fetch`), and exact decimal string arithmetic
+(`src/lib/money.ts`) for the rare client-side math.
 
 ## 16. Code organization
 
@@ -924,7 +913,11 @@ exchequer/
 ├── LICENSE                        # BSD-2-Clause
 ├── docs/
 │   ├── design.md                  # this document
-│   └── requirements.md
+│   ├── requirements.md
+│   ├── deployment.md              # merging, releasing, deploying
+│   ├── ai.md                      # suggestions: rules, local and remote AI
+│   ├── ux.md                      # how the web app looks and behaves
+│   └── issues.md                  # how issues are posted
 ├── api/
 │   └── openapi.json               # committed; generated from the server
 ├── server/                        # Cargo workspace
@@ -932,20 +925,21 @@ exchequer/
 │   ├── rust-toolchain.toml
 │   ├── clippy.toml                # disallowed-types = f32, f64
 │   ├── crates/
-│   │   ├── domain/  store/  import/  suggest/  heuristics/  rules/  outbound/  api/  server/
-│   │   └── ofx-check/             # dev tool, not shipped (build step 0)
-│   ├── migrations/                # sqlx SQL migrations
-│   └── fixtures/                  # synthetic bank files + settlement scenarios
+│   │   ├── domain/  store/  import/  suggest/  heuristics/  rules/
+│   │   ├── remote/  outbound/  api/  server/
+│   │   └── ofx-check/             # dev tool, not shipped
+│   └── migrations/                # sqlx SQL migrations
 ├── python/                        # uv workspace, one lockfile
 │   ├── pyproject.toml             # members = sdk, cli, firefly-migrate
 │   ├── sdk/                       # generated Python SDK (committed)
-│   ├── cli/                       # `exchequer`: Typer + Textual
+│   ├── cli/                       # `exchequer`: Typer
 │   └── firefly-migrate/           # one-time migration tool
 ├── web/                           # npm: SvelteKit + generated TS client (committed)
-├── deploy/
-│   ├── Containerfile              # web build → server build → minimal image
+├── Containerfile                  # web build → server build → minimal image
+├── justfile                       # every check, locally and in CI
+├── deploy/                        # backup image and script, restore, version, tests
 │   └── examples/                  # sample quadlets
-└── .github/workflows/             # path-filtered: server / python / web / spec-drift
+└── .github/workflows/             # checks (path-filtered: server, python, web); release
 ```
 
 ### 16.3 Conventions
@@ -955,25 +949,28 @@ exchequer/
 - **Generated SDKs are committed,** so API changes show up as readable diffs.
 - **One container serves the API and the web app** (`/` and `/api/v1`): one origin, one
   image, one quadlet.
+- **Every change reaches `main` through a pull request,** and **every merged pull request
+  is a release** (details in [`deployment.md`](deployment.md)).
 - **One version for everything** (server, web, SDK, CLI), and it lives only in git tags:
   builds take it from `git describe` (`deploy/version`; `hatch-vcs` for Python), so
-  nothing in the repo is edited to release. They're built from one spec and move together. A tag `vX.Y.Z` on
-  `main` publishes both images to GHCR, public since they hold no household data, and a
+  nothing in the repo is edited to release. They're built from one spec and move together.
+  A release publishes both images to GHCR, public since they hold no household data, and a
   GitHub Release with the Python packages. The deployment runs the newest release and
   updates through `podman auto-update`; nothing is built on the server.
-- **Real bank files never enter the repo, not even anonymized.** Fixtures are **synthetic**:
-  generated files for the fictional household that reproduce each format's quirks (SGML vs
-  XML OFX, QBO headers, CSV layouts). Tests on real files read from a local path given at
+- **Real bank files never enter the repo, not even anonymized.** Test files are
+  **synthetic**: written in the tests for the fictional household, reproducing each
+  format's quirks (SGML vs XML OFX, QBO headers, CSV layouts). Tests on real files read from a local path given at
   runtime and run only on the operator's machine.
 - **Keeping the repo clean** relies on conventions (fictional examples, synthetic fixtures)
   and GitHub secret scanning with push protection.
 - **Tooling:** Rust: `cargo fmt`, `cargo clippy -D warnings`, `cargo test`, `cargo-deny`.
-  Python: ruff, ty, pytest via tox. Web: `npm run check`. A top-level `justfile` runs any of
-  them.
+  Python: ruff, ty, pytest, under uv. Web: prettier, eslint, `svelte-check`, vitest. The
+  top-level `justfile` runs them (`just check`, `just python-check`, `just web-check`),
+  and CI runs the same recipes.
 
 ### 16.4 License
 
-**BSD-2-Clause.** Consequently, **no GPL dependencies**: every planned dependency is MIT,
+**BSD-2-Clause.** Consequently, **no GPL dependencies**: every dependency is MIT,
 Apache-2.0 or BSD, and CI checks licenses (`cargo-deny` for Rust, plus a check over the Python
 and npm lockfiles). GPL-licensed OFX libraries (e.g. Python's `ofxtools`) are never
 imported; `ofx-check` compares against the output of an external program instead. ISC
@@ -982,37 +979,25 @@ crate (`server/deny.toml`): two Rhai can't do without, `smartstring` (MPL-2.0, c
 per file, used unmodified) and `tiny-keccak` (CC0-1.0); and `webpki-roots`
 (CDLA-Permissive-2.0, root certificates as data) for remote AI's TLS.
 
-## 17. Build order
+## 17. Not built
 
-The components are independent behind the API contract, but they have a natural order:
+This document describes what exists. The original build order is complete except for
+these, each an issue:
 
-0. **Groundwork:**
-   1. Generic docs (this file and `requirements.md`).
-   2. Create the GitHub repo, with secret scanning and push protection on.
-   3. **OFX check:** parse real OFX/QFX/QBO downloads with `ofx-rs` (`ofx-check`, files read
-      from a local path) and compare with the output of the tool in use today. This decides
-      whether `ofx-rs` is used as-is, patched, or replaced for some banks.
-1. **Ledger core + invariants** (§3) in `domain`: pure logic and property tests.
-2. **REST API + token auth** (§5, §10 tier 1). Local backups ship here.
-3. **Firefly migration** (§11), early on purpose: real data makes everything after it
-   testable.
-4. **Household settlement** (§4) + **query/report engine** (§7), validated against migrated
-   history (§4.5). Balance checks and the deterministic discrepancy finder (§7.1) too.
-5. **Import pipeline** (§6) + **CLI import/review** (§12).
-6. **Classification** (§8): suggestion storage and review, then local AI, rules, and
-   remote AI (including the discrepancy finder's AI explanation).
-7. **Price fetching + valuation** (§3.4).
-8. **Web app** (§13).
-9. **Bills/recurrences** (§9), **Entra OIDC** (§10 tier 2).
-10. *Low priority:* learned bills (§9.1).
-11. *Nice-to-have:* encrypted offsite backups (§14.2).
+- The discrepancy finder's AI explanation (§7.1): #34.
+- Bills and recurrences (§9): #35; learned bills: #36.
+- Sign-in with Microsoft Entra ID (§10): #37.
+- Encrypted offsite backups (§14.2): #38.
+
+New work is proposed and tracked as GitHub issues ([`issues.md`](issues.md)); this
+document changes with the pull request that builds it.
 
 ## 18. Decisions
 
 | # | Topic | Decision | Where |
 |---|---|---|---|
 | 1 | Securities | One account per institution holds many commodities; per-security accounts are collapsed on migration | §3.3, §11 |
-| 2 | Outbound calls | Allowed only while handling a request (prices, LLM, auth keys); never on a timer | §2, §3.4 |
+| 2 | Outbound calls | Allowed only while handling a request (prices, remote AI); never on a timer | §2, §3.4 |
 | 3 | Pending transactions | Not modeled; imports contain finalized transactions only | §6 |
 | 4 | Attachments / raw files | Neither is stored; banks can always re-export | §6 |
 | 5 | Migration scope | One calendar year at a time; older years optional | §11 |
@@ -1036,6 +1021,7 @@ The components are independent behind the API contract, but they have a natural 
 | 23 | PII at runtime | `AccountNumber` masking, no bodies in logs; remote AI gets features, not identifiers | §3.6 |
 | 24 | Name | Exchequer: originally the treasury of the royal household | — |
 | 25 | Price sources | Tiingo first, ECB reference rates as the FX backup; pluggable and configured, so either can be replaced. One price before a chain | §3.4 |
+| 26 | Releases | Every merged pull request is a release; `main` takes no direct pushes | §16.3, `deployment.md` |
 
 ### Open
 

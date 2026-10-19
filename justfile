@@ -56,9 +56,10 @@ check:
     cd server && cargo sqlx prepare --workspace --check -- --all-targets
     cd server && cargo clippy --all-targets -- -D warnings
     cd server && cargo deny check
-    shellcheck deploy/exchequer-backup deploy/build-images deploy/restore deploy/tests/backup.sh deploy/tests/image-smoke.sh deploy/version
+    shellcheck deploy/exchequer-backup deploy/build-images deploy/restore deploy/tests/backup.sh deploy/tests/image-smoke.sh deploy/version deploy/release-version deploy/tests/release-version.sh
     cd server && cargo test
     just backup-test
+    deploy/tests/release-version.sh
 
 # Dump a scratch database with deploy/exchequer-backup and restore it into
 # another (the dev database must be up).
