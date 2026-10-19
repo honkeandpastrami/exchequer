@@ -59,5 +59,6 @@ paid, design §4.5), and what earlier months carried in. In a closed month, a di
 marked ⚠ is new: a mislabeled transaction, a payment linked to the wrong month, or a past
 mistake now carried forward (design §4.4). One marked ↺ pays down what was carried.
 
-Not yet migrated (each comes with the build step that adds it): import batches (step 5),
-rules (step 6), bills (step 9).
+Not migrated: rules (the rules script starts empty, design §8) and bills (Exchequer has
+none yet). Migrated transactions get one import batch per Firefly import tag, and one
+for the rest.

@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# release-version: the version a release of HEAD on main gets (docs/deployment.md).
+#
+#   deploy/release-version
+#
+# HEAD already tagged vX.Y.Z (a release run again): X.Y.Z. Otherwise the last
+# release's version, bumped once by the largest bump among the pull requests
+# merged since: `major`, `patch` or, by default, minor, from each one's labels.
+# Reads the labels with `gh`, so it needs GH_TOKEN and GITHUB_REPOSITORY.
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+tag=$(git tag --points-at HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -n 1)
+if [ -n "$tag" ]; then
+    echo "${tag#v}"
+    exit 0
+fi
+
+last=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' HEAD)
+IFS=. read -r major minor patch <<< "${last#v}"
+
+# 0 patch, 1 minor, 2 major.
+bump=0
+for commit in $(git rev-list --first-parent "$last..HEAD"); do
+    labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$commit/pulls" --jq '(.[0].labels // [])[].name')
+    if grep -qx major <<< "$labels"; then
+        this=2
+    elif grep -qx patch <<< "$labels"; then
+        this=0
+    else
+        this=1
+    fi
+    [ "$this" -gt "$bump" ] && bump=$this
+done
+
+case $bump in
+    2) echo "$((major + 1)).0.0" ;;
+    1) echo "$major.$((minor + 1)).0" ;;
+    0) echo "$major.$minor.$((patch + 1))" ;;
+esac

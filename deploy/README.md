@@ -122,22 +122,16 @@ Open the web app with the trailing slash (`/exchequer/`): its paths are relative
 
 ## Updating
 
-Releases are published by GitHub (design §15). Everything in the repo shares one
-version, and it lives only in git tags: to release, tag a commit on `main`:
-
-```sh
-git tag v0.2.0 && git push origin v0.2.0
-```
-
-The `release` workflow builds both images with that version, smoke-tests them, and publishes them as `ghcr.io/honkeandpastrami/exchequer-server` and
-`…/exchequer-backup`, tagged `0.2.0`, `0.2` and `latest`, with a GitHub Release carrying
-the Python packages.
+Every pull request merged to `main` is a release, published as
+`ghcr.io/honkeandpastrami/exchequer-server` and `…/exchequer-backup`, tagged `X.Y.Z`,
+`X.Y` and `latest` ([`docs/deployment.md`](../docs/deployment.md)).
 
 The API's `AutoUpdate=registry` lets `podman-auto-update.timer` pull the new release and
 restart the API on it overnight (enable it once with
 `systemctl --user enable --now podman-auto-update.timer`); to update now, run
 `podman auto-update`. The backup quadlet has `Pull=newer`, so each run uses the newest
-release. To go back to a release, set the quadlet's `Image=` to its version tag.
+release. Going back to an older release is in
+[`docs/deployment.md`](../docs/deployment.md#deployment).
 
 `deploy/build-images` builds both images from a checkout under the same names, if a
 release can't be pulled; the next release replaces them.

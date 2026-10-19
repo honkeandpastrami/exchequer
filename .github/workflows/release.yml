@@ -1,17 +1,21 @@
-# Releases everything at one version (design §15): pushing a tag vX.Y.Z on
-# main builds both images, smoke-tests them, publishes them to GitHub's
-# container registry as X.Y.Z, X.Y and latest, and creates a GitHub Release
-# with the Python packages attached. Nothing in the repo holds the version:
-# every build takes it from the tag (deploy/version, hatch-vcs).
+# Every merge to main is a release (docs/deployment.md): it picks the next
+# version from the merged pull requests' labels (deploy/release-version), tags
+# the merge commit vX.Y.Z, builds both images, smoke-tests them, publishes them
+# to GitHub's container registry as X.Y.Z, X.Y and latest, and creates a
+# GitHub Release with the Python packages attached. Nothing in the repo holds
+# the version: every build takes it from the tag (deploy/version, hatch-vcs).
+# The tag is pushed only once everything is built and tested, so a failed run
+# leaves nothing behind, and running it again picks the same version.
 name: release
 
 on:
   push:
-    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+    branches: [main]
 
 permissions:
   contents: write
   packages: write
+  pull-requests: read
 
 concurrency:
   group: release
@@ -36,11 +40,16 @@ jobs:
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
-      - name: Check the tag
+      - name: Pick the version and tag it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main ||
-              { echo "$GITHUB_REF_NAME is not on main"; exit 1; }
+          version=$(deploy/release-version)
+          if [ -z "$(git tag --points-at HEAD --list "v$version")" ]; then
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git tag -a "v$version" -m "v$version"
+          fi
           test "$(deploy/version)" = "$version" ||
               { echo "deploy/version says $(deploy/version), not $version"; exit 1; }
           echo "VERSION=$version" >> "$GITHUB_ENV"
@@ -82,6 +91,8 @@ jobs:
           uv build --package firefly-migrate --out-dir dist
           # Their version comes from the tag too (hatch-vcs).
           ls dist/*"-$VERSION-"*.whl
+      - name: Push the tag
+        run: git push origin "v$VERSION"
       - name: Publish images
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
@@ -95,6 +106,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" python/dist/* --verify-tag --generate-notes \
+          gh release create "v$VERSION" python/dist/* --verify-tag --generate-notes \
               --title "Exchequer $VERSION" \
               --notes "Images: \`$REGISTRY/exchequer-server:$VERSION\`, \`$REGISTRY/exchequer-backup:$VERSION\`."
