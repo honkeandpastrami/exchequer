@@ -264,6 +264,7 @@ class _Builder:
         return rounded
 
     def counterparty(self, name: str) -> str:
+        name = self.m.rename_counterparties.get(name.strip(), name)
         key = normalize_name(name)
         self.counterparty_spellings[key][name.strip()] += 1
         return key  # resolved to the chosen spelling at the end

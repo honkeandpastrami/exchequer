@@ -36,9 +36,9 @@ uv run firefly-migrate fingerprints MAPPING [--apply]  # record which bank rows 
   neither, or with no Firefly category, takes it from the server's copy of the
   transaction; with no copy it stops the run, in the dry run too: there's no default.
   Before the year only the amounts matter, so missing labels there are only counted;
-- `[counterparties]`, `[categories]` and `[tags]`: dividends from Firefly's cash account,
-  transfer-only categories to drop (`drop`) and categories renamed in Exchequer (`rename`),
-  encoding tags to retire;
+- `[counterparties]`, `[categories]` and `[tags]`: dividends from Firefly's cash account
+  and counterparties renamed in Exchequer (`rename`), transfer-only categories to drop
+  (`drop`) and categories renamed in Exchequer (`rename`), encoding tags to retire;
 - `[transactions]` decisions for single Firefly transactions, by ID: a `purpose`, a
   `category`, or `reconciliation = true` (an adjustment: no purpose or category, the
   other side becomes the reconciliation counterparty). They win over Firefly's labels
