@@ -112,6 +112,8 @@ class Mapping:
     purpose_tags: dict[str, str]
     cash_account_by_destination: dict[str, str]
     drop_categories: frozenset[str]
+    # Firefly category → the name it has in Exchequer.
+    rename_categories: dict[str, str]
     retire_tags: frozenset[str]
     import_batch_prefix: str | None
     settlement: Settlement | None = None
@@ -243,6 +245,11 @@ def parse(raw: dict[str, Any]) -> Mapping:
         else:
             cash[found.key] = institution
 
+    rename = raw.get("categories", {}).get("rename", {})
+    if not isinstance(rename, dict) or not all(isinstance(v, str) and v for v in rename.values()):
+        problems.append("categories.rename must map Firefly categories to category names")
+        rename = {}
+
     settlement = _settlement(raw.get("settlement"), set(people), set(businesses), household)
     if isinstance(settlement, list):
         problems += settlement
@@ -269,6 +276,7 @@ def parse(raw: dict[str, Any]) -> Mapping:
         purpose_tags=purpose_tags,
         cash_account_by_destination=cash,
         drop_categories=frozenset(raw.get("categories", {}).get("drop", [])),
+        rename_categories=rename,
         retire_tags=frozenset(raw.get("tags", {}).get("retire", [])),
         import_batch_prefix=raw.get("tags", {}).get("import_batch_prefix"),
         settlement=settlement,

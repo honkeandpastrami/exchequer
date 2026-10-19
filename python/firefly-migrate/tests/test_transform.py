@@ -1,5 +1,6 @@
 """Firefly → Exchequer plan, on the fictional household's Firefly data."""
 
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
@@ -33,16 +34,31 @@ def test_expense_purpose_from_budget_or_tag(m):
     assert not p.report.errors
 
 
-def test_no_purpose_is_an_error(m):
+def test_no_purpose_is_missing_and_an_unmapped_budget_an_error(m):
     p = plan(
         m,
         group(10, "2026-03-01", journal(2, "Expense:Books", "9.00", budget=None)),
         group(11, "2026-03-02", journal(2, "Expense:Books", "9.00", budget="Holiday")),
     )
-    assert not [t for t in p.transactions if t.firefly_id]
-    [none, unmapped] = p.report.errors
-    assert "no budget or purpose tag says who it's for" in none
+    t = only(p)
+    assert t.splits[0].purpose is None
+    [(index, label, why)] = t.missing
+    assert (index, label) == (0, "purpose")
+    assert "no budget or purpose tag says who it's for" in why
+    [unmapped] = p.report.errors
     assert "budget 'Holiday' is not in the mapping" in unmapped
+
+
+def test_labels_before_the_year_dont_matter(m):
+    p = plan(
+        m,
+        group(10, "2025-03-01", journal(2, "Expense:Books", "9.00", budget=None, category=None)),
+    )
+    assert not p.report.errors
+    assert all(not t.missing for t in p.transactions)
+    [opening] = p.transactions
+    assert opening.splits[0].from_.quantity == Decimal("9.00")  # still summed
+    assert p.report.counts["purposes missing before 2026 (not needed)"] == 1
 
 
 def test_conflicting_labels_use_the_budget_and_are_reported(m):
@@ -113,7 +129,7 @@ def test_payment_into_a_mortgage_is_spending(m):
     ]
 
 
-def test_no_category_is_an_error(m):
+def test_no_category_is_missing(m):
     p = plan(
         m,
         group(10, "2026-03-01", journal(2, "Expense:Books", "9.00", category=None)),
@@ -121,11 +137,20 @@ def test_no_category_is_an_error(m):
         # Out of a mortgage: the mapping has no category_out for it.
         group(12, "2026-03-03", journal(6, 5, "5.00", type="transfer", budget="Shared")),
     )
-    assert not [t for t in p.transactions if t.firefly_id]
-    [none, dropped, unmapped] = p.report.errors
-    assert "no category says what it was" in none
-    assert "no category says what it was" in dropped
-    assert "account Household · Mortgage has no category_out in the mapping" in unmapped
+    assert not p.report.errors
+    [none, dropped, unmapped] = [t.missing for t in p.transactions if t.firefly_id]
+    assert [(i, label) for i, label, _ in none + dropped + unmapped] == [(0, "category")] * 3
+    assert "no category says what it was" in none[0][2]
+    assert "no category says what it was" in dropped[0][2]
+    assert "account Household · Mortgage has no category_out in the mapping" in unmapped[0][2]
+
+
+def test_categories_are_renamed(m):
+    m = replace(m, rename_categories={"Groceries": "Food"})
+    assert (
+        only(plan(m, group(10, "2026-03-01", journal(2, "Expense:Grocer", "8")))).splits[0].category
+        == "Food"
+    )
 
 
 def test_dividends_from_the_cash_account_come_from_the_institution(m):

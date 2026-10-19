@@ -32,11 +32,13 @@ uv run firefly-migrate fingerprints MAPPING [--apply]  # record which bank rows 
   `category_out` (e.g. `"Invest"` and `"Divest"`, or `"Mortgage principal"`): Firefly
   recorded those as transfers, with no category to carry over. Money into or out of an
   account without the one it needs is an error;
-- `[purpose]` which Firefly budgets and tags mean which party (an income or expense with
-  neither is an error, in the dry run too: there's no default). An income or expense with
-  no Firefly category is an error too;
+- `[purpose]` which Firefly budgets and tags mean which party. An income or expense with
+  neither, or with no Firefly category, takes it from the server's copy of the
+  transaction; with no copy it stops the run, in the dry run too: there's no default.
+  Before the year only the amounts matter, so missing labels there are only counted;
 - `[counterparties]`, `[categories]` and `[tags]`: dividends from Firefly's cash account,
-  transfer-only categories to drop, encoding tags to retire;
+  transfer-only categories to drop (`drop`) and categories renamed in Exchequer (`rename`),
+  encoding tags to retire;
 - `[settlement]` (for `settle`, always in USD): `stipends.<person>` and
   `funders.<business>`, each a table of months to values, carried forward until the next
   month given (amounts as strings, e.g. `"2026-01" = "500.00"`); `settles`, Firefly

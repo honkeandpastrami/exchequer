@@ -725,8 +725,10 @@ before writing anything that could duplicate or corrupt data.
   - **Owner and purpose.** Each account gets an owner. Each split's purpose is derived from
     whatever the household used to encode it (typically a tag such as "Shared" and/or
     per-person budgets), with the mapping declaring which tag or budget means which party.
-    A split neither names is an error, in the dry run too: there's no default (§4.1).
-    So is an income or expense with no Firefly category. Money into or out of a non-liquid
+    There's no default (§4.1): a split neither names, or an income or expense with no
+    Firefly category, takes the label from the server's copy of the transaction (with
+    `--overlap`), and stops the run without one, in the dry run too. Before the year,
+    where only the sums matter, missing labels are only counted. Money into or out of a non-liquid
     account was a Firefly transfer, with no category: the mapping names one per account
     and direction (e.g. *Invest* and *Divest*, *Mortgage principal*).
     Conflicting labels are listed in the report. Budgets and the encoding tags are then

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
@@ -91,6 +91,8 @@ class Fit:
     writes: list[Transaction] = field(default_factory=list)
     # Planned transactions already on the server, unchanged.
     already: int = 0
+    # Planned transactions given the labels Firefly lacks from the server's copy.
+    labeled: int = 0
     # The server's opening balances that the year's end replaces.
     replace: list[Held] = field(default_factory=list)
     # A closed month the replaced opening balances are in: reopened for it.
@@ -219,7 +221,25 @@ def fit(m: Mapping, plan: Plan, ledger: Ledger, *, overlap: bool) -> Fit:
             out.stops.append(f"  {acct}: {len(days)} from {min(days)} to {max(days)}")
         return out
 
-    planned = list(plan.transactions)
+    by_ref: dict[str, list[Held]] = defaultdict(list)
+    for h in ledger.transactions:
+        if h.t.firefly_id:
+            by_ref[h.t.firefly_id].append(h)
+
+    planned = []
+    # Missing labels the server can't give: a stop each, but their amounts
+    # still count, and their copies on the server are theirs.
+    unlabeled: list[Transaction] = []
+    matched: set[UUID] = set()
+    for t in plan.transactions:
+        copies = by_ref.get(t.firefly_id or "", [])
+        if not t.missing:
+            planned.append(t)
+        elif (filled := _labels_from(t, copies, out)) is not None:
+            planned.append(filled)
+        else:
+            matched.update(h.id for h in copies)
+            unlabeled += [] if copies else [t]
     if before:
         # Earlier years are there: their end is the year's opening balances.
         want = balances(t for t in planned if is_opening(t))
@@ -232,11 +252,6 @@ def fit(m: Mapping, plan: Plan, ledger: Ledger, *, overlap: bool) -> Fit:
 
     # Planned transactions already there, by Firefly ID (opening balances,
     # which have none, by account and commodity).
-    by_ref: dict[str, list[Held]] = defaultdict(list)
-    for h in ledger.transactions:
-        if h.t.firefly_id:
-            by_ref[h.t.firefly_id].append(h)
-    matched: set[UUID] = set()
     for t in planned:
         if t.firefly_id:
             found = by_ref.get(t.firefly_id, [])
@@ -299,7 +314,7 @@ def fit(m: Mapping, plan: Plan, ledger: Ledger, *, overlap: bool) -> Fit:
         out.replace = [h for h in later if h.opening and h.t.date == day_after]
         have = balances(h.t for h in out.replace)
         kept = [h.t for h in [*before, *within] if h.id in matched or h.t.date < start]
-        end = balances([*kept, *out.writes])
+        end = balances([*kept, *out.writes, *unlabeled])
         added = balances(out.writes)
         for acct, comm in sorted(set(end) | set(have) | set(added)):
             key = (acct, comm)
@@ -316,6 +331,25 @@ def fit(m: Mapping, plan: Plan, ledger: Ledger, *, overlap: bool) -> Fit:
         if out.replace and month(day_after) in ledger.closed:
             out.reopen = month(day_after)
     return out
+
+
+def _labels_from(t: Transaction, copies: list[Held], out: Fit) -> Transaction | None:
+    """`t` with the labels Firefly lacks taken from the server's copy of it,
+    or None, with the reasons in `out.stops`, if there's no copy to take
+    them from. Everything else is compared afterwards, as for any other."""
+    held = copies[0].t if len(copies) == 1 else None
+    if held is None or len(held.splits) != len(t.splits):
+        out.stops += [why for _, _, why in t.missing]
+        return None
+    splits = list(t.splits)
+    for i, label, why in t.missing:
+        value = getattr(held.splits[i], label)
+        if value is None:
+            out.stops.append(f"{why}, and the server's copy has none either")
+            return None
+        splits[i] = replace(splits[i], **{label: value})
+    out.labeled += 1
+    return replace(t, splits=splits, missing=[])
 
 
 def _reference(m: Mapping, plan: Plan, ledger: Ledger, out: Fit) -> None:

@@ -155,6 +155,7 @@ def firefly_category_totals(
         for t in g["attributes"]["transactions"]:
             day = date.fromisoformat(t["date"][:10])
             category = t.get("category_name")
+            category = m.rename_categories.get(category, category)
             if not (m.start <= day <= m.through) or not category:
                 continue
             if category in m.drop_categories or t["type"] not in ("withdrawal", "deposit"):

@@ -37,6 +37,9 @@ def render(p: Plan) -> str:
     if not p.skipped_accounts:
         out.append("None.")
 
+    missing = [t for t in p.transactions if t.missing]
+    out += ["", f"## Labels Firefly lacks ({len(missing)}): from the server's copy, if any", ""]
+    out += [f"- {why}" for t in missing for _, _, why in t.missing] or ["None."]
     out += ["", f"## Errors ({len(r.errors)})", ""]
     out += [f"- {e}" for e in r.errors] or ["None."]
     out += ["", f"## Rounded float damage ({len(r.rounded)}): confirm each", ""]
@@ -59,6 +62,7 @@ def render_fit(f: Fit) -> str:
     out = ["", "## On the server", ""]
     out.append(f"- to write: {len(f.writes) - openings} transactions, {openings} opening balances")
     out.append(f"- already there, unchanged: {f.already}")
+    out.append(f"- labels Firefly lacks, taken from the server's copy: {f.labeled} transactions")
     for kind in ("parties", "commodities", "accounts", "categories"):
         if f.create.get(kind):
             out.append(f"- {kind} to create: {', '.join(f.create[kind])}")

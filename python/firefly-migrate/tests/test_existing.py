@@ -221,3 +221,22 @@ def test_opening_balances_are_found_by_account_and_commodity():
     assert not f.stops, f.stops
     assert f.already == 1
     assert not [t for t in f.writes if is_opening(t)]
+
+
+def test_labels_firefly_lacks_come_from_the_servers_copy():
+    groups = [*GROUPS, group(14, "2025-05-01", journal(2, "Expense:Grocer", "7.00", budget=None))]
+    p = plan(M2025, groups)
+    [unlabeled] = [t for t in p.transactions if t.missing]
+    f = fit(M2025, p, Ledger(), overlap=False)
+    assert f.stops == [unlabeled.missing[0][2]]  # no copy: as good as an error
+
+    later = next_year()
+    later[1] = held(opening("Alex · Credit", "413.00", date(2026, 1, 1)))  # 7.00 less
+    copy_ = held(unlabeled, splits=[replace(unlabeled.splits[0], purpose="Alex")], missing=[])
+    f = fit(M2025, p, ledger(M2025, copy_, *later), overlap=True)
+    assert not f.stops, f.stops
+    assert (f.labeled, f.already) == (1, 1)
+
+    copy_ = held(unlabeled, missing=[])  # the server's copy has no purpose either
+    f = fit(M2025, p, ledger(M2025, copy_, *later), overlap=True)
+    assert f.stops == [f"{unlabeled.missing[0][2]}, and the server's copy has none either"]
