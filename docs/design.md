@@ -706,7 +706,8 @@ log records which token changed what. No multi-tenancy: one household per server
 
 A tool for households moving from Firefly III. It migrates **one calendar year at a time**,
 into an empty server or before or after the years the server already holds, and stops
-before writing anything that could duplicate or corrupt data.
+before writing anything that could duplicate or corrupt data. How to use it, and the mapping file:
+[`firefly-migration.md`](firefly-migration.md).
 
 - **Source and target:** a Python tool that reads Firefly's REST API and writes **only
   through Exchequer's REST API**. No migration code lives in the server.
