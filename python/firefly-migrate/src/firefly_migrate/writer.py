@@ -1,7 +1,5 @@
-"""Writes a plan into Exchequer, only through its REST API (design §11).
-
-The target must be empty: the migration is re-run from scratch until its
-report is right, never merged into existing data.
+"""Writes a year's plan into Exchequer, only through its REST API (design §11),
+into an empty server or around the years it holds (`existing.fit`).
 """
 
 from __future__ import annotations
@@ -13,16 +11,18 @@ from uuid import UUID
 from exchequer_sdk import AuthenticatedClient
 from exchequer_sdk.api.accounts import accounts_add_number as add_number
 from exchequer_sdk.api.accounts import accounts_create as create_account
-from exchequer_sdk.api.accounts import accounts_list as list_accounts
 from exchequer_sdk.api.categories import categories_create as create_category
 from exchequer_sdk.api.commodities import commodities_create as create_commodity
 from exchequer_sdk.api.counterparties import counterparties_create as create_counterparty
-from exchequer_sdk.api.counterparties import counterparties_list as list_counterparties
 from exchequer_sdk.api.import_batches import import_batches_create as create_import_batch
 from exchequer_sdk.api.parties import parties_create as create_party
-from exchequer_sdk.api.parties import parties_list as list_parties
+from exchequer_sdk.api.settlements import settlements_close as close_month
+from exchequer_sdk.api.settlements import settlements_get as get_settlement
+from exchequer_sdk.api.settlements import settlements_reopen as reopen_month
+from exchequer_sdk.api.settlements import settlements_statement as get_statement
 from exchequer_sdk.api.transactions import transactions_create as create_transaction
-from exchequer_sdk.api.transactions import transactions_list as list_transactions
+from exchequer_sdk.api.transactions import transactions_delete as delete_transaction
+from exchequer_sdk.api.transactions import transactions_get as get_transaction
 from exchequer_sdk.models import (
     AccountKind,
     BatchKind,
@@ -45,8 +45,9 @@ from exchequer_sdk.models import (
 )
 from exchequer_sdk.types import UNSET, Response
 from firefly_migrate import fingerprints
+from firefly_migrate.existing import Fit, Ledger, describe, month
 from firefly_migrate.mapping import Mapping
-from firefly_migrate.transform import FIREFLY, Plan
+from firefly_migrate.transform import FIREFLY, Plan, normalize_name
 from firefly_migrate.transform import Leg as PlanLeg
 from firefly_migrate.transform import Transaction as PlanTransaction
 
@@ -76,39 +77,46 @@ def _created(response: Response[Any], what: str) -> UUID:
     return UUID(str(parsed.id))
 
 
-def _is_empty(client: AuthenticatedClient) -> bool:
-    for page in (
-        list_transactions.sync(client=client, limit=1),
-        list_accounts.sync(client=client, limit=1),
-        list_parties.sync(client=client, limit=1),
-    ):
-        if page is None or isinstance(page, Problem):
-            raise WriteError("couldn't read the target server (is the token right?)")
-        if page.items:
-            return False
-    return True
+def _ok(response: Response[Any], what: str) -> Any:
+    parsed = response.parsed
+    if response.status_code >= 300 or isinstance(parsed, Problem):
+        detail = parsed.detail if isinstance(parsed, Problem) else response.content[:500]
+        raise WriteError(f"{what}: HTTP {response.status_code}: {detail}")
+    return parsed
 
 
 class Writer:
-    def __init__(self, client: AuthenticatedClient, m: Mapping) -> None:
+    """Writes a year into the server `ledger` was read from, as `fit` worked
+    out: only once nothing stops it."""
+
+    def __init__(self, client: AuthenticatedClient, m: Mapping, ledger: Ledger) -> None:
         self.client = client
         self.m = m
-        self.parties: dict[str, UUID] = {}
-        self.commodities: dict[str, UUID] = {}
-        self.accounts: dict[str, UUID] = {}
-        self.counterparties: dict[str, UUID] = {}
-        self.system: dict[str, UUID] = {}
-        self.categories: dict[str, UUID] = {}
+        self.ledger = ledger
+        self.parties = {name: pid for name, (pid, _) in ledger.parties.items()}
+        self.commodities = {code: cid for code, (cid, *_) in ledger.commodities.items()}
+        self.accounts = {key: aid for key, (aid, _) in ledger.accounts.items()}
+        # By normalized name (`transform.normalize_name`).
+        self.counterparties = dict(ledger.counterparties)
+        self.system = dict(ledger.system)
+        self.categories = dict(ledger.categories)
         # Import batch per label: Firefly's import tags, and one for the rest.
         self.batches: dict[str, UUID] = {}
 
-    def write(self, plan: Plan, progress: Callable[[int, int], None] | None = None) -> None:
-        if not _is_empty(self.client):
-            raise WriteError("the target server already has data; migrate into an empty one")
+    def write(
+        self, plan: Plan, fit: Fit, progress: Callable[[int, int], None] | None = None
+    ) -> None:
+        if fit.stops:
+            raise WriteError("the plan doesn't fit the server; see the report")
+        # Closed months after the year: what the year changes in them is checked.
+        after = month(plan.through)
+        closed = sorted(x for x in self.ledger.closed if x > after)
+        before = {x: self._statement(x) for x in closed}
+
         self._reference_data(plan)
-        total = len(plan.transactions)
+        total = len(fit.writes)
         rows: list[ImportFingerprint] = []
-        for i, t in enumerate(plan.transactions, 1):
+        for i, t in enumerate(fit.writes, 1):
             tid = self._transaction(t)
             rows += [
                 ImportFingerprint(account_id=self.accounts[a], fingerprint=fp, transaction_id=tid)
@@ -122,6 +130,50 @@ class Writer:
         except fingerprints.FingerprintError as e:
             raise WriteError(str(e)) from e
 
+        if fit.replace:
+            self._replace(fit)
+        changed = [x for x in closed if self._statement(x) != before[x]]
+        if changed:
+            raise WriteError(
+                "written, but the statements of closed months changed: " + ", ".join(changed)
+            )
+
+    def _statement(self, x: str) -> dict[str, Any]:
+        r = get_statement.sync_detailed(x, client=self.client)
+        statement = _ok(r, f"statement {x}").to_dict()
+        statement.pop("closed", None)
+        return statement
+
+    def _settlement_etag(self, x: str) -> str:
+        r = get_settlement.sync_detailed(x, client=self.client)
+        _ok(r, f"settlement {x}")
+        return r.headers["etag"]
+
+    def _replace(self, fit: Fit) -> None:
+        """Deletes the opening balances the year's end replaces, reopening
+        their month just for it."""
+        if fit.reopen:
+            etag = self._settlement_etag(fit.reopen)
+            _ok(
+                reopen_month.sync_detailed(fit.reopen, client=self.client, if_match=etag),
+                f"reopen {fit.reopen}",
+            )
+        for h in fit.replace:
+            r = get_transaction.sync_detailed(h.id, client=self.client)
+            _ok(r, f"opening balance {h.id}")
+            _ok(
+                delete_transaction.sync_detailed(
+                    h.id, client=self.client, if_match=r.headers["etag"]
+                ),
+                f"delete the opening balance {describe(h.t)}",
+            )
+        if fit.reopen:
+            etag = self._settlement_etag(fit.reopen)
+            _ok(
+                close_month.sync_detailed(fit.reopen, client=self.client, if_match=etag),
+                f"close {fit.reopen}",
+            )
+
     def _reference_data(self, plan: Plan) -> None:
         c = self.client
         m = self.m
@@ -129,17 +181,21 @@ class Writer:
         kinds += [(p, PartyKind.PERSON) for p in m.people]
         kinds += [(b, PartyKind.BUSINESS) for b in m.businesses]
         for name, kind in kinds:
+            if name in self.parties:
+                continue
             r = create_party.sync_detailed(client=c, body=NewParty(kind=kind, name=name))
             self.parties[name] = _created(r, f"party {name}")
 
         for code, spec in m.commodities.items():
+            if code in self.commodities:
+                continue
             body = NewCommodity(code=code, kind=CommodityKind(spec.kind), precision=spec.precision)
             r = create_commodity.sync_detailed(client=c, body=body)
             self.commodities[code] = _created(r, f"commodity {code}")
 
         for a in m.accounts:
-            if a.key not in plan.accounts:
-                continue  # not used in the year
+            if a.key not in plan.accounts or a.key in self.accounts:
+                continue  # not used in the year, or there already
             limit = plan.accounts[a.key]
             body = NewAccount(
                 kind=AccountKind(a.kind),
@@ -160,17 +216,15 @@ class Writer:
             self.accounts[a.key] = _created(r, f"account {a.key}")
             add_numbers(c, self.accounts[a.key], r.headers["etag"], plan.numbers.get(a.key, ()))
 
-        page = list_counterparties.sync(client=c, limit=500)
-        if page is None or isinstance(page, Problem):
-            raise WriteError("couldn't list counterparties")
-        for item in page.items:
-            if isinstance(item.system, str):
-                self.system[item.system] = UUID(str(item.id))
         for name in plan.counterparties:
+            if normalize_name(name) in self.counterparties:
+                continue
             r = create_counterparty.sync_detailed(client=c, body=NewCounterparty(name=name))
-            self.counterparties[name] = _created(r, f"counterparty {name}")
+            self.counterparties[normalize_name(name)] = _created(r, f"counterparty {name}")
 
         for name in plan.categories:
+            if name in self.categories:
+                continue
             r = create_category.sync_detailed(client=c, body=NewCategory(name=name))
             self.categories[name] = _created(r, f"category {name}")
 
@@ -179,7 +233,7 @@ class Writer:
         if leg.account is not None:
             out.account_id = self.accounts[leg.account]
         elif leg.counterparty is not None:
-            out.counterparty_id = self.counterparties[leg.counterparty]
+            out.counterparty_id = self.counterparties[normalize_name(leg.counterparty)]
         elif leg.system is not None:
             out.counterparty_id = self.system[leg.system]
         return out
@@ -212,7 +266,7 @@ class Writer:
             external_refs=(
                 [ExternalRef(source=FIREFLY, ref=t.firefly_id)] if t.firefly_id else UNSET
             ),
-            import_batch_id=self._batch(t.import_batch or f"Migrated from {FIREFLY}"),
+            import_batch_id=self._batch(t.import_batch or f"Migrated from {FIREFLY} {self.m.year}"),
         )
         r = create_transaction.sync_detailed(client=self.client, body=body)
         where = f"Firefly transaction {t.firefly_id}" if t.firefly_id else t.description

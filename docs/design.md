@@ -704,8 +704,9 @@ log records which token changed what. No multi-tenancy: one household per server
 
 ## 11. Component: Firefly III migration (one-time)
 
-A tool for households moving from Firefly III. It is **re-runnable against an empty DB**
-until the output is right, and migrates **one calendar year at a time**.
+A tool for households moving from Firefly III. It migrates **one calendar year at a time**,
+into an empty server or before or after the years the server already holds, and stops
+before writing anything that could duplicate or corrupt data.
 
 - **Source and target:** a Python tool that reads Firefly's REST API and writes **only
   through Exchequer's REST API**. No migration code lives in the server.
@@ -724,8 +725,12 @@ until the output is right, and migrates **one calendar year at a time**.
   - **Owner and purpose.** Each account gets an owner. Each split's purpose is derived from
     whatever the household used to encode it (typically a tag such as "Shared" and/or
     per-person budgets), with the mapping declaring which tag or budget means which party.
-    A split neither names is an error, in the dry run too: there's no default (§4.1).
-    So is an income or expense with no Firefly category. Money into or out of a non-liquid
+    There's no default (§4.1): a split neither names, or an income or expense with no
+    Firefly category, takes the label from the server's copy of the transaction (with
+    `--overlap`) or from the mapping's decision for that transaction (`[transactions]`:
+    a purpose, a category, or a reconciliation adjustment), and stops the run without
+    one, in the dry run too. Before the year, where only the sums matter, missing labels
+    are only counted. Money into or out of a non-liquid
     account was a Firefly transfer, with no category: the mapping names one per account
     and direction (e.g. *Invest* and *Divest*, *Mortgage principal*).
     Conflicting labels are listed in the report. Budgets and the encoding tags are then
@@ -741,8 +746,29 @@ until the output is right, and migrates **one calendar year at a time**.
   - **Split transactions** keep their split structure.
 - **Year scope:** for year Y, one **opening-balance** transaction per account and commodity on
   Jan 1 (from Firefly's balance that day), then every transaction in Y, keeping Firefly IDs
-  as external references. `run` writes only into an empty server, so a different year
-  means migrating again from scratch.
+  as external references.
+- **Fitting the server's data.** `plan` (the dry run) and `run` read what the server holds
+  and show what `run` would write, create and replace; `run` writes only when nothing
+  stops it, and the dry run fails for the same reasons. Reference data (parties,
+  commodities, accounts, counterparties, categories) is reused by name and created when
+  missing; a party, commodity or account the server has with another kind stops it.
+  - **Before the server's years** (e.g. 2025 under 2026): the server's opening balances
+    on the day after the cutoff are replaced by the year's end, which must match them to
+    the cent for every account and commodity. Their month is reopened for it if closed,
+    then closed again.
+  - **After them:** no opening balances are written; the server's balances on Jan 1 must
+    be Firefly's, to the cent.
+  - **Dates the server already holds data for** stop it unless `--overlap` allows them.
+    Then each planned transaction already there (by Firefly ID; an opening balance by
+    account and commodity) is skipped if unchanged; one that changed stops it, and so
+    does anything else there that Firefly doesn't have.
+  - **Duplicates, always:** a Firefly ID already on the server outside the year, a near
+    duplicate (§6.3: same account, commodity and signed amount within 3 days, 5 for a
+    transfer) among the year's transactions or the server's non-migrated ones around it,
+    a bank row (§6.3) already recorded for another transaction, or a write into a closed
+    month.
+  - The statements of closed months after the year are compared before and after; one
+    that changed fails the run.
 - **Acceptance check** (`check`, `settlement`): per-account balances at every month end,
   category totals per month, and recomputed settlements vs. transfers actually made (§4.5).
   Done when it shows zero differences, or every difference is explained.

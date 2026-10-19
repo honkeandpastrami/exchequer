@@ -6,8 +6,9 @@ every request but GET before it reaches the network, and a test holds it to that
 
 ```sh
 cd python
-uv run firefly-migrate plan  MAPPING   # read Firefly, print the report; writes nothing
-uv run firefly-migrate run   MAPPING   # plan, then write into an EMPTY Exchequer server
+uv run firefly-migrate plan  MAPPING   # read Firefly and Exchequer, print the report; writes nothing
+uv run firefly-migrate run   MAPPING   # plan, then write the year into Exchequer
+uv run firefly-migrate plan  MAPPING --overlap  # ... into dates Exchequer already has data for
 uv run firefly-migrate check MAPPING   # compare Firefly with what Exchequer holds
 uv run firefly-migrate settle MAPPING      # the settlement pass, then the settlement check
 uv run firefly-migrate settlement MAPPING  # only the settlement check
@@ -31,11 +32,18 @@ uv run firefly-migrate fingerprints MAPPING [--apply]  # record which bank rows 
   `category_out` (e.g. `"Invest"` and `"Divest"`, or `"Mortgage principal"`): Firefly
   recorded those as transfers, with no category to carry over. Money into or out of an
   account without the one it needs is an error;
-- `[purpose]` which Firefly budgets and tags mean which party (an income or expense with
-  neither is an error, in the dry run too: there's no default). An income or expense with
-  no Firefly category is an error too;
+- `[purpose]` which Firefly budgets and tags mean which party. An income or expense with
+  neither, or with no Firefly category, takes it from the server's copy of the
+  transaction; with no copy it stops the run, in the dry run too: there's no default.
+  Before the year only the amounts matter, so missing labels there are only counted;
 - `[counterparties]`, `[categories]` and `[tags]`: dividends from Firefly's cash account,
-  transfer-only categories to drop, encoding tags to retire;
+  transfer-only categories to drop (`drop`) and categories renamed in Exchequer (`rename`),
+  encoding tags to retire;
+- `[transactions]` decisions for single Firefly transactions, by ID: a `purpose`, a
+  `category`, or `reconciliation = true` (an adjustment: no purpose or category, the
+  other side becomes the reconciliation counterparty). They win over Firefly's labels
+  and the mapping's defaults, e.g. for labels Firefly lacks in a year the server has no
+  copy of. An ID that isn't in the year is an error;
 - `[settlement]` (for `settle`, always in USD): `stipends.<person>` and
   `funders.<business>`, each a table of months to values, carried forward until the next
   month given (amounts as strings, e.g. `"2026-01" = "500.00"`); `settles`, Firefly
@@ -46,7 +54,22 @@ See `tests/conftest.py` for a complete example for a fictional household.
 
 What it does: one opening balance per account and commodity on Jan 1 (the exact sum of
 everything before), then every transaction of the year up to the cutoff, each keeping its
-Firefly ID as an external reference (`firefly`, group ID). The report lists float-damaged
+Firefly ID as an external reference (`firefly`, group ID).
+
+One year at a time, into an empty server or around the years it holds (design §11):
+
+- **Before them** (2025 under 2026, then 2024): the server's opening balances on the day
+  after the cutoff are replaced by the year's end, which must match them to the cent. Set
+  `through` to Dec 31 for that.
+- **After them:** no opening balances; the server's balances on Jan 1 must be Firefly's.
+- **Dates the server already has data for** stop it, unless `--overlap`: then
+  transactions already there unchanged are skipped (a run cut short can be run again),
+  and anything else there, changed or not from Firefly, stops it.
+- Near duplicates, bank rows already recorded, Firefly IDs already on the server and
+  writes into closed months stop it too.
+
+`plan` shows what `run` would write, create and replace, and every reason it would stop;
+`run` writes nothing while there is one. Take a backup before a `run` into a server in use. The report lists float-damaged
 amounts it rounded, conflicting purpose labels, labels it dropped (e.g. a budget on a
 transfer) and anything it couldn't migrate. `check` compares balances per account and
 commodity at every month end, and category totals per month.

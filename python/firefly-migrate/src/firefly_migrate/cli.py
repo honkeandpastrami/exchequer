@@ -1,7 +1,10 @@
 """`firefly-migrate COMMAND MAPPING` (design §11).
 
-plan        read Firefly and print the report; writes nothing anywhere.
-run         plan, then write everything into an empty Exchequer server.
+plan        read Firefly and the Exchequer server, print the report and how
+            the year fits what the server holds; writes nothing anywhere.
+run         plan, then write the year: into an empty server, or before or
+            after the years it holds. Dates it already holds data for need
+            --overlap, and every transaction there must be one Firefly has.
 check       compare Firefly with what Exchequer holds (the acceptance check).
 settle      the settlement pass over a migrated ledger: payment links,
             stipends and funders, closed months; then the
@@ -25,9 +28,9 @@ from datetime import date
 from pathlib import Path
 
 from exchequer_sdk import AuthenticatedClient
-from firefly_migrate import check, fingerprints, mapping, numbers, settle, transform
+from firefly_migrate import check, existing, fingerprints, mapping, numbers, settle, transform
 from firefly_migrate.firefly import FireflyReader
-from firefly_migrate.report import render
+from firefly_migrate.report import render, render_fit
 from firefly_migrate.writer import WriteError, Writer
 
 
@@ -57,6 +60,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("mapping", type=Path, help="the mapping file (TOML)")
     parser.add_argument("--apply", action="store_true", help="numbers, fingerprints: write")
+    parser.add_argument(
+        "--overlap",
+        action="store_true",
+        help="plan, run: the server may already hold data in the year (checked for duplicates)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -74,36 +82,48 @@ def main(argv: list[str] | None = None) -> int:
     }
     if args.command in alone:
         return alone[args.command]()
-    return _migrate(m, args.command, apply=args.apply)
+    return _migrate(m, args.command, overlap=args.overlap)
 
 
-def _migrate(m: mapping.Mapping, command: str, *, apply: bool) -> int:
+def _migrate(m: mapping.Mapping, command: str, *, overlap: bool) -> int:
     """The commands that plan the migration from Firefly first."""
     with _reader(m) as ff:
         p, groups = _plan(m, ff)
         print(render(p))
-        if p.report.errors and command == "run":
-            print("\nNot writing anything: fix the errors above first.", file=sys.stderr)
-            return 1
 
-        if command == "run":
+        if command in ("plan", "run"):
             with _exchequer(m) as client:
+                try:
+                    ledger = existing.read(client, m, p.through)
+                except existing.ReadError as e:
+                    print(f"\n{e}", file=sys.stderr)
+                    return 1
+                f = existing.fit(m, p, ledger, overlap=overlap)
+                print(render_fit(f))
+                if p.report.errors or f.stops:
+                    print(
+                        "\nNot writing anything: fix the errors and stops above first.",
+                        file=sys.stderr,
+                    )
+                    return 1
+                if command == "plan":
+                    return 0
 
                 def progress(i: int, total: int) -> None:
                     if i % 100 == 0 or i == total:
                         print(f"  wrote {i}/{total} transactions", file=sys.stderr)
 
                 try:
-                    Writer(client, m).write(p, progress)
+                    Writer(client, m, ledger).write(p, f, progress)
                 except WriteError as e:
                     print(f"\nwrite failed: {e}", file=sys.stderr)
                     return 1
-            print(f"\nWrote {len(p.transactions)} transactions.")
+            print(f"\nWrote {len(f.writes)} transactions.")
 
         if command in ("run", "check"):
             dates = check.check_dates(m)
             with _exchequer(m) as client:
-                balances, totals = check.exchequer_view(client, dates)
+                balances, totals = check.exchequer_view(client, m.start, dates)
             diffs = check.compare(check.firefly_balances(ff, m, dates, p.accounts), balances)
             cats = check.compare(check.firefly_category_totals(m, groups), totals)
             print(f"\n## Acceptance check ({len(dates)} dates)\n")

@@ -62,3 +62,22 @@ def test_token_files_hold_the_token_alone(tmp_path):
     f.write_text("\n")
     with pytest.raises(ValueError, match="empty"):
         mapping.read_token(f)
+
+
+@pytest.mark.parametrize(
+    ("section", "problem"),
+    [
+        ({"abc": {"purpose": "Alex"}}, "not a Firefly transaction ID"),
+        ({"1": {"purpose": "Nobody"}}, "is not a party"),
+        ({"1": {"purpose": "Alex", "reconciliation": True}}, "has no purpose or category"),
+        ({"1": {"reconciliation": "yes"}}, "must be true or false"),
+        ({"1": {"budget": "Shared"}}, "unknown keys"),
+        ({"1": {}}, "says nothing"),
+    ],
+)
+def test_bad_transaction_decisions(section, problem):
+    raw = copy.deepcopy(RAW)
+    raw["transactions"] = section
+    with pytest.raises(mapping.MappingError) as e:
+        mapping.parse(raw)
+    assert any(problem in p for p in e.value.problems), e.value.problems
