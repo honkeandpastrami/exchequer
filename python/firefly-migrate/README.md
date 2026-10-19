@@ -39,6 +39,11 @@ uv run firefly-migrate fingerprints MAPPING [--apply]  # record which bank rows 
 - `[counterparties]`, `[categories]` and `[tags]`: dividends from Firefly's cash account,
   transfer-only categories to drop (`drop`) and categories renamed in Exchequer (`rename`),
   encoding tags to retire;
+- `[transactions]` decisions for single Firefly transactions, by ID: a `purpose`, a
+  `category`, or `reconciliation = true` (an adjustment: no purpose or category, the
+  other side becomes the reconciliation counterparty). They win over Firefly's labels
+  and the mapping's defaults, e.g. for labels Firefly lacks in a year the server has no
+  copy of. An ID that isn't in the year is an error;
 - `[settlement]` (for `settle`, always in USD): `stipends.<person>` and
   `funders.<business>`, each a table of months to values, carried forward until the next
   month given (amounts as strings, e.g. `"2026-01" = "500.00"`); `settles`, Firefly

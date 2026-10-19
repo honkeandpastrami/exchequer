@@ -727,8 +727,10 @@ before writing anything that could duplicate or corrupt data.
     per-person budgets), with the mapping declaring which tag or budget means which party.
     There's no default (§4.1): a split neither names, or an income or expense with no
     Firefly category, takes the label from the server's copy of the transaction (with
-    `--overlap`), and stops the run without one, in the dry run too. Before the year,
-    where only the sums matter, missing labels are only counted. Money into or out of a non-liquid
+    `--overlap`) or from the mapping's decision for that transaction (`[transactions]`:
+    a purpose, a category, or a reconciliation adjustment), and stops the run without
+    one, in the dry run too. Before the year, where only the sums matter, missing labels
+    are only counted. Money into or out of a non-liquid
     account was a Firefly transfer, with no category: the mapping names one per account
     and direction (e.g. *Invest* and *Divest*, *Mortgage principal*).
     Conflicting labels are listed in the report. Budgets and the encoding tags are then

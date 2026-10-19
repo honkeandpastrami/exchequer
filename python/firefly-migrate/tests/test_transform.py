@@ -5,6 +5,7 @@ from datetime import date
 from decimal import Decimal
 
 from firefly_migrate import transform
+from firefly_migrate.mapping import Override
 from tests.conftest import ACCOUNTS, account, group, journal
 
 
@@ -301,3 +302,48 @@ def test_a_number_on_two_accounts_is_an_error_naming_its_last_four(m):
     transform.account_numbers(m, accounts, report)
     [e] = report.errors
     assert "…8888" in e and "99998888" not in e
+
+
+def test_the_mapping_decides_single_transactions(m):
+    m = replace(
+        m,
+        overrides={
+            "10": Override(purpose="Alex"),
+            "11": Override(purpose="Household", category="Invest"),
+            "12": Override(reconciliation=True),
+            "13": Override(category="Divest"),
+        },
+    )
+    p = plan(
+        m,
+        group(10, "2026-03-01", journal("Revenue:Market", 1, "50", type="deposit", budget=None)),
+        group(11, "2026-03-02", journal(1, "Cash", "70", budget=None, category=None)),
+        group(12, "2026-03-03", journal(1, "Expense:Bank", "99", budget=None, category=None)),
+        group(13, "2026-03-04", journal(3, 1, "5", type="transfer", budget="Shared")),
+    )
+    assert not p.report.errors
+    got = {t.firefly_id: t for t in p.transactions if t.firefly_id}
+    assert all(not t.missing for t in got.values())
+    assert (got["10"].splits[0].purpose, got["10"].splits[0].category) == ("Alex", "Groceries")
+    assert (got["11"].splits[0].purpose, got["11"].splits[0].category) == ("Household", "Invest")
+    adjustment = got["12"].splits[0]
+    assert adjustment.to.system == transform.RECONCILIATION
+    assert (adjustment.purpose, adjustment.category) == (None, None)
+    assert got["13"].splits[0].category == "Divest"  # the account has no category_out
+    assert p.report.counts["transactions decided in the mapping"] == 4
+
+
+def test_a_decision_for_a_transaction_outside_the_year_is_an_error(m):
+    m = replace(m, overrides={"99": Override(purpose="Alex"), "10": Override(purpose="Alex")})
+    p = plan(m, group(10, "2025-03-01", journal(2, "Expense:Books", "9.00", budget=None)))
+    assert p.report.errors == [
+        "transactions.10 in the mapping: no such Firefly transaction in 2026",
+        "transactions.99 in the mapping: no such Firefly transaction in 2026",
+    ]
+
+
+def test_a_reconciliation_adjustment_is_never_a_transfer(m):
+    m = replace(m, overrides={"10": Override(reconciliation=True)})
+    p = plan(m, group(10, "2026-03-01", journal(1, 2, "9.00", type="transfer")))
+    [error] = p.report.errors
+    assert "a transfer can't be a reconciliation adjustment" in error

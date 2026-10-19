@@ -94,6 +94,17 @@ class Settlement:
 
 
 @dataclass(frozen=True)
+class Override:
+    """The operator's decision for one Firefly transaction: its purpose or
+    category, or that it's a reconciliation adjustment (no purpose or
+    category: the other side becomes the reconciliation counterparty)."""
+
+    purpose: str | None = None
+    category: str | None = None
+    reconciliation: bool = False
+
+
+@dataclass(frozen=True)
 class Mapping:
     firefly_api_base: str
     firefly_token_file: Path
@@ -117,6 +128,8 @@ class Mapping:
     retire_tags: frozenset[str]
     import_batch_prefix: str | None
     settlement: Settlement | None = None
+    # Firefly transaction group ID → the decision for it.
+    overrides: dict[str, Override] = field(default_factory=dict)
     by_firefly_id: dict[int, Account] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -250,6 +263,8 @@ def parse(raw: dict[str, Any]) -> Mapping:
         problems.append("categories.rename must map Firefly categories to category names")
         rename = {}
 
+    overrides = _overrides(raw.get("transactions", {}), known, problems)
+
     settlement = _settlement(raw.get("settlement"), set(people), set(businesses), household)
     if isinstance(settlement, list):
         problems += settlement
@@ -280,7 +295,39 @@ def parse(raw: dict[str, Any]) -> Mapping:
         retire_tags=frozenset(raw.get("tags", {}).get("retire", [])),
         import_batch_prefix=raw.get("tags", {}).get("import_batch_prefix"),
         settlement=settlement,
+        overrides=overrides,
     )
+
+
+def _overrides(raw: Any, parties: set[str], problems: list[str]) -> dict[str, Override]:
+    """The `[transactions]` section: Firefly transaction ID → decision."""
+    if not isinstance(raw, dict):
+        problems.append("transactions must map Firefly transaction IDs to tables")
+        return {}
+    out = {}
+    for ref, spec in raw.items():
+        where = f"transactions.{ref}"
+        if not str(ref).isdigit():
+            problems.append(f"{where}: not a Firefly transaction ID")
+        if not isinstance(spec, dict):
+            problems.append(f'{where} must be a table, e.g. {{ purpose = "..." }}')
+            continue
+        unknown = set(spec) - {"purpose", "category", "reconciliation"}
+        if unknown:
+            problems.append(f"{where}: unknown keys {sorted(unknown)}")
+        o = Override(spec.get("purpose"), spec.get("category"), spec.get("reconciliation") is True)
+        if o.purpose is not None and o.purpose not in parties:
+            problems.append(f"{where}: purpose {o.purpose!r} is not a party")
+        if o.category is not None and (not isinstance(o.category, str) or not o.category):
+            problems.append(f"{where}: category must be a category name")
+        if "reconciliation" in spec and not isinstance(spec["reconciliation"], bool):
+            problems.append(f"{where}: reconciliation must be true or false")
+        if o.reconciliation and (o.purpose or o.category):
+            problems.append(f"{where}: a reconciliation adjustment has no purpose or category")
+        if not (o.purpose or o.category or o.reconciliation):
+            problems.append(f"{where}: says nothing (purpose, category or reconciliation)")
+        out[str(ref)] = o
+    return out
 
 
 def _settlement(

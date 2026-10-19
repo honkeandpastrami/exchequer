@@ -14,7 +14,7 @@ from datetime import date
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from typing import Any
 
-from firefly_migrate.mapping import Account, Mapping
+from firefly_migrate.mapping import Account, Mapping, Override
 
 FIREFLY = "firefly"
 OPENING_BALANCES = "opening_balances"
@@ -243,6 +243,8 @@ class _Builder:
         self.quiet = False
         # The current split's missing labels: ("purpose" or "category", why).
         self.missing: list[tuple[str, str]] = []
+        # Firefly IDs in the year the mapping decides labels for.
+        self.overridden: set[str] = set()
 
     def note(self, kind: str, message: str, group_id: str | None = None) -> None:
         if self.quiet:
@@ -297,9 +299,19 @@ class _Builder:
         else:
             self.missing.append((label, why))
 
+    def override(self, j: _Journal) -> Override | None:
+        o = self.m.overrides.get(j.group_id)
+        if o is not None and not self.quiet:
+            self.overridden.add(j.group_id)
+        return o
+
     def purpose(self, j: _Journal, where: str) -> str | None:
-        """Who the split is for, from its budget or purpose tags: there's no
-        default (design §4.1), so with neither it's missing."""
+        """Who the split is for: the mapping's decision for the transaction,
+        or its budget or purpose tags. There's no default (design §4.1), so
+        with none of them it's missing."""
+        o = self.override(j)
+        if o is not None and o.purpose is not None:
+            return o.purpose
         labels: dict[str, str] = {}
         if j.budget is not None:
             if j.budget not in self.m.budgets:
@@ -322,7 +334,7 @@ class _Builder:
         return parties.pop()
 
     def crossing_category(
-        self, a_from: Account, a_to: Account, where: str
+        self, j: _Journal, a_from: Account, a_to: Account, where: str
     ) -> tuple[str | None, str]:
         """Money into or out of a non-liquid account: its category from the
         mapping (`category_in`, `category_out`), and the account's key."""
@@ -330,6 +342,9 @@ class _Builder:
         account = a_to if into else a_from
         key = "category_in" if into else "category_out"
         category = account.category_in if into else account.category_out
+        o = self.override(j)
+        if o is not None and o.category is not None:
+            category = o.category
         if category is None:
             self.lacks("category", f"{where}: account {account.key} has no {key} in the mapping")
         return category, account.key
@@ -342,6 +357,14 @@ class _Builder:
         )
         if j.amount < 0:
             raise _Skip(f"{where}: negative amount {j.amount}")
+        o = self.override(j)
+        if o is not None and o.reconciliation:
+            if "account" in src and "account" in dst:
+                raise _Skip(f"{where}: a transfer can't be a reconciliation adjustment")
+            if "account" in src:
+                dst = {"system": RECONCILIATION}
+            else:
+                src = {"system": RECONCILIATION}
 
         # Firefly's amount is in the source's currency; a foreign amount, when
         # there is one, is what arrived on the other side.
@@ -387,11 +410,12 @@ class _Builder:
         if crossing:
             purpose = self.purpose(j, where)
             assert a_from and a_to  # a crossing is between two accounts
-            category, crossing_key = self.crossing_category(a_from, a_to, where)
+            category, crossing_key = self.crossing_category(j, a_from, a_to, where)
             if not self.quiet:
                 self.report.counts["into or out of investments and loans"] += 1
         elif income_or_expense and owned is not None:
-            category = j.category
+            o = self.override(j)
+            category = o.category if o is not None and o.category is not None else j.category
             if owned.is_liquid:
                 purpose = self.purpose(j, where)
                 if category is None or category in self.m.drop_categories:
@@ -540,6 +564,11 @@ def plan(
         else:
             transactions.append(t)
     report.counts["transactions"] = len(transactions)
+    report.counts["transactions decided in the mapping"] = len(b.overridden)
+    for ref in sorted(set(m.overrides) - b.overridden, key=int):
+        report.errors.append(
+            f"transactions.{ref} in the mapping: no such Firefly transaction in {m.year}"
+        )
 
     # Archived accounts unused in the year aren't migrated; they're listed in
     # the report instead, opening balance and all. Accounts still in use are
