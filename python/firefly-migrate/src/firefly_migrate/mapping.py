@@ -125,6 +125,8 @@ class Mapping:
     drop_categories: frozenset[str]
     # Firefly category → the name it has in Exchequer.
     rename_categories: dict[str, str]
+    # Firefly expense or revenue account → the counterparty's name in Exchequer.
+    rename_counterparties: dict[str, str]
     retire_tags: frozenset[str]
     import_batch_prefix: str | None
     settlement: Settlement | None = None
@@ -262,6 +264,12 @@ def parse(raw: dict[str, Any]) -> Mapping:
     if not isinstance(rename, dict) or not all(isinstance(v, str) and v for v in rename.values()):
         problems.append("categories.rename must map Firefly categories to category names")
         rename = {}
+    rename_cps = raw.get("counterparties", {}).get("rename", {})
+    if not isinstance(rename_cps, dict) or not all(
+        isinstance(v, str) and v.strip() for v in rename_cps.values()
+    ):
+        problems.append("counterparties.rename must map Firefly counterparties to names")
+        rename_cps = {}
 
     overrides = _overrides(raw.get("transactions", {}), known, problems)
 
@@ -292,6 +300,7 @@ def parse(raw: dict[str, Any]) -> Mapping:
         cash_account_by_destination=cash,
         drop_categories=frozenset(raw.get("categories", {}).get("drop", [])),
         rename_categories=rename,
+        rename_counterparties=rename_cps,
         retire_tags=frozenset(raw.get("tags", {}).get("retire", [])),
         import_batch_prefix=raw.get("tags", {}).get("import_batch_prefix"),
         settlement=settlement,

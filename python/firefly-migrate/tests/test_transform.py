@@ -146,6 +146,12 @@ def test_no_category_is_missing(m):
     assert "account Household · Mortgage has no category_out in the mapping" in unmapped[0][2]
 
 
+def test_counterparties_are_renamed(m):
+    m = replace(m, rename_counterparties={"N/A": "Corner Store"})
+    t = only(plan(m, group(10, "2026-03-01", journal(2, "Expense:N/A", "8"))))
+    assert t.splits[0].to.counterparty == "Corner Store"
+
+
 def test_categories_are_renamed(m):
     m = replace(m, rename_categories={"Groceries": "Food"})
     assert (
