@@ -74,10 +74,10 @@ def accounts_by_key(client: AuthenticatedClient) -> dict[str, Any]:
 
 
 def exchequer_view(
-    client: AuthenticatedClient, dates: list[date]
+    client: AuthenticatedClient, start: date, dates: list[date]
 ) -> tuple[dict[tuple[str, str, date], Decimal], dict[tuple[str, str], Decimal]]:
     """Balances by (account, commodity, date) and net category totals by
-    (category, YYYY-MM): expenses negative, income positive."""
+    (category, YYYY-MM) from `start`: expenses negative, income positive."""
     parties = {
         str(p.id): p.name
         for p in _all(lambda c: list_parties.sync(client=client, limit=500, cursor=c))
@@ -113,7 +113,7 @@ def exchequer_view(
                     if t.date <= d:
                         balances[(*key, d)] += qty
             category = s.category_id
-            if category:
+            if category and t.date >= start:
                 kind = s.kind.value
                 sign = -1 if kind == "expense" else 1
                 leg = s.from_ if kind == "expense" else s.to
