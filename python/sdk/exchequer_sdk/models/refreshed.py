@@ -19,7 +19,7 @@ class Refreshed:
     Attributes:
         errors (list[str]): `source: what went wrong`, for each failure; the next source was
             asked instead.
-        running (bool): Still fetching: ask `GET /prices/refresh` again shortly.
+        running (bool): Still fetching: `GET /prices/refresh?wait=…` waits for it.
         sources (list[str]): The configured sources, in the order asked.
         started_at (datetime.datetime):
         stored (int): Prices stored or replaced.

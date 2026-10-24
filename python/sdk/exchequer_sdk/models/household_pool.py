@@ -27,8 +27,8 @@ class HouseholdPool:
             currency_id (UUID):
             expenses (list[CategoryAmount]): Spending for the household, by category (negative). Money into an
                 investment or a loan (a mortgage's principal) counts.
-            fetching (bool): Missing or stale prices are being fetched: asked again shortly, the
-                figures may be fresher.
+            fetching (bool): Missing or stale prices are being fetched: once `GET /prices/fetching`
+                says they're done, the figures may be fresher.
             income (list[CategoryAmount]): Income for the household, by category (positive). Money out of an
                 investment into a liquid account counts.
             month (str):  Example: 2026-06.

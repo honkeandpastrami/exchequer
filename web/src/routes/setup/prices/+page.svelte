@@ -80,8 +80,7 @@
 			let r = ok(await api.POST('/api/v1/prices/refresh', { body: {} }));
 			refreshed = r;
 			while (r.running) {
-				await new Promise((done) => setTimeout(done, 1000));
-				r = ok(await api.GET('/api/v1/prices/refresh'));
+				r = ok(await api.GET('/api/v1/prices/refresh', { params: { query: { wait: 25 } } }));
 				refreshed = r;
 			}
 			await page();

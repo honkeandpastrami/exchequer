@@ -30,6 +30,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(list, create))
         .routes(routes!(value))
         .routes(routes!(refresh, refresh_status))
+        .routes(routes!(fetching))
         .routes(routes!(get, update, delete))
 }
 
@@ -125,12 +126,37 @@ pub struct RefreshRequest {
     to: Option<Date>,
 }
 
+/// The longest a request waits for fetches to finish: under a proxy's usual
+/// minute.
+const MAX_WAIT_SECS: u64 = 50;
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct WaitParams {
+    /// Seconds to wait for it to finish, at most 50. Default: 0, answer
+    /// at once.
+    wait: Option<u64>,
+}
+
+impl WaitParams {
+    fn duration(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.wait.unwrap_or(0).min(MAX_WAIT_SECS))
+    }
+}
+
+/// Whether prices are being fetched.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct Fetching {
+    /// Some fetch still runs: the wait was over first.
+    fetching: bool,
+}
+
 /// A refresh: running, or how it went.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Refreshed {
     /// The configured sources, in the order asked.
     sources: Vec<String>,
-    /// Still fetching: ask `GET /prices/refresh` again shortly.
+    /// Still fetching: `GET /prices/refresh?wait=…` waits for it.
     running: bool,
     #[serde(with = "time::serde::rfc3339")]
     started_at: OffsetDateTime,
@@ -164,8 +190,8 @@ impl Refreshed {
 pub struct Valued {
     #[serde(flatten)]
     valuation: ValuationOut,
-    /// Missing or stale prices are being fetched: asked again shortly, the
-    /// answer may be fresher.
+    /// Missing or stale prices are being fetched: once
+    /// `GET /prices/fetching` says they're done, the answer may be fresher.
     fetching: bool,
 }
 
@@ -475,7 +501,7 @@ async fn value(
         )
         .ok_or_else(|| {
             let yet = if loaded.fetching {
-                " yet; fetching, ask again shortly"
+                " yet; fetching, see GET /prices/fetching"
             } else {
                 ""
             };
@@ -489,7 +515,7 @@ async fn value(
 
 /// Start fetching every commodity's prices in `value_in` for a range of
 /// days, again, from the configured sources in order. It answers at once;
-/// `GET /prices/refresh` tells how it went. While one runs, another isn't
+/// `GET /prices/refresh` waits for it and tells how it went. While one runs, another isn't
 /// started: the one running is returned.
 #[utoipa::path(post, path = "/prices/refresh", tag = "prices", security(("bearer" = [])),
     request_body = RefreshRequest,
@@ -529,14 +555,35 @@ async fn refresh(
     ))
 }
 
-/// The latest refresh since the server started: running, or how it went.
+/// The latest refresh since the server started: how it went, once it's
+/// finished or the wait is over.
 #[utoipa::path(get, path = "/prices/refresh", tag = "prices", security(("bearer" = [])),
+    params(WaitParams),
     responses((status = OK, body = Refreshed),
               (status = NOT_FOUND, description = "None since the server started", body = Problem, content_type = "application/problem+json")))]
-async fn refresh_status(State(state): State<AppState>) -> Result<axum::Json<Refreshed>, Problem> {
+async fn refresh_status(
+    State(state): State<AppState>,
+    Query(p): Query<WaitParams>,
+) -> Result<axum::Json<Refreshed>, Problem> {
     let r = state
         .pricing
-        .last_refresh()
+        .refresh_after(p.duration())
+        .await
         .ok_or_else(Problem::not_found)?;
     Ok(axum::Json(Refreshed::new(state.pricing.names(), r)))
+}
+
+/// Whether prices are being fetched (an answer said `fetching`), once
+/// every fetch running has finished or the wait is over. Then the answers
+/// that were waiting on them may be fresher.
+#[utoipa::path(get, path = "/prices/fetching", tag = "prices", security(("bearer" = [])),
+    params(WaitParams),
+    responses((status = OK, body = Fetching)))]
+async fn fetching(
+    State(state): State<AppState>,
+    Query(p): Query<WaitParams>,
+) -> axum::Json<Fetching> {
+    axum::Json(Fetching {
+        fetching: state.pricing.fetching(p.duration()).await,
+    })
 }

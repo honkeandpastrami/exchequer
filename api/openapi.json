@@ -3800,13 +3800,65 @@
         ]
       }
     },
+    "/api/v1/prices/fetching": {
+      "get": {
+        "tags": [
+          "prices"
+        ],
+        "summary": "Whether prices are being fetched (an answer said `fetching`), once\nevery fetch running has finished or the wait is over. Then the answers\nthat were waiting on them may be fresher.",
+        "operationId": "prices_fetching",
+        "parameters": [
+          {
+            "name": "wait",
+            "in": "query",
+            "description": "Seconds to wait for it to finish, at most 50. Default: 0, answer\nat once.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fetching"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/prices/refresh": {
       "get": {
         "tags": [
           "prices"
         ],
-        "summary": "The latest refresh since the server started: running, or how it went.",
+        "summary": "The latest refresh since the server started: how it went, once it's\nfinished or the wait is over.",
         "operationId": "prices_refresh_status",
+        "parameters": [
+          {
+            "name": "wait",
+            "in": "query",
+            "description": "Seconds to wait for it to finish, at most 50. Default: 0, answer\nat once.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK",
@@ -3839,7 +3891,7 @@
         "tags": [
           "prices"
         ],
-        "summary": "Start fetching every commodity's prices in `value_in` for a range of\ndays, again, from the configured sources in order. It answers at once;\n`GET /prices/refresh` tells how it went. While one runs, another isn't\nstarted: the one running is returned.",
+        "summary": "Start fetching every commodity's prices in `value_in` for a range of\ndays, again, from the configured sources in order. It answers at once;\n`GET /prices/refresh` waits for it and tells how it went. While one runs, another isn't\nstarted: the one running is returned.",
         "operationId": "prices_refresh",
         "requestBody": {
           "content": {
@@ -6797,7 +6849,7 @@
           },
           "fetching": {
             "type": "boolean",
-            "description": "Missing or stale prices are being fetched: asked again shortly, the\nfigures may be fresher."
+            "description": "Missing or stale prices are being fetched: once `GET /prices/fetching`\nsays they're done, the figures may be fresher."
           },
           "value_in_id": {
             "type": [
@@ -7535,6 +7587,19 @@
         },
         "additionalProperties": false
       },
+      "Fetching": {
+        "type": "object",
+        "description": "Whether prices are being fetched.",
+        "required": [
+          "fetching"
+        ],
+        "properties": {
+          "fetching": {
+            "type": "boolean",
+            "description": "Some fetch still runs: the wait was over first."
+          }
+        }
+      },
       "FileFormat": {
         "type": "string",
         "enum": [
@@ -7631,7 +7696,7 @@
           },
           "fetching": {
             "type": "boolean",
-            "description": "Missing or stale prices are being fetched: asked again shortly, the\nfigures may be fresher."
+            "description": "Missing or stale prices are being fetched: once `GET /prices/fetching`\nsays they're done, the figures may be fresher."
           },
           "months": {
             "type": "array",
@@ -7682,7 +7747,7 @@
           },
           "fetching": {
             "type": "boolean",
-            "description": "Missing or stale prices are being fetched: asked again shortly, the\nfigures may be fresher."
+            "description": "Missing or stale prices are being fetched: once `GET /prices/fetching`\nsays they're done, the figures may be fresher."
           },
           "income": {
             "type": "array",
@@ -9991,7 +10056,7 @@
           },
           "running": {
             "type": "boolean",
-            "description": "Still fetching: ask `GET /prices/refresh` again shortly."
+            "description": "Still fetching: `GET /prices/refresh?wait=…` waits for it."
           },
           "sources": {
             "type": "array",
@@ -10892,7 +10957,7 @@
           },
           "fetching": {
             "type": "boolean",
-            "description": "Missing or stale prices are being fetched: asked again shortly, the\nfigures may be fresher."
+            "description": "Missing or stale prices are being fetched: once `GET /prices/fetching`\nsays they're done, the figures may be fresher."
           },
           "month": {
             "type": "string",
@@ -11257,7 +11322,7 @@
             "properties": {
               "fetching": {
                 "type": "boolean",
-                "description": "Missing or stale prices are being fetched: asked again shortly, the\nanswer may be fresher."
+                "description": "Missing or stale prices are being fetched: once\n`GET /prices/fetching` says they're done, the answer may be fresher."
               }
             }
           }

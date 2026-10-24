@@ -7,14 +7,24 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.problem import Problem
 from ...models.refreshed import Refreshed
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
-def _get_kwargs() -> dict[str, Any]:
+def _get_kwargs(
+    *,
+    wait: int | Unset = UNSET,
+) -> dict[str, Any]:
+
+    params: dict[str, Any] = {}
+
+    params["wait"] = wait
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "get",
         "url": "/api/v1/prices/refresh",
+        "params": params,
     }
 
     return _kwargs
@@ -49,8 +59,13 @@ def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 def sync_detailed(
     *,
     client: AuthenticatedClient,
+    wait: int | Unset = UNSET,
 ) -> Response[Problem | Refreshed]:
-    """The latest refresh since the server started: running, or how it went.
+    """The latest refresh since the server started: how it went, once it's
+    finished or the wait is over.
+
+    Args:
+        wait (int | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -60,7 +75,9 @@ def sync_detailed(
         Response[Problem | Refreshed]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        wait=wait,
+    )
 
     response = client.get_httpx_client().request(
         **kwargs,
@@ -72,8 +89,13 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
+    wait: int | Unset = UNSET,
 ) -> Problem | Refreshed | None:
-    """The latest refresh since the server started: running, or how it went.
+    """The latest refresh since the server started: how it went, once it's
+    finished or the wait is over.
+
+    Args:
+        wait (int | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -85,14 +107,20 @@ def sync(
 
     return sync_detailed(
         client=client,
+        wait=wait,
     ).parsed
 
 
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
+    wait: int | Unset = UNSET,
 ) -> Response[Problem | Refreshed]:
-    """The latest refresh since the server started: running, or how it went.
+    """The latest refresh since the server started: how it went, once it's
+    finished or the wait is over.
+
+    Args:
+        wait (int | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -102,7 +130,9 @@ async def asyncio_detailed(
         Response[Problem | Refreshed]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        wait=wait,
+    )
 
     response = await client.get_async_httpx_client().request(**kwargs)
 
@@ -112,8 +142,13 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
+    wait: int | Unset = UNSET,
 ) -> Problem | Refreshed | None:
-    """The latest refresh since the server started: running, or how it went.
+    """The latest refresh since the server started: how it went, once it's
+    finished or the wait is over.
+
+    Args:
+        wait (int | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -126,5 +161,6 @@ async def asyncio(
     return (
         await asyncio_detailed(
             client=client,
+            wait=wait,
         )
     ).parsed

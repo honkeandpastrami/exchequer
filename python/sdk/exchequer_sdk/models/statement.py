@@ -25,8 +25,8 @@ class Statement:
         closed (bool):
         currency_id (UUID):
         edges (list[Edge]):
-        fetching (bool): Missing or stale prices are being fetched: asked again shortly, the
-            figures may be fresher.
+        fetching (bool): Missing or stale prices are being fetched: once `GET /prices/fetching`
+            says they're done, the figures may be fresher.
         month (str):  Example: 2026-06.
         unpriced (list[Unpriced]): Splits left out because they have no value in USD.
         params_from (None | str | Unset):

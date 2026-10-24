@@ -23,8 +23,8 @@ class Valued:
         provisional (bool): Uses a price for a day still in progress.
         rate (str): `1 from = rate to`. Example: 312.45.
         stale (bool): No price close enough to the date: the newest older one was used.
-        fetching (bool): Missing or stale prices are being fetched: asked again shortly, the
-            answer may be fresher.
+        fetching (bool): Missing or stale prices are being fetched: once
+            `GET /prices/fetching` says they're done, the answer may be fresher.
     """
 
     derived: bool

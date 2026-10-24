@@ -30,7 +30,7 @@ def test_refresh_waits_until_the_server_is_done():
     ]
 
     def handle(req: httpx.Request) -> httpx.Response:
-        asked.append(f"{req.method} {req.url.path}")
+        asked.append(f"{req.method} {req.url.path}?{req.url.query.decode()}".rstrip("?"))
         if req.method == "POST":
             assert json.loads(req.content) == {"value_in": "USD"}
             return httpx.Response(202, json=status(True))
@@ -41,10 +41,8 @@ def test_refresh_waits_until_the_server_is_done():
         token="exq_test",
         httpx_args={"transport": httpx.MockTransport(handle)},
     )
-    slept: list[float] = []
-    r = refresh(client, RefreshRequest(value_in="USD"), sleep=slept.append)
+    r = refresh(client, RefreshRequest(value_in="USD"))
     assert not r.running
     assert r.stored == 3
     assert r.errors == ["ecb: rate-limited"]
-    assert asked == ["POST /x/api/v1/prices/refresh"] + ["GET /x/api/v1/prices/refresh"] * 2
-    assert slept == [1.0, 1.0]
+    assert asked == ["POST /x/api/v1/prices/refresh"] + ["GET /x/api/v1/prices/refresh?wait=25"] * 2

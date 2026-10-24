@@ -1,29 +1,50 @@
 // Prices the server is fetching (design §3.4). An answer with `fetching`
-// was given with the prices already stored; fresher ones may follow. While
-// answers say so, `prices.refetch` is bumped every few seconds, and pages
-// that value at prices load again, keeping what they show until then.
+// was given with the prices already stored; fresher ones follow. One
+// request waits for the fetches to finish (`GET /prices/fetching?wait=…`),
+// then `prices.refetch` is bumped, and pages that value at prices load
+// again, keeping what they show until the new answer arrives.
+import { api, ok } from '#lib/api/client.ts';
 
-const WAIT_MS = 2000;
-/** Reloads in a row before giving up: a fetch takes seconds, not a minute. */
-const MAX_TRIES = 15;
+/** Under a proxy's usual minute; the server waits at most 50. */
+const WAIT_SECS = 25;
+/** Waits that time out in a row before giving up: a fetch takes seconds. */
+const MAX_WAITS = 4;
+/** Reloads in a row that still say `fetching`: each started a new fetch. */
+const MAX_ROUNDS = 3;
 
 export const prices = $state({ refetch: 0 });
 
-let tries = 0;
-let timer: ReturnType<typeof setTimeout> | undefined;
+let waiting = false;
+let rounds = 0;
 
 /** Notes whether `answer` is waiting on prices, and passes it on. */
 export function fetched<T extends { fetching: boolean }>(answer: T): T {
 	if (!answer.fetching) {
-		tries = 0;
-	} else if (timer === undefined && tries < MAX_TRIES) {
-		tries += 1;
-		timer = setTimeout(() => {
-			timer = undefined;
-			prices.refetch += 1;
-		}, WAIT_MS);
+		rounds = 0;
+	} else if (!waiting && rounds < MAX_ROUNDS) {
+		rounds += 1;
+		void wait();
 	}
 	return answer;
+}
+
+async function wait() {
+	waiting = true;
+	try {
+		for (let i = 0; i < MAX_WAITS; i++) {
+			const r = ok(
+				await api.GET('/api/v1/prices/fetching', { params: { query: { wait: WAIT_SECS } } })
+			);
+			if (!r.fetching) {
+				prices.refetch += 1;
+				return;
+			}
+		}
+	} catch {
+		// Pages keep what they show; the next load asks again.
+	} finally {
+		waiting = false;
+	}
 }
 
 /**

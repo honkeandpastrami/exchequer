@@ -63,8 +63,8 @@ pub struct Balances {
     value_in_id: Option<Uuid>,
     /// Every account and commodity whose balance on the date isn't zero.
     balances: Vec<AccountBalance>,
-    /// Missing or stale prices are being fetched: asked again shortly, the
-    /// figures may be fresher.
+    /// Missing or stale prices are being fetched: once `GET /prices/fetching`
+    /// says they're done, the figures may be fresher.
     fetching: bool,
 }
 
@@ -185,8 +185,8 @@ pub struct HouseholdPool {
     /// The change in the household's own liquid accounts over the month.
     #[schema(value_type = String)]
     shared_savings_change: Amount,
-    /// Missing or stale prices are being fetched: asked again shortly, the
-    /// figures may be fresher.
+    /// Missing or stale prices are being fetched: once `GET /prices/fetching`
+    /// says they're done, the figures may be fresher.
     fetching: bool,
 }
 

@@ -158,6 +158,8 @@ struct Fake {
     quotes: Vec<(&'static str, &'static str, &'static str, &'static str)>,
     fail: Failure,
     asked: Arc<Mutex<Vec<String>>>,
+    /// How long each fetch takes.
+    delay: Duration,
 }
 
 impl PriceSource for Fake {
@@ -180,6 +182,7 @@ impl PriceSource for Fake {
                 .unwrap()
                 .push(format!("{} {}{} {from} {to}", self.name, p.base, p.quote));
         }
+        std::thread::sleep(self.delay);
         if let Some(fail) = *self.fail.lock().unwrap() {
             return Err(fail());
         }
@@ -208,6 +211,7 @@ fn fake(
         quotes,
         fail: Arc::new(Mutex::new(fail)),
         asked: Arc::clone(asked),
+        delay: Duration::ZERO,
     })
 }
 
@@ -349,6 +353,7 @@ async fn an_outage_is_asked_again_soon(pool: PgPool) {
         ],
         fail: Arc::clone(&fail),
         asked: Arc::clone(&asked),
+        delay: Duration::ZERO,
     });
     let pricing = api::Pricing::new(vec![source], 5).outage(Duration::from_millis(200));
     let get = |q: &'static str| settled(&pool, &h, &pricing, q);
@@ -384,6 +389,60 @@ async fn an_outage_is_asked_again_soon(pool: PgPool) {
     let (status, v, _) = get("from=GBP&to=USD&date=2026-06-01").await;
     assert_eq!(status, StatusCode::OK, "{v}");
     assert_eq!(v["rate"], "1.27");
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn waiting_for_a_fetch(pool: PgPool) {
+    let h = H::new(&pool).await;
+    fiat(&h, &pool, "GBP").await;
+    let source = Arc::new(Fake {
+        name: "slow",
+        quotes: vec![("GBP", "USD", "2026-06-01", "1.27")],
+        fail: Arc::default(),
+        asked: Arc::default(),
+        delay: Duration::from_millis(300),
+    });
+    let pricing = api::Pricing::new(vec![source], 5);
+    let call = |method: &'static str, path: &'static str| {
+        common::call(&pool, method, path)
+            .token(&h.t)
+            .pricing(pricing.clone())
+    };
+
+    // The answer comes before the fetch; asking without a wait says it
+    // still runs, and with one answers when it's done.
+    let r = call(
+        "GET",
+        "/api/v1/prices/value?from=GBP&to=USD&date=2026-06-01",
+    )
+    .send()
+    .await;
+    assert_eq!(r.status, StatusCode::NOT_FOUND);
+    let r = call("GET", "/api/v1/prices/fetching").send().await;
+    assert_eq!(r.body, json!({ "fetching": true }));
+    let r = call("GET", "/api/v1/prices/fetching?wait=5").send().await;
+    assert_eq!(r.body, json!({ "fetching": false }));
+    let r = call(
+        "GET",
+        "/api/v1/prices/value?from=GBP&to=USD&date=2026-06-01",
+    )
+    .send()
+    .await;
+    assert_eq!(r.body["rate"], "1.27");
+    assert_eq!(r.body["fetching"], false);
+
+    // A refresh: running at first, and its result once waited for.
+    let r = call("POST", "/api/v1/prices/refresh")
+        .json(json!({ "from": "2026-06-01", "to": "2026-06-01" }))
+        .send()
+        .await;
+    assert_eq!(r.body["running"], true);
+    let r = call("GET", "/api/v1/prices/refresh").send().await;
+    assert_eq!(r.body["running"], true);
+    let r = call("GET", "/api/v1/prices/refresh?wait=5").send().await;
+    assert_eq!(r.body["running"], false, "{}", r.body);
+    assert_eq!(r.body["stored"], 1);
+    assert!(r.body["finished_at"].is_string());
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]

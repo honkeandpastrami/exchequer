@@ -202,8 +202,8 @@ pub struct Statement {
     edges: Vec<Edge>,
     /// Splits left out because they have no value in USD.
     unpriced: Vec<Unpriced>,
-    /// Missing or stale prices are being fetched: asked again shortly, the
-    /// figures may be fresher.
+    /// Missing or stale prices are being fetched: once `GET /prices/fetching`
+    /// says they're done, the figures may be fresher.
     fetching: bool,
 }
 
@@ -213,8 +213,8 @@ pub struct History {
     /// One statement per month, without lines.
     months: Vec<Statement>,
     unpriced: Vec<Unpriced>,
-    /// Missing or stale prices are being fetched: asked again shortly, the
-    /// figures may be fresher.
+    /// Missing or stale prices are being fetched: once `GET /prices/fetching`
+    /// says they're done, the figures may be fresher.
     fetching: bool,
 }
 

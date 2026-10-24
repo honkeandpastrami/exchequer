@@ -42,6 +42,7 @@ from .dry_run_request import DryRunRequest
 from .dry_run_row import DryRunRow
 from .edge import Edge
 from .external_ref import ExternalRef
+from .fetching import Fetching
 from .file_format import FileFormat
 from .finish_registration import FinishRegistration
 from .finish_sign_in import FinishSignIn
@@ -211,6 +212,7 @@ __all__ = (
     "DryRunRow",
     "Edge",
     "ExternalRef",
+    "Fetching",
     "FileFormat",
     "FinishRegistration",
     "FinishSignIn",

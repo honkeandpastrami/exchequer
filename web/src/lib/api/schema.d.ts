@@ -733,6 +733,27 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v1/prices/fetching': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Whether prices are being fetched (an answer said `fetching`), once
+		 *     every fetch running has finished or the wait is over. Then the answers
+		 *     that were waiting on them may be fresher.
+		 */
+		get: operations['prices_fetching'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/prices/refresh': {
 		parameters: {
 			query?: never;
@@ -740,13 +761,16 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** The latest refresh since the server started: running, or how it went. */
+		/**
+		 * The latest refresh since the server started: how it went, once it's
+		 *     finished or the wait is over.
+		 */
 		get: operations['prices_refresh_status'];
 		put?: never;
 		/**
 		 * Start fetching every commodity's prices in `value_in` for a range of
 		 *     days, again, from the configured sources in order. It answers at once;
-		 *     `GET /prices/refresh` tells how it went. While one runs, another isn't
+		 *     `GET /prices/refresh` waits for it and tells how it went. While one runs, another isn't
 		 *     started: the one running is returned.
 		 */
 		post: operations['prices_refresh'];
@@ -1448,8 +1472,8 @@ export interface components {
 			/** Format: date */
 			date: string;
 			/**
-			 * @description Missing or stale prices are being fetched: asked again shortly, the
-			 *     figures may be fresher.
+			 * @description Missing or stale prices are being fetched: once `GET /prices/fetching`
+			 *     says they're done, the figures may be fresher.
 			 */
 			fetching: boolean;
 			/**
@@ -1790,6 +1814,11 @@ export interface components {
 			 */
 			source: string;
 		};
+		/** @description Whether prices are being fetched. */
+		Fetching: {
+			/** @description Some fetch still runs: the wait was over first. */
+			fetching: boolean;
+		};
 		/** @enum {string} */
 		FileFormat: 'ofx' | 'csv';
 		FinishRegistration: {
@@ -1819,8 +1848,8 @@ export interface components {
 			/** Format: uuid */
 			currency_id: string;
 			/**
-			 * @description Missing or stale prices are being fetched: asked again shortly, the
-			 *     figures may be fresher.
+			 * @description Missing or stale prices are being fetched: once `GET /prices/fetching`
+			 *     says they're done, the figures may be fresher.
 			 */
 			fetching: boolean;
 			/** @description One statement per month, without lines. */
@@ -1844,8 +1873,8 @@ export interface components {
 			 */
 			expenses: components['schemas']['CategoryAmount'][];
 			/**
-			 * @description Missing or stale prices are being fetched: asked again shortly, the
-			 *     figures may be fresher.
+			 * @description Missing or stale prices are being fetched: once `GET /prices/fetching`
+			 *     says they're done, the figures may be fresher.
 			 */
 			fetching: boolean;
 			/**
@@ -2719,7 +2748,7 @@ export interface components {
 			errors: string[];
 			/** Format: date-time */
 			finished_at?: string | null;
-			/** @description Still fetching: ask `GET /prices/refresh` again shortly. */
+			/** @description Still fetching: `GET /prices/refresh?wait=…` waits for it. */
 			running: boolean;
 			/** @description The configured sources, in the order asked. */
 			sources: string[];
@@ -3082,8 +3111,8 @@ export interface components {
 			currency_id: string;
 			edges: components['schemas']['Edge'][];
 			/**
-			 * @description Missing or stale prices are being fetched: asked again shortly, the
-			 *     figures may be fresher.
+			 * @description Missing or stale prices are being fetched: once `GET /prices/fetching`
+			 *     says they're done, the figures may be fresher.
 			 */
 			fetching: boolean;
 			/** @example 2026-06 */
@@ -3225,8 +3254,8 @@ export interface components {
 		/** @description A valuation, and whether fresher prices for it are being fetched. */
 		Valued: components['schemas']['ValuationOut'] & {
 			/**
-			 * @description Missing or stale prices are being fetched: asked again shortly, the
-			 *     answer may be fresher.
+			 * @description Missing or stale prices are being fetched: once
+			 *     `GET /prices/fetching` says they're done, the answer may be fresher.
 			 */
 			fetching: boolean;
 		};
@@ -5699,9 +5728,41 @@ export interface operations {
 			};
 		};
 	};
+	prices_fetching: {
+		parameters: {
+			query?: {
+				/**
+				 * @description Seconds to wait for it to finish, at most 50. Default: 0, answer
+				 *     at once.
+				 */
+				wait?: number;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Fetching'];
+				};
+			};
+		};
+	};
 	prices_refresh_status: {
 		parameters: {
-			query?: never;
+			query?: {
+				/**
+				 * @description Seconds to wait for it to finish, at most 50. Default: 0, answer
+				 *     at once.
+				 */
+				wait?: number;
+			};
 			header?: never;
 			path?: never;
 			cookie?: never;

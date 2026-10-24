@@ -63,7 +63,7 @@ def sync_detailed(
 ) -> Response[Problem | Refreshed]:
     """Start fetching every commodity's prices in `value_in` for a range of
     days, again, from the configured sources in order. It answers at once;
-    `GET /prices/refresh` tells how it went. While one runs, another isn't
+    `GET /prices/refresh` waits for it and tells how it went. While one runs, another isn't
     started: the one running is returned.
 
     Args:
@@ -95,7 +95,7 @@ def sync(
 ) -> Problem | Refreshed | None:
     """Start fetching every commodity's prices in `value_in` for a range of
     days, again, from the configured sources in order. It answers at once;
-    `GET /prices/refresh` tells how it went. While one runs, another isn't
+    `GET /prices/refresh` waits for it and tells how it went. While one runs, another isn't
     started: the one running is returned.
 
     Args:
@@ -122,7 +122,7 @@ async def asyncio_detailed(
 ) -> Response[Problem | Refreshed]:
     """Start fetching every commodity's prices in `value_in` for a range of
     days, again, from the configured sources in order. It answers at once;
-    `GET /prices/refresh` tells how it went. While one runs, another isn't
+    `GET /prices/refresh` waits for it and tells how it went. While one runs, another isn't
     started: the one running is returned.
 
     Args:
@@ -152,7 +152,7 @@ async def asyncio(
 ) -> Problem | Refreshed | None:
     """Start fetching every commodity's prices in `value_in` for a range of
     days, again, from the configured sources in order. It answers at once;
-    `GET /prices/refresh` tells how it went. While one runs, another isn't
+    `GET /prices/refresh` waits for it and tells how it went. While one runs, another isn't
     started: the one running is returned.
 
     Args:

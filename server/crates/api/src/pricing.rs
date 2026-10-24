@@ -73,6 +73,8 @@ pub struct Pricing {
     memory: Arc<Mutex<Memory>>,
     /// How many fetches are running.
     running: Arc<watch::Sender<usize>>,
+    /// How many refreshes have finished.
+    refreshed: Arc<watch::Sender<u64>>,
 }
 
 impl Default for Pricing {
@@ -94,8 +96,8 @@ pub struct Need {
 pub struct Loaded {
     pub prices: Prices,
     pub rows: Vec<PriceRow>,
-    /// Prices some of these needs lack are being fetched: asked again
-    /// shortly, the answer may be fresher.
+    /// Prices some of these needs lack are being fetched: once
+    /// `GET /prices/fetching` says they're done, the answer may be fresher.
     pub fetching: bool,
 }
 
@@ -110,6 +112,7 @@ impl Pricing {
             outage: OUTAGE,
             memory: Arc::default(),
             running: Arc::new(watch::Sender::new(0)),
+            refreshed: Arc::new(watch::Sender::new(0)),
         }
     }
 
@@ -133,10 +136,26 @@ impl Pricing {
         let _ = rx.wait_for(|n| *n == 0).await;
     }
 
+    /// Waits at most `wait` for every fetch running to finish. Whether
+    /// some still run.
+    pub async fn fetching(&self, wait: Duration) -> bool {
+        tokio::time::timeout(wait, self.settled()).await.is_err()
+    }
+
     /// The latest refresh, if any since the server started.
     #[must_use]
     pub fn last_refresh(&self) -> Option<Refresh> {
         self.lock().refresh.clone()
+    }
+
+    /// The latest refresh, once it finishes or `wait` is over.
+    pub async fn refresh_after(&self, wait: Duration) -> Option<Refresh> {
+        let mut rx = self.refreshed.subscribe();
+        if self.last_refresh()?.finished_at.is_some() {
+            return self.last_refresh();
+        }
+        let _ = tokio::time::timeout(wait, rx.changed()).await;
+        self.last_refresh()
     }
 
     /// The stored prices that may value `commodities` between two dates.
@@ -279,6 +298,7 @@ impl Pricing {
                 r.stored = stored;
                 r.errors = errors;
             }
+            this.refreshed.send_modify(|n| *n += 1);
         });
         Ok(started)
     }

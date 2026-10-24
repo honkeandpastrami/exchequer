@@ -185,9 +185,10 @@ from conversion splits after the fact, without a schema change.
 2. If not, the request answers at once with the latest stored price (the figure marked
    stale, or missing) and `fetching: true`, and starts fetching the missing prices **in one
    batch** in the background (every commodity × date the request needs, back-filling gaps
-   since the last stored price). A pair already being fetched isn't fetched twice. Asked
-   again shortly, the same request answers with what arrived; the web app does so by
-   itself, keeping what it shows until then. Storing a fetched price is the one
+   since the last stored price). A pair already being fetched isn't fetched twice.
+   `GET /prices/fetching?wait=25` answers once every fetch running has finished (or the
+   wait, at most 50 s, is over); then the same request answers with what arrived. The web
+   app does this by itself, keeping what it shows until the new answer arrives. Storing a fetched price is the one
    deliberate exception to "a GET never writes": a historical closing price never changes,
    so storing it is caching an external fact.
 3. A price for a day still in progress is *provisional*: refetched when older than a
@@ -195,7 +196,8 @@ from conversion splits after the fact, without a schema change.
 4. If the provider is unreachable or rate-limited, nothing is fetched and answers keep the
    latest stored price, marked stale. Outages degrade answers, never fail them.
 5. `POST /prices/refresh` starts a forced fetch and answers at once (`202`);
-   `GET /prices/refresh` tells whether it's still running and how it went. While one runs,
+   `GET /prices/refresh?wait=25` answers once it's finished (or the wait is over) with how
+   it went. While one runs,
    another isn't started.
 
 **Sources** are pluggable and tried in order, each a `PriceSource` behind one interface

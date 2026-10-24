@@ -20,8 +20,8 @@ class History:
     """
     Attributes:
         currency_id (UUID):
-        fetching (bool): Missing or stale prices are being fetched: asked again shortly, the
-            figures may be fresher.
+        fetching (bool): Missing or stale prices are being fetched: once `GET /prices/fetching`
+            says they're done, the figures may be fresher.
         months (list[Statement]): One statement per month, without lines.
         unpriced (list[Unpriced]):
     """

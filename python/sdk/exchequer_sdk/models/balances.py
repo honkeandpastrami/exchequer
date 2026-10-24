@@ -23,8 +23,8 @@ class Balances:
     Attributes:
         balances (list[AccountBalance]): Every account and commodity whose balance on the date isn't zero.
         date (datetime.date):
-        fetching (bool): Missing or stale prices are being fetched: asked again shortly, the
-            figures may be fresher.
+        fetching (bool): Missing or stale prices are being fetched: once `GET /prices/fetching`
+            says they're done, the figures may be fresher.
         value_in_id (None | Unset | UUID): The commodity values are in, when asked.
     """
 
