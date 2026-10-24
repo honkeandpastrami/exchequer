@@ -78,6 +78,131 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v1/auth': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** What this server offers for signing in. */
+		get: operations['auth_info'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/auth/device': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** The CLI starts signing in: it shows `user_code` and a link, and polls. */
+		post: operations['auth_start_device'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/auth/device/token': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** The CLI polls: its token once a user has approved, handed out once. */
+		post: operations['auth_device_token'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/auth/register': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Start registering a passkey with an invite. */
+		post: operations['auth_start_register'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/auth/register/{id}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Finish registering: the passkey is kept, the invite used up, and the
+		 *     browser signed in as its user.
+		 */
+		post: operations['auth_finish_register'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/auth/sign-in': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Start signing in: the browser offers the passkeys it holds for this
+		 *     server.
+		 */
+		post: operations['auth_start_sign_in'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/auth/sign-in/{id}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Finish signing in with the browser's answer. */
+		post: operations['auth_finish_sign_in'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/balance-checks': {
 		parameters: {
 			query?: never;
@@ -226,6 +351,40 @@ export interface paths {
 		head?: never;
 		/** Rename a counterparty. */
 		patch: operations['counterparties_update'];
+		trace?: never;
+	};
+	'/api/v1/devices/{code}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** The CLI waiting for approval under this code (`ABCD-EFGH`). */
+		get: operations['users_device'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/devices/{code}/approve': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Approve the CLI waiting under this code: it signs in as you. */
+		post: operations['users_approve_device'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
 		trace?: never;
 	};
 	'/api/v1/import-batches': {
@@ -465,6 +624,43 @@ export interface paths {
 		patch: operations['imports_set_statement'];
 		trace?: never;
 	};
+	'/api/v1/me': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** The signed-in user and their token. */
+		get: operations['users_me'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/me/session': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		post?: never;
+		/**
+		 * Sign out: revokes the request's token if it's a session. Other tokens are
+		 *     left alone (revoke those through `/tokens`).
+		 */
+		delete: operations['users_sign_out'];
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/parties': {
 		parameters: {
 			query?: never;
@@ -500,6 +696,23 @@ export interface paths {
 		head?: never;
 		/** Rename a party. */
 		patch: operations['parties_update'];
+		trace?: never;
+	};
+	'/api/v1/passkeys/{id}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		post?: never;
+		/** Delete a passkey; it stops working at once. */
+		delete: operations['users_remove_passkey'];
+		options?: never;
+		head?: never;
+		patch?: never;
 		trace?: never;
 	};
 	'/api/v1/prices': {
@@ -894,7 +1107,7 @@ export interface paths {
 		/** List every token, revoked ones included. */
 		get: operations['tokens_list'];
 		put?: never;
-		/** Create a token for one client. */
+		/** Create a token for one client. A signed-in user's token belongs to them. */
 		post: operations['tokens_create'];
 		delete?: never;
 		options?: never;
@@ -970,6 +1183,61 @@ export interface paths {
 		get: operations['transactions_imported_rows'];
 		put?: never;
 		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/users': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** The users who can sign in, with their passkeys. */
+		get: operations['users_list'];
+		put?: never;
+		/** Add a user, with an invite for their first passkey. */
+		post: operations['users_create'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/users/{id}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		post?: never;
+		/** Remove a user: their passkeys are deleted and their tokens revoked. */
+		delete: operations['users_remove'];
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/users/{id}/invites': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * A new invite for a user: to add a passkey on another device, or replace
+		 *     lost ones. It works once, for 24 hours.
+		 */
+		post: operations['users_invite'];
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -1077,6 +1345,11 @@ export interface components {
 			/** @description A mortgage is never liquid. */
 			liquid?: boolean | null;
 			name?: string | null;
+		};
+		/** @description What this server offers. */
+		AuthInfo: {
+			/** @description Whether passkey sign-in is on (`EXCHEQUER_ORIGIN` is set). */
+			passkeys: boolean;
 		};
 		Backtest: {
 			/** @description The method measured (`<name>-v<version>`). */
@@ -1231,6 +1504,18 @@ export interface components {
 			/** Format: uuid */
 			category_id?: string | null;
 		};
+		/** @description A ceremony started: hand `options` to the browser. */
+		Ceremony: {
+			/** Format: uuid */
+			id: string;
+			/**
+			 * @description For `navigator.credentials.create` or `.get`, binary fields as
+			 *     base64url: `{ "publicKey": … }`.
+			 */
+			options: unknown;
+			/** @description Whose passkey a registration makes; none when signing in. */
+			user?: string | null;
+		};
 		CommitReady: {
 			/** @description The imports you saw as ready. */
 			ids: string[];
@@ -1307,6 +1592,11 @@ export interface components {
 			/** @description The full token. Shown only in this response; store it now. */
 			token: string;
 		};
+		CreatedUser: {
+			/** @description Their first invite: opening it registers their first passkey. */
+			invite: components['schemas']['Invite'];
+			user: components['schemas']['User'];
+		};
 		/**
 		 * @description A credit card's limit: display metadata, never part of the balance. Only
 		 *     a `credit_card` account has one (422 otherwise); changing a card to
@@ -1341,6 +1631,32 @@ export interface components {
 			decision: components['schemas']['Decision'];
 			reason: string;
 			suggester: components['schemas']['Suggester'];
+		};
+		/** @description Show `user_code` to the user; poll with `device_code` until approved. */
+		DeviceCode: {
+			/** @description The CLI's secret. Shown only in this response. */
+			device_code: string;
+			/** Format: date-time */
+			expires_at: string;
+			/**
+			 * Format: int32
+			 * @description Seconds between polls.
+			 */
+			interval: number;
+			/** @description What the user approves in the web app, at `#/device/<user_code>`. */
+			user_code: string;
+		};
+		/** @description The CLI waiting to sign in, as the approver sees it. */
+		DeviceSignIn: {
+			/** @description What the CLI called itself, e.g. `cli on laptop`. */
+			client: string;
+			/** Format: date-time */
+			expires_at: string;
+		};
+		/** @description The CLI's token once approved; none while waiting. */
+		DeviceToken: {
+			/** @description Shown only once: store it in the token file. */
+			token?: string | null;
 		};
 		DryRun: {
 			/**
@@ -1468,6 +1784,16 @@ export interface components {
 		};
 		/** @enum {string} */
 		FileFormat: 'ofx' | 'csv';
+		FinishRegistration: {
+			/** @description The browser's `PublicKeyCredential`, as JSON (binary fields base64url). */
+			credential: unknown;
+			/** @description What to call the passkey, e.g. `iPhone`. */
+			name?: string | null;
+		};
+		FinishSignIn: {
+			/** @description The browser's `PublicKeyCredential`, as JSON (binary fields base64url). */
+			credential: unknown;
+		};
 		/** @description Who funds a business for the month: the household or a person. */
 		Funder: {
 			/** Format: uuid */
@@ -1588,6 +1914,15 @@ export interface components {
 			/** @description The row's fields as that file had them. */
 			raw?: Record<string, never> | null;
 		};
+		/** @description A one-time link's secret: the web app opens it at `#/invite/<code>`. */
+		Invite: {
+			/** @description Shown only in this response. */
+			code: string;
+			/** Format: date-time */
+			expires_at: string;
+			/** Format: uuid */
+			user_id: string;
+		};
 		/**
 		 * @description Derived from who is on each side; never stored or entered.
 		 * @enum {string}
@@ -1665,6 +2000,11 @@ export interface components {
 		};
 		/** @enum {string} */
 		LineKind: 'claim' | 'payment';
+		/** @description Who the request's token belongs to. */
+		Me: {
+			token?: components['schemas']['Token'] | null;
+			user?: components['schemas']['User'] | null;
+		};
 		/** @enum {string} */
 		Measure: 'flow' | 'balance';
 		/**
@@ -1830,6 +2170,10 @@ export interface components {
 			splits: components['schemas']['NewSplit'][];
 			/** @description Tag names; unknown ones are created. */
 			tags?: string[];
+		};
+		NewUser: {
+			/** @description What they're called, e.g. `Alex`. Unique. */
+			name: string;
 		};
 		/** @description An account number, shown only by its last four characters. */
 		Number: {
@@ -2162,6 +2506,19 @@ export interface components {
 		PartyKind: 'household' | 'person' | 'business';
 		PartyUpdate: {
 			name?: string | null;
+		};
+		/** @description A passkey: only what tells it apart, never its key. */
+		Passkey: {
+			/** Format: date-time */
+			created_at: string;
+			/** Format: uuid */
+			id: string;
+			/** Format: date-time */
+			last_used_at?: string | null;
+			name: string;
+		};
+		PollDevice: {
+			device_code: string;
 		};
 		Price: {
 			/** Format: uuid */
@@ -2526,6 +2883,14 @@ export interface components {
 			 */
 			right: number;
 		};
+		/** @description A browser signed in: send `token` as the bearer token until it expires. */
+		Session: {
+			/** Format: date-time */
+			expires_at: string;
+			/** @description Shown only in this response. */
+			token: string;
+			user: components['schemas']['User'];
+		};
 		/** @description A month's parameters and state. */
 		Settlement: {
 			closed: boolean;
@@ -2677,6 +3042,14 @@ export interface components {
 			skipped: components['schemas']['SkippedLine'][];
 			suggested_account?: components['schemas']['AccountSuggestion'] | null;
 		};
+		StartDevice: {
+			/** @description What the CLI calls itself, shown to the approver: `cli on laptop`. */
+			client: string;
+		};
+		StartRegistration: {
+			/** @description The invite's code. */
+			invite: string;
+		};
 		/** @description The statement for one month (design §4.3). */
 		Statement: {
 			closed: boolean;
@@ -2738,11 +3111,21 @@ export interface components {
 		Token: {
 			/** Format: date-time */
 			created_at: string;
+			/**
+			 * Format: date-time
+			 * @description When a session stops working; other tokens last until revoked.
+			 */
+			expires_at?: string | null;
 			/** Format: uuid */
 			id: string;
 			name: string;
 			/** Format: date-time */
 			revoked_at?: string | null;
+			/**
+			 * Format: uuid
+			 * @description The user it belongs to; none for a script's token.
+			 */
+			user_id?: string | null;
 		};
 		Transaction: {
 			/** Format: date */
@@ -2783,6 +3166,15 @@ export interface components {
 		Unpriced: components['schemas']['SplitPointer'] & {
 			/** Format: date */
 			date: string;
+		};
+		/** @description A household member who signs in. */
+		User: {
+			/** Format: date-time */
+			created_at: string;
+			/** Format: uuid */
+			id: string;
+			name: string;
+			passkeys: components['schemas']['Passkey'][];
 		};
 		/** @description What one commodity was worth in another, and which prices say so. */
 		ValuationOut: {
@@ -3129,6 +3521,262 @@ export interface operations {
 			};
 			/** @description Precondition Failed */
 			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	auth_info: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['AuthInfo'];
+				};
+			};
+		};
+	};
+	auth_start_device: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['StartDevice'];
+			};
+		};
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DeviceCode'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	auth_device_token: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['PollDevice'];
+			};
+		};
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DeviceToken'];
+				};
+			};
+			/** @description No such device code, or it expired */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	auth_start_register: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['StartRegistration'];
+			};
+		};
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Ceremony'];
+				};
+			};
+			/** @description No such invite, or it was used or expired */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Passkey sign-in is off */
+			503: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	auth_finish_register: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				/** @description Ceremony ID */
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['FinishRegistration'];
+			};
+		};
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Session'];
+				};
+			};
+			/** @description The passkey wasn't accepted, or the ceremony expired */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description That passkey is registered already */
+			409: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Passkey sign-in is off */
+			503: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	auth_start_sign_in: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Ceremony'];
+				};
+			};
+			/** @description Passkey sign-in is off */
+			503: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	auth_finish_sign_in: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				/** @description Ceremony ID */
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['FinishSignIn'];
+			};
+		};
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Session'];
+				};
+			};
+			/** @description The passkey wasn't accepted, or the ceremony expired */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Passkey sign-in is off */
+			503: {
 				headers: {
 					[name: string]: unknown;
 				};
@@ -3906,6 +4554,95 @@ export interface operations {
 			};
 		};
 	};
+	users_device: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				/** @description The code the CLI shows */
+				code: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DeviceSignIn'];
+				};
+			};
+			/** @description Unauthorized */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description No such code, or it expired */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	users_approve_device: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				/** @description The code the CLI shows */
+				code: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description No Content */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Unauthorized */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Not signed in as a user */
+			403: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description No such code, or it expired */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
 	import_batches_list: {
 		parameters: {
 			query?: {
@@ -4530,6 +5267,62 @@ export interface operations {
 			};
 		};
 	};
+	users_me: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Me'];
+				};
+			};
+			/** @description Unauthorized */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	users_sign_out: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description No Content */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Unauthorized */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
 	parties_list: {
 		parameters: {
 			query?: {
@@ -4738,6 +5531,45 @@ export interface operations {
 			};
 			/** @description Precondition Required */
 			428: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	users_remove_passkey: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				/** @description Passkey ID */
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description No Content */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Unauthorized */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Not Found */
+			404: {
 				headers: {
 					[name: string]: unknown;
 				};
@@ -6247,6 +7079,166 @@ export interface operations {
 				};
 				content: {
 					'application/json': components['schemas']['ImportedRow'][];
+				};
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	users_list: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['User'][];
+				};
+			};
+			/** @description Unauthorized */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	users_create: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['NewUser'];
+			};
+		};
+		responses: {
+			/** @description Created */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['CreatedUser'];
+				};
+			};
+			/** @description Unauthorized */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Name already used */
+			409: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	users_remove: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				/** @description User ID */
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description No Content */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Unauthorized */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	users_invite: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				/** @description User ID */
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Created */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Invite'];
+				};
+			};
+			/** @description Unauthorized */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
 				};
 			};
 			/** @description Not Found */

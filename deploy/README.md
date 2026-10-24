@@ -82,16 +82,22 @@ Run these as the (non-root) user that will own the service, from a clone of this
    curl -s http://127.0.0.1:7438/version
    ```
 
-6. Make the first real token with the bootstrap token (design §10), and save the `token`
-   it prints in your password manager: it's shown only once. The bootstrap token goes
-   through stdin, so it never shows up in `ps`:
+6. Add yourself as the first user with the bootstrap token (design §10). It goes through
+   stdin, so it never shows up in `ps`:
 
    ```sh
    podman secret inspect --showsecret --format '{{.SecretData}}' exchequer_bootstrap_token |
        sed 's/^/Authorization: Bearer /' |
-       curl -s -H @- -H 'Content-Type: application/json' -d '{"name": "admin"}' \
-           http://127.0.0.1:7438/api/v1/tokens
+       curl -s -H @- -H 'Content-Type: application/json' -d '{"name": "Alex"}' \
+           http://127.0.0.1:7438/api/v1/users
    ```
+
+   Open `<EXCHEQUER_ORIGIN>#/invite/<invite.code>` within 24 hours, on the device that will
+   hold your passkey, and create it. Everyone else is added from Setup → Users.
+
+   For a script (or a server without `EXCHEQUER_ORIGIN`), make a token the same way at
+   `/api/v1/tokens` with `{"name": "backup-script"}`, and keep the `token` it prints: it's
+   shown only once.
 
 The API applies schema migrations at startup. `GET /healthz` and `GET /version` need no
 token.
@@ -101,8 +107,9 @@ Podman checks the API's health every 30 seconds (`exchequer-server healthcheck`,
 `podman healthcheck run exchequer-server` runs it now. After three failures in a row the
 container is killed and systemd restarts it; `journalctl --user -u exchequer-server` has why.
 
-The web app is served at `/` by the same container: open `http://127.0.0.1:7438/` and
-sign in with a token (kept in that browser until you sign out).
+The web app is served at `/` by the same container. Through the reverse proxy, at
+`EXCHEQUER_ORIGIN`, sign in with a passkey; at `http://127.0.0.1:7438/`, with a token.
+Either stays in that browser until you sign out.
 
 ## Reverse proxy
 

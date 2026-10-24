@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO api_token (id, name, secret_hash) VALUES ($1, $2, $3)\n         RETURNING id, name, secret_hash, created_at, revoked_at",
+  "query": "INSERT INTO api_token (id, name, secret_hash, user_id, expires_at)\n         VALUES ($1, $2, $3, $4, $5)\n         RETURNING id, name, secret_hash, created_at, revoked_at, user_id, expires_at",
   "describe": {
     "columns": [
       {
@@ -57,13 +57,37 @@
             "name": "revoked_at"
           }
         }
+      },
+      {
+        "ordinal": 5,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "expires_at"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
         "Text",
-        "Text"
+        "Text",
+        "Uuid",
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -71,8 +95,10 @@
       false,
       false,
       false,
+      true,
+      true,
       true
     ]
   },
-  "hash": "d02d13fad5cf37d8c5744475d993336246e3c3b31c92afdc04d62f7aeb0bdd4c"
+  "hash": "8304454a6ba1fb900615c257bd529e0fec7e598253403711decb11d84a5a781c"
 }

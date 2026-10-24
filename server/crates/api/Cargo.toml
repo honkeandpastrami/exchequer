@@ -16,6 +16,8 @@ getrandom = "0.4.3"
 heuristics = { path = "../heuristics" }
 import = { path = "../import" }
 jiff = { version = "0.2", features = ["tzdb-bundle-always"] }
+# webauthn-rs's, compiled in: the image is one static binary with no system libraries.
+openssl = { version = "0.10", features = ["vendored"] }
 outbound = { path = "../outbound" }
 remote = { path = "../remote" }
 rules = { path = "../rules" }
@@ -35,8 +37,15 @@ tracing = "0.1.44"
 utoipa = { version = "6.0.0", features = ["time", "uuid"] }
 utoipa-axum = "0.3.0"
 uuid = { version = "1.28.0", features = ["serde"] }
+# Passkeys (design §10). Discoverable sign-in needs conditional-ui; a ceremony's
+# state is kept in the database between its two calls, so it's serialized.
+webauthn-rs = { version = "0.5.5", features = ["conditional-ui", "danger-allow-state-serialisation"] }
 
 [dev-dependencies]
+# A software authenticator for the passkey tests.
+base64 = "0.22"
+ciborium = "0.2"
 http-body-util = "0.1.5"
+ring = "0.17.14"
 tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread"] }
 tower = { version = "0.5.3", features = ["util"] }

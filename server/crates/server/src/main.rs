@@ -145,9 +145,20 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(sources = pricing.names().join(","), "price sources");
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(bind = %config.bind, "listening");
+    let passkeys = match &config.origin {
+        Some(origin) => {
+            tracing::info!(origin, "passkey sign-in");
+            Some(api::passkeys(origin)?)
+        }
+        None => {
+            tracing::info!("passkey sign-in off: no EXCHEQUER_ORIGIN");
+            None
+        }
+    };
     let state = api::AppState {
         pool,
         bootstrap_token: config.bootstrap_token.map(|s| s.expose().into()),
+        passkeys,
         zone: config.zone,
         suggestions: api::Suggestions::new(config.local_ai.as_deref().and_then(heuristics::method))
             .with_remote(remote),

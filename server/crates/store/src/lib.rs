@@ -27,6 +27,8 @@ pub mod parties;
 pub mod prices;
 pub mod rules;
 pub mod settlements;
+pub mod sign_in;
 pub mod tags;
 pub mod tokens;
 pub mod transactions;
+pub mod users;

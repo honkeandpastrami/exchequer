@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE invite i SET used_at = now() FROM app_user u\n         WHERE i.id = $1 AND u.id = i.user_id AND i.used_at IS NULL\n           AND i.expires_at > now() AND u.removed_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "73cb7a1527d27fd3e5e6038c6b40be1d85ca6aa382b768cca20816ee1ec0260b"
+}

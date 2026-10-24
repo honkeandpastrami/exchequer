@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import datetime
+import socket
+import webbrowser
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
@@ -11,8 +13,9 @@ import typer
 
 from exchequer_cli import config
 from exchequer_cli.imports import ApiError, Importer, ok
+from exchequer_cli.login import login as sign_in
 from exchequer_cli.rules import Rules, error_lines, month_range
-from exchequer_sdk import AuthenticatedClient
+from exchequer_sdk import AuthenticatedClient, Client
 from exchequer_sdk.api.prices import prices_refresh
 from exchequer_sdk.models import RefreshRequest, RuleScript
 from exchequer_sdk.types import UNSET
@@ -49,6 +52,31 @@ class TerminalUi:
 @app.callback()
 def main_callback() -> None:
     """Exchequer, from the command line."""
+
+
+@app.command()
+def login(
+    name: Annotated[
+        str | None,
+        typer.Option(help="What to call this CLI's token; default `cli on <host>`."),
+    ] = None,
+) -> None:
+    """Sign in through the web app: approve a code, and the token file is written."""
+    try:
+        cfg = config.load()
+        with Client(base_url=cfg.url) as client:
+            code = sign_in(
+                client,
+                cfg.url,
+                cfg.token_file,
+                name=name or f"cli on {socket.gethostname().split('.')[0]}",
+                say=typer.echo,
+                open_url=webbrowser.open,
+            )
+    except (config.ConfigError, ApiError) as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(2) from e
+    raise typer.Exit(code)
 
 
 @app.command("import")

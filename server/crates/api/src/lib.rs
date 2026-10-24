@@ -10,6 +10,7 @@ use axum::body::Body;
 use axum::extract::Request;
 use axum::http::Response;
 pub use pricing::Pricing;
+pub use sign_in::passkeys;
 use sqlx::PgPool;
 pub use suggestions::Suggestions;
 use tower_http::trace::TraceLayer;
@@ -39,19 +40,23 @@ mod query;
 mod reports;
 mod rules;
 mod settlements;
+mod sign_in;
 mod suggesters;
 mod suggestions;
 mod tags;
 mod tokens;
 mod transactions;
+mod users;
 mod web;
 
 /// Shared by every handler.
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
-    /// Accepted only for managing tokens (design §10).
+    /// Accepted only for managing users and tokens (design §10).
     pub bootstrap_token: Option<Arc<str>>,
+    /// Passkey sign-in, bound to the server's origin; `None`, tokens only.
+    pub passkeys: Option<Arc<webauthn_rs::Webauthn>>,
     /// The server's time zone: what "today" and a bank file's dates mean.
     pub zone: jiff::tz::TimeZone,
     /// The suggestion stack (design §8).
@@ -100,9 +105,12 @@ impl utoipa::Modify for BearerAuth {
     }
 }
 
-/// Everything under `/api/v1`; all of it requires a token.
+/// Everything under `/api/v1`; all of it requires a token, except `/auth`
+/// (how a token is obtained).
 fn v1() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
+        .merge(sign_in::routes())
+        .merge(users::routes())
         .merge(tokens::routes())
         .merge(parties::routes())
         .merge(commodities::routes())

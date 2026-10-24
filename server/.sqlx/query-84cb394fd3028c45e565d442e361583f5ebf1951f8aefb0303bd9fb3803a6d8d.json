@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM device_sign_in\n         WHERE id = $1 AND expires_at > now() AND approved_by IS NOT NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "84cb394fd3028c45e565d442e361583f5ebf1951f8aefb0303bd9fb3803a6d8d"
+}

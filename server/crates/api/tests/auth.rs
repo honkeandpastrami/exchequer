@@ -26,6 +26,7 @@ async fn call(
     let app = api::app(api::AppState {
         pool: pool.clone(),
         bootstrap_token: Some(BOOTSTRAP.into()),
+        passkeys: None,
         zone: jiff::tz::TimeZone::get("America/New_York").unwrap(),
         suggestions: api::Suggestions::default(),
         pricing: api::Pricing::default(),

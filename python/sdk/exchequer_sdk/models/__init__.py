@@ -5,6 +5,7 @@ from .account_balance import AccountBalance
 from .account_kind import AccountKind
 from .account_suggestion import AccountSuggestion
 from .account_update import AccountUpdate
+from .auth_info import AuthInfo
 from .backtest import Backtest
 from .backtest_level import BacktestLevel
 from .backtest_level_details import BacktestLevelDetails
@@ -20,6 +21,7 @@ from .candidate_reason import CandidateReason
 from .candidate_split import CandidateSplit
 from .category import Category
 from .category_amount import CategoryAmount
+from .ceremony import Ceremony
 from .commit_ready import CommitReady
 from .committed import Committed
 from .commodity import Commodity
@@ -27,9 +29,13 @@ from .commodity_kind import CommodityKind
 from .commodity_update import CommodityUpdate
 from .counterparty import Counterparty
 from .created_token import CreatedToken
+from .created_user import CreatedUser
 from .credit_limit import CreditLimit
 from .decision import Decision
 from .decision_suggestion import DecisionSuggestion
+from .device_code import DeviceCode
+from .device_sign_in import DeviceSignIn
+from .device_token import DeviceToken
 from .dry_run import DryRun
 from .dry_run_change import DryRunChange
 from .dry_run_request import DryRunRequest
@@ -37,6 +43,8 @@ from .dry_run_row import DryRunRow
 from .edge import Edge
 from .external_ref import ExternalRef
 from .file_format import FileFormat
+from .finish_registration import FinishRegistration
+from .finish_sign_in import FinishSignIn
 from .funder import Funder
 from .group_by import GroupBy
 from .health import Health
@@ -48,6 +56,7 @@ from .import_fingerprint import ImportFingerprint
 from .import_fingerprints_added import ImportFingerprintsAdded
 from .imported_row import ImportedRow
 from .imported_row_raw_type_0 import ImportedRowRawType0
+from .invite import Invite
 from .kind import Kind
 from .kind_name import KindName
 from .label import Label
@@ -57,6 +66,7 @@ from .ledger_balance import LedgerBalance
 from .leg import Leg
 from .line import Line
 from .line_kind import LineKind
+from .me import Me
 from .measure import Measure
 from .metrics import Metrics
 from .new_account import NewAccount
@@ -73,6 +83,7 @@ from .new_split import NewSplit
 from .new_tag import NewTag
 from .new_token import NewToken
 from .new_transaction import NewTransaction
+from .new_user import NewUser
 from .number import Number
 from .page_account import PageAccount
 from .page_account_items_item import PageAccountItemsItem
@@ -105,6 +116,8 @@ from .party import Party
 from .party_amount import PartyAmount
 from .party_kind import PartyKind
 from .party_update import PartyUpdate
+from .passkey import Passkey
+from .poll_device import PollDevice
 from .price import Price
 from .price_update import PriceUpdate
 from .price_used import PriceUsed
@@ -127,6 +140,7 @@ from .rule_script import RuleScript
 from .rule_upload import RuleUpload
 from .rule_version import RuleVersion
 from .score import Score
+from .session import Session
 from .settlement import Settlement
 from .settlement_params import SettlementParams
 from .skipped_line import SkippedLine
@@ -135,6 +149,8 @@ from .split_pointer import SplitPointer
 from .staged_row import StagedRow
 from .staged_row_raw import StagedRowRaw
 from .staged_statement import StagedStatement
+from .start_device import StartDevice
+from .start_registration import StartRegistration
 from .statement import Statement
 from .statement_kind import StatementKind
 from .statement_update import StatementUpdate
@@ -147,6 +163,7 @@ from .token import Token
 from .transaction import Transaction
 from .transfer_match import TransferMatch
 from .unpriced import Unpriced
+from .user import User
 from .valuation_out import ValuationOut
 from .version import Version
 
@@ -156,6 +173,7 @@ __all__ = (
     "AccountKind",
     "AccountSuggestion",
     "AccountUpdate",
+    "AuthInfo",
     "Backtest",
     "BacktestLevel",
     "BacktestLevelDetails",
@@ -171,6 +189,7 @@ __all__ = (
     "CandidateSplit",
     "Category",
     "CategoryAmount",
+    "Ceremony",
     "CommitReady",
     "Committed",
     "Commodity",
@@ -178,9 +197,13 @@ __all__ = (
     "CommodityUpdate",
     "Counterparty",
     "CreatedToken",
+    "CreatedUser",
     "CreditLimit",
     "Decision",
     "DecisionSuggestion",
+    "DeviceCode",
+    "DeviceSignIn",
+    "DeviceToken",
     "DryRun",
     "DryRunChange",
     "DryRunRequest",
@@ -188,6 +211,8 @@ __all__ = (
     "Edge",
     "ExternalRef",
     "FileFormat",
+    "FinishRegistration",
+    "FinishSignIn",
     "Funder",
     "GroupBy",
     "Health",
@@ -199,6 +224,7 @@ __all__ = (
     "ImportedRowRawType0",
     "ImportFingerprint",
     "ImportFingerprintsAdded",
+    "Invite",
     "Kind",
     "KindName",
     "Label",
@@ -208,6 +234,7 @@ __all__ = (
     "Leg",
     "Line",
     "LineKind",
+    "Me",
     "Measure",
     "Metrics",
     "NewAccount",
@@ -224,6 +251,7 @@ __all__ = (
     "NewTag",
     "NewToken",
     "NewTransaction",
+    "NewUser",
     "Number",
     "PageAccount",
     "PageAccountItemsItem",
@@ -256,6 +284,8 @@ __all__ = (
     "PartyAmount",
     "PartyKind",
     "PartyUpdate",
+    "Passkey",
+    "PollDevice",
     "Price",
     "PriceUpdate",
     "PriceUsed",
@@ -278,6 +308,7 @@ __all__ = (
     "RuleUpload",
     "RuleVersion",
     "Score",
+    "Session",
     "Settlement",
     "SettlementParams",
     "SkippedLine",
@@ -286,6 +317,8 @@ __all__ = (
     "StagedRow",
     "StagedRowRaw",
     "StagedStatement",
+    "StartDevice",
+    "StartRegistration",
     "Statement",
     "StatementKind",
     "StatementUpdate",
@@ -298,6 +331,7 @@ __all__ = (
     "Transaction",
     "TransferMatch",
     "Unpriced",
+    "User",
     "ValuationOut",
     "Version",
 )

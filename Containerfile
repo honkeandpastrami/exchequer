@@ -14,13 +14,14 @@ ARG EXCHEQUER_VERSION=0.0.0-dev
 RUN npm run build
 
 # Rust, plus ring's C and assembly (TLS for remote AI, built with the gcc and
-# musl headers below). On Alpine the host target is musl, whose standard
+# musl headers below) and OpenSSL for passkeys (webauthn-rs), compiled from
+# source and linked in statically (perl and make build it). On Alpine the host target is musl, whose standard
 # library ships with the image (nothing to download), and musl binaries are
 # static by default. TLS roots are compiled in (webpki-roots): the image has
 # no certificate store. sqlx checks queries against the committed cache in
 # server/.sqlx, no database needed.
 FROM docker.io/library/rust:1.99-alpine AS chef
-RUN apk add --no-cache gcc musl-dev
+RUN apk add --no-cache gcc musl-dev make perl
 RUN cargo install cargo-chef --version 0.1.78 --locked
 WORKDIR /src/server
 ENV SQLX_OFFLINE=true

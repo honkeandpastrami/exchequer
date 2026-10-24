@@ -2,6 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { api } from '../api/client';
 	import { signOut } from '../session.svelte';
 	import { version } from '../version';
 
@@ -9,6 +10,12 @@
 
 	const current = (route: string) =>
 		route === '/' ? page.route.id === '/' : !!page.route.id?.startsWith(route);
+
+	/** Ends a passkey session on the server too; an API token stays valid. */
+	async function leave() {
+		await api.DELETE('/api/v1/me/session').catch(() => {});
+		signOut();
+	}
 
 	const sections = [
 		{ href: resolve('/'), label: 'Accounts', route: '/' },
@@ -27,7 +34,7 @@
 			<a href={s.href} aria-current={current(s.route) ? 'page' : undefined}>{s.label}</a>
 		{/each}
 	</nav>
-	<button class="quiet" onclick={signOut}>Sign out</button>
+	<button class="quiet" onclick={leave}>Sign out</button>
 </header>
 <main>
 	{@render children()}

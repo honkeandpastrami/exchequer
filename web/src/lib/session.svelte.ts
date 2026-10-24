@@ -1,5 +1,5 @@
-// The API token, kept in this browser's localStorage until signing out
-// (Entra sign-in replaces it in step 9).
+// The bearer token, kept in this browser's localStorage until signing out:
+// a passkey session's (design §10), or an API token typed in.
 
 import { forgetReference } from './reference';
 

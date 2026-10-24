@@ -11,6 +11,7 @@ async fn get(pool: PgPool, path: &str) -> (StatusCode, serde_json::Value) {
     let res = api::app(api::AppState {
         pool,
         bootstrap_token: None,
+        passkeys: None,
         zone: jiff::tz::TimeZone::get("America/New_York").unwrap(),
         suggestions: api::Suggestions::default(),
         pricing: api::Pricing::default(),
