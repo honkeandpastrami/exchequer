@@ -20,17 +20,22 @@ class History:
     """
     Attributes:
         currency_id (UUID):
+        fetching (bool): Missing or stale prices are being fetched: once `GET /prices/fetching`
+            says they're done, the figures may be fresher.
         months (list[Statement]): One statement per month, without lines.
         unpriced (list[Unpriced]):
     """
 
     currency_id: UUID
+    fetching: bool
     months: list[Statement]
     unpriced: list[Unpriced]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         currency_id = str(self.currency_id)
+
+        fetching = self.fetching
 
         months = []
         for months_item_data in self.months:
@@ -47,6 +52,7 @@ class History:
         field_dict.update(
             {
                 "currency_id": currency_id,
+                "fetching": fetching,
                 "months": months,
                 "unpriced": unpriced,
             }
@@ -61,6 +67,8 @@ class History:
 
         d = dict(src_dict)
         currency_id = UUID(d.pop("currency_id"))
+
+        fetching = d.pop("fetching")
 
         months = []
         _months = d.pop("months")
@@ -78,6 +86,7 @@ class History:
 
         history = cls(
             currency_id=currency_id,
+            fetching=fetching,
             months=months,
             unpriced=unpriced,
         )

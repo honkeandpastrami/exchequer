@@ -75,7 +75,7 @@ def sync_detailed(
     price_date: datetime.date | Unset = UNSET,
 ) -> Response[Balances | Problem]:
     """Each account's balance in each commodity at the end of a day, and with
-    `value_in`, its value at prices (fetched if missing).
+    `value_in`, its value at stored prices (missing ones fetched after it answers).
 
     Args:
         date (datetime.date):
@@ -111,7 +111,7 @@ def sync(
     price_date: datetime.date | Unset = UNSET,
 ) -> Balances | Problem | None:
     """Each account's balance in each commodity at the end of a day, and with
-    `value_in`, its value at prices (fetched if missing).
+    `value_in`, its value at stored prices (missing ones fetched after it answers).
 
     Args:
         date (datetime.date):
@@ -142,7 +142,7 @@ async def asyncio_detailed(
     price_date: datetime.date | Unset = UNSET,
 ) -> Response[Balances | Problem]:
     """Each account's balance in each commodity at the end of a day, and with
-    `value_in`, its value at prices (fetched if missing).
+    `value_in`, its value at stored prices (missing ones fetched after it answers).
 
     Args:
         date (datetime.date):
@@ -176,7 +176,7 @@ async def asyncio(
     price_date: datetime.date | Unset = UNSET,
 ) -> Balances | Problem | None:
     """Each account's balance in each commodity at the end of a day, and with
-    `value_in`, its value at prices (fetched if missing).
+    `value_in`, its value at stored prices (missing ones fetched after it answers).
 
     Args:
         date (datetime.date):

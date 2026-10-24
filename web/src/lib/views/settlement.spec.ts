@@ -33,10 +33,16 @@ describe('settlement view', () => {
 			closed: m < '2026-03',
 			currency_id: 'usd',
 			unpriced: [],
+			fetching: false,
 			edges: [edge('studio', '0', '0'), edge('sam', '1.00', '0')]
 		});
 		const h = byEdge(
-			{ currency_id: 'usd', unpriced: [], months: [month('2026-03'), month('2026-02')] },
+			{
+				currency_id: 'usd',
+				unpriced: [],
+				fetching: false,
+				months: [month('2026-03'), month('2026-02')]
+			},
 			parties
 		);
 		expect(h.map((e) => e.child?.name)).toEqual(['Sam', 'Studio']);

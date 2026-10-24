@@ -42,6 +42,7 @@ from .dry_run_request import DryRunRequest
 from .dry_run_row import DryRunRow
 from .edge import Edge
 from .external_ref import ExternalRef
+from .fetching import Fetching
 from .file_format import FileFormat
 from .finish_registration import FinishRegistration
 from .finish_sign_in import FinishSignIn
@@ -165,6 +166,7 @@ from .transfer_match import TransferMatch
 from .unpriced import Unpriced
 from .user import User
 from .valuation_out import ValuationOut
+from .valued import Valued
 from .version import Version
 
 __all__ = (
@@ -210,6 +212,7 @@ __all__ = (
     "DryRunRow",
     "Edge",
     "ExternalRef",
+    "Fetching",
     "FileFormat",
     "FinishRegistration",
     "FinishSignIn",
@@ -333,5 +336,6 @@ __all__ = (
     "Unpriced",
     "User",
     "ValuationOut",
+    "Valued",
     "Version",
 )

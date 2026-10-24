@@ -4,6 +4,7 @@
 mod common;
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::http::StatusCode;
 use common::household::{H, create};
@@ -146,13 +147,19 @@ async fn one_source_before_a_chain(pool: PgPool) {
     assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
 }
 
-/// A price source that answers from a list, and counts what it's asked.
+/// How a fake source fails, while it does.
+type Failure = Arc<Mutex<Option<fn() -> Error>>>;
+
+/// A price source that answers from a list, or fails while `fail` says
+/// how, and counts what it's asked.
 struct Fake {
     name: &'static str,
     /// `(base, quote, date, rate)`.
     quotes: Vec<(&'static str, &'static str, &'static str, &'static str)>,
-    fail: bool,
+    fail: Failure,
     asked: Arc<Mutex<Vec<String>>>,
+    /// How long each fetch takes.
+    delay: Duration,
 }
 
 impl PriceSource for Fake {
@@ -175,8 +182,9 @@ impl PriceSource for Fake {
                 .unwrap()
                 .push(format!("{} {}{} {from} {to}", self.name, p.base, p.quote));
         }
-        if self.fail {
-            return Err(Error::RateLimited);
+        std::thread::sleep(self.delay);
+        if let Some(fail) = *self.fail.lock().unwrap() {
+            return Err(fail());
         }
         Ok(self
             .quotes
@@ -192,41 +200,73 @@ impl PriceSource for Fake {
     }
 }
 
+fn fake(
+    name: &'static str,
+    fail: Option<fn() -> Error>,
+    quotes: Vec<(&'static str, &'static str, &'static str, &'static str)>,
+    asked: &Arc<Mutex<Vec<String>>>,
+) -> Arc<dyn PriceSource> {
+    Arc::new(Fake {
+        name,
+        quotes,
+        fail: Arc::new(Mutex::new(fail)),
+        asked: Arc::clone(asked),
+        delay: Duration::ZERO,
+    })
+}
+
+/// Asks for a valuation and, if prices are being fetched, waits for them.
+async fn settled(
+    pool: &PgPool,
+    h: &H,
+    pricing: &api::Pricing,
+    q: &str,
+) -> (StatusCode, Value, bool) {
+    let r = common::call(pool, "GET", format!("/api/v1/prices/value?{q}"))
+        .token(&h.t)
+        .pricing(pricing.clone())
+        .send()
+        .await;
+    let fetching = r.body["fetching"] == true
+        || r.body["detail"]
+            .as_str()
+            .is_some_and(|d| d.contains("fetching"));
+    pricing.settled().await;
+    (r.status, r.body, fetching)
+}
+
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn missing_prices_are_fetched_in_source_order(pool: PgPool) {
     let h = H::new(&pool).await;
     fiat(&h, &pool, "GBP").await;
     let asked = Arc::new(Mutex::new(Vec::new()));
-    let source = |name, fail, quotes| -> Arc<dyn PriceSource> {
-        Arc::new(Fake {
-            name,
-            quotes,
-            fail,
-            asked: Arc::clone(&asked),
-        })
-    };
     let pricing = api::Pricing::new(
         vec![
-            source("first", true, vec![]),
-            source("second", false, vec![]),
-            source("third", false, vec![("GBP", "USD", "2026-06-01", "1.27")]),
-            source("fourth", false, vec![("GBP", "USD", "2026-06-01", "9")]),
+            fake("first", Some(|| Error::RateLimited), vec![], &asked),
+            fake("second", None, vec![], &asked),
+            fake(
+                "third",
+                None,
+                vec![("GBP", "USD", "2026-06-01", "1.27")],
+                &asked,
+            ),
+            fake(
+                "fourth",
+                None,
+                vec![("GBP", "USD", "2026-06-01", "9")],
+                &asked,
+            ),
         ],
         5,
     );
-    let get = |q: &'static str| {
-        common::call(&pool, "GET", format!("/api/v1/prices/value?{q}"))
-            .token(&h.t)
-            .pricing(pricing.clone())
-            .send()
-    };
+    let get = |q: &'static str| settled(&pool, &h, &pricing, q);
 
+    // Nothing stored: the answer comes at once, and the fetch after it.
     // The first fails, the second has nothing, the third answers: the
     // fourth isn't asked. The range goes back to cover a few fresh days.
-    let r = get("from=GBP&to=USD&date=2026-06-02").await;
-    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
-    assert_eq!(r.body["rate"], "1.27");
-    assert_eq!(r.body["prices"][0]["source"], "provider:third");
+    let (status, _, fetching) = get("from=GBP&to=USD&date=2026-06-02").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(fetching);
     assert_eq!(
         *asked.lock().unwrap(),
         [
@@ -235,39 +275,60 @@ async fn missing_prices_are_fetched_in_source_order(pool: PgPool) {
             "third GBPUSD 2026-05-28 2026-06-02",
         ]
     );
+    let (status, v, fetching) = get("from=GBP&to=USD&date=2026-06-02").await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(v["rate"], "1.27");
+    assert_eq!(v["prices"][0]["source"], "provider:third");
+    assert!(!fetching);
 
     // Stored now: nobody is asked again.
     asked.lock().unwrap().clear();
-    let r = get("from=USD&to=GBP&date=2026-06-03").await;
-    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    let (status, _, fetching) = get("from=USD&to=GBP&date=2026-06-03").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!fetching);
     assert!(asked.lock().unwrap().is_empty());
 
-    // Stale for a later day: those days weren't asked for, so they are.
-    // The third still has nothing newer.
-    let r = get("from=GBP&to=USD&date=2026-07-01").await;
-    assert_eq!(r.body["stale"], true);
-    assert_eq!(r.body["prices"][0]["source"], "provider:third");
-    let late = [
-        "first GBPUSD 2026-06-26 2026-07-01",
-        "second GBPUSD 2026-06-26 2026-07-01",
-        "third GBPUSD 2026-06-26 2026-07-01",
-    ];
-    assert_eq!(*asked.lock().unwrap(), late);
+    // Stale for a later day: those days weren't asked for, so they are,
+    // after the stale answer. The first is still rate-limited: passed over.
+    let (_, v, fetching) = get("from=GBP&to=USD&date=2026-07-01").await;
+    assert_eq!(v["stale"], true);
+    assert!(fetching);
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [
+            "second GBPUSD 2026-06-26 2026-07-01",
+            "third GBPUSD 2026-06-26 2026-07-01",
+        ]
+    );
 
     // The same days within the hour, either way round: nobody again.
     asked.lock().unwrap().clear();
-    get("from=GBP&to=USD&date=2026-07-01").await;
+    let (_, _, fetching) = get("from=GBP&to=USD&date=2026-07-01").await;
+    assert!(!fetching);
     get("from=USD&to=GBP&date=2026-07-01").await;
     assert!(asked.lock().unwrap().is_empty());
 
-    // A refresh asks anyway.
-    let r = common::call(&pool, "POST", "/api/v1/prices/refresh")
-        .token(&h.t)
-        .pricing(pricing.clone())
-        .json(json!({ "from": "2026-06-01", "to": "2026-06-05" }))
+    // A refresh asks anyway, the first too, and answers before it's done.
+    let refresh = |method: &'static str| {
+        let call = common::call(&pool, method, "/api/v1/prices/refresh")
+            .token(&h.t)
+            .pricing(pricing.clone());
+        if method == "POST" {
+            call.json(json!({ "from": "2026-06-01", "to": "2026-06-05" }))
+        } else {
+            call
+        }
         .send()
-        .await;
+    };
+    let r = refresh("GET").await;
+    assert_eq!(r.status, StatusCode::NOT_FOUND, "none yet");
+    let r = refresh("POST").await;
+    assert_eq!(r.status, StatusCode::ACCEPTED, "{}", r.body);
+    assert_eq!(r.body["running"], true);
+    pricing.settled().await;
+    let r = refresh("GET").await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(r.body["running"], false);
     assert_eq!(
         r.body["sources"],
         json!(["first", "second", "third", "fourth"])
@@ -275,6 +336,113 @@ async fn missing_prices_are_fetched_in_source_order(pool: PgPool) {
     assert_eq!(r.body["stored"], 1);
     assert_eq!(r.body["errors"], json!(["first: rate-limited"]));
     assert_eq!(asked.lock().unwrap().len(), 3);
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn an_outage_is_asked_again_soon(pool: PgPool) {
+    let h = H::new(&pool).await;
+    fiat(&h, &pool, "GBP").await;
+    fiat(&h, &pool, "EUR").await;
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let fail: Failure = Arc::new(Mutex::new(Some(|| Error::Transport("no network".into()))));
+    let source = Arc::new(Fake {
+        name: "net",
+        quotes: vec![
+            ("GBP", "USD", "2026-06-01", "1.27"),
+            ("EUR", "USD", "2026-06-01", "1.1"),
+        ],
+        fail: Arc::clone(&fail),
+        asked: Arc::clone(&asked),
+        delay: Duration::ZERO,
+    });
+    let pricing = api::Pricing::new(vec![source], 5).outage(Duration::from_millis(200));
+    let get = |q: &'static str| settled(&pool, &h, &pricing, q);
+
+    // Down: asked once for both pairs, not once per pair.
+    let r = common::call(&pool, "POST", "/api/v1/prices/refresh")
+        .token(&h.t)
+        .pricing(pricing.clone())
+        .json(json!({ "from": "2026-06-01", "to": "2026-06-01" }))
+        .send()
+        .await;
+    assert_eq!(r.status, StatusCode::ACCEPTED, "{}", r.body);
+    pricing.settled().await;
+    let r = common::call(&pool, "GET", "/api/v1/prices/refresh")
+        .token(&h.t)
+        .pricing(pricing.clone())
+        .send()
+        .await;
+    assert_eq!(r.body["errors"], json!(["net: unreachable: no network"]));
+    assert_eq!(asked.lock().unwrap().len(), 1);
+
+    // Passed over for a while: nothing to fetch, so not fetching.
+    let (status, _, fetching) = get("from=GBP&to=USD&date=2026-06-01").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!fetching);
+    assert_eq!(asked.lock().unwrap().len(), 1);
+
+    // Back, and the wait is over: asked again, not an hour later.
+    *fail.lock().unwrap() = None;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let (_, _, fetching) = get("from=GBP&to=USD&date=2026-06-01").await;
+    assert!(fetching);
+    let (status, v, _) = get("from=GBP&to=USD&date=2026-06-01").await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(v["rate"], "1.27");
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn waiting_for_a_fetch(pool: PgPool) {
+    let h = H::new(&pool).await;
+    fiat(&h, &pool, "GBP").await;
+    let source = Arc::new(Fake {
+        name: "slow",
+        quotes: vec![("GBP", "USD", "2026-06-01", "1.27")],
+        fail: Arc::default(),
+        asked: Arc::default(),
+        delay: Duration::from_millis(300),
+    });
+    let pricing = api::Pricing::new(vec![source], 5);
+    let call = |method: &'static str, path: &'static str| {
+        common::call(&pool, method, path)
+            .token(&h.t)
+            .pricing(pricing.clone())
+    };
+
+    // The answer comes before the fetch; asking without a wait says it
+    // still runs, and with one answers when it's done.
+    let r = call(
+        "GET",
+        "/api/v1/prices/value?from=GBP&to=USD&date=2026-06-01",
+    )
+    .send()
+    .await;
+    assert_eq!(r.status, StatusCode::NOT_FOUND);
+    let r = call("GET", "/api/v1/prices/fetching").send().await;
+    assert_eq!(r.body, json!({ "fetching": true }));
+    let r = call("GET", "/api/v1/prices/fetching?wait=5").send().await;
+    assert_eq!(r.body, json!({ "fetching": false }));
+    let r = call(
+        "GET",
+        "/api/v1/prices/value?from=GBP&to=USD&date=2026-06-01",
+    )
+    .send()
+    .await;
+    assert_eq!(r.body["rate"], "1.27");
+    assert_eq!(r.body["fetching"], false);
+
+    // A refresh: running at first, and its result once waited for.
+    let r = call("POST", "/api/v1/prices/refresh")
+        .json(json!({ "from": "2026-06-01", "to": "2026-06-01" }))
+        .send()
+        .await;
+    assert_eq!(r.body["running"], true);
+    let r = call("GET", "/api/v1/prices/refresh").send().await;
+    assert_eq!(r.body["running"], true);
+    let r = call("GET", "/api/v1/prices/refresh?wait=5").send().await;
+    assert_eq!(r.body["running"], false, "{}", r.body);
+    assert_eq!(r.body["stored"], 1);
+    assert!(r.body["finished_at"].is_string());
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]

@@ -25,6 +25,8 @@ class Statement:
         closed (bool):
         currency_id (UUID):
         edges (list[Edge]):
+        fetching (bool): Missing or stale prices are being fetched: once `GET /prices/fetching`
+            says they're done, the figures may be fresher.
         month (str):  Example: 2026-06.
         unpriced (list[Unpriced]): Splits left out because they have no value in USD.
         params_from (None | str | Unset):
@@ -33,6 +35,7 @@ class Statement:
     closed: bool
     currency_id: UUID
     edges: list[Edge]
+    fetching: bool
     month: str
     unpriced: list[Unpriced]
     params_from: None | str | Unset = UNSET
@@ -47,6 +50,8 @@ class Statement:
         for edges_item_data in self.edges:
             edges_item = edges_item_data.to_dict()
             edges.append(edges_item)
+
+        fetching = self.fetching
 
         month = self.month
 
@@ -68,6 +73,7 @@ class Statement:
                 "closed": closed,
                 "currency_id": currency_id,
                 "edges": edges,
+                "fetching": fetching,
                 "month": month,
                 "unpriced": unpriced,
             }
@@ -94,6 +100,8 @@ class Statement:
 
             edges.append(edges_item)
 
+        fetching = d.pop("fetching")
+
         month = d.pop("month")
 
         unpriced = []
@@ -116,6 +124,7 @@ class Statement:
             closed=closed,
             currency_id=currency_id,
             edges=edges,
+            fetching=fetching,
             month=month,
             unpriced=unpriced,
             params_from=params_from,

@@ -73,10 +73,21 @@
 		run(async () => {}, false);
 	});
 
-	const refresh = () =>
-		run(async () => {
-			refreshed = ok(await api.POST('/api/v1/prices/refresh', { body: {} }));
-		}, false);
+	/** Starts a refresh and follows it; the page stays usable meanwhile. */
+	async function refresh() {
+		failure = null;
+		try {
+			let r = ok(await api.POST('/api/v1/prices/refresh', { body: {} }));
+			refreshed = r;
+			while (r.running) {
+				r = ok(await api.GET('/api/v1/prices/refresh', { params: { query: { wait: 25 } } }));
+				refreshed = r;
+			}
+			await page();
+		} catch (e) {
+			failure = e;
+		}
+	}
 
 	async function read(id: string) {
 		const r = await api.GET('/api/v1/prices/{id}', { params: { path: { id } } });
@@ -203,14 +214,19 @@
 
 <div class="heading">
 	<h1>Prices</h1>
-	<button class="quiet" onclick={refresh} disabled={busy}>
-		{busy && !refreshed ? 'Fetching…' : "Fetch today's prices"}
+	<button class="quiet" onclick={refresh} disabled={refreshed?.running}>
+		{refreshed?.running ? 'Fetching…' : "Fetch today's prices"}
 	</button>
 	{#if refreshed}
+		{@const from = refreshed.sources.map((n) => sourceName(`provider:${n}`)).join(', ')}
 		<span class="muted small">
-			{refreshed.stored} stored{refreshed.sources.length
-				? ` from ${refreshed.sources.map((n) => sourceName(`provider:${n}`)).join(', ')}`
-				: ', no sources configured'}
+			{#if !refreshed.sources.length}
+				No sources configured
+			{:else if refreshed.running}
+				Fetching from {from}…
+			{:else}
+				{refreshed.stored} stored from {from}
+			{/if}
 		</span>
 		{#each refreshed.errors as e (e)}<span class="warning small">{e}</span>{/each}
 	{/if}

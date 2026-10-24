@@ -7,6 +7,7 @@
 	import Failure from '#lib/components/Failure.svelte';
 	import StatusMark from '#lib/components/StatusMark.svelte';
 	import { monthName, thisMonth } from '#lib/dates.ts';
+	import { fetched, latest } from '#lib/fetching.svelte.ts';
 	import { hashQuery } from '#lib/query.ts';
 	import { reference } from '#lib/reference.ts';
 	import { SETTLEMENT_CODE } from '#lib/usd.ts';
@@ -19,12 +20,18 @@
 		const to = year === current.slice(0, 4) ? current : `${year}-12`;
 		const [ref, history] = await Promise.all([
 			reference(),
-			api.GET('/api/v1/settlements', { params: { query: { from: `${year}-01`, to } } }).then(ok)
+			api
+				.GET('/api/v1/settlements', { params: { query: { from: `${year}-01`, to } } })
+				.then(ok)
+				.then(fetched)
 		]);
 		return { ref, edges: byEdge(history, ref.parties), unpriced: history.unpriced };
 	}
 
-	let data = $derived(load(year));
+	const data = latest(
+		() => year,
+		() => load(year)
+	);
 	const go = (y: number) => goto(resolve(`/settlement?year=${y}`), { replace: true });
 
 	const columns = [
@@ -55,9 +62,14 @@
 	<code>outstanding = carried + due − paid</code>; <code>due = claims − stipend</code>.
 </p>
 
-{#await data}
-	<p class="muted">Loading…</p>
-{:then d}
+{#await data.promise}
+	{#if !data.value}<p class="muted">Loading…</p>{/if}
+{:catch error}
+	<Failure {error} />
+{/await}
+
+{#if data.value}
+	{@const d = data.value}
 	{#each d.edges as e (e.key)}
 		<section class="card">
 			<h2>{e.child?.name ?? '?'} → {e.parent?.name ?? '?'}</h2>
@@ -94,9 +106,7 @@
 			{d.unpriced.length} splits have no price in {SETTLEMENT_CODE} and are left out.
 		</p>
 	{/if}
-{:catch error}
-	<Failure {error} />
-{/await}
+{/if}
 
 <style>
 	.heading {

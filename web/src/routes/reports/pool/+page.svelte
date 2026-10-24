@@ -6,6 +6,7 @@
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
 	import { addMonths, lastDay, monthName, thisMonth } from '#lib/dates.ts';
+	import { fetched, latest } from '#lib/fetching.svelte.ts';
 	import { minus, negate, sign, sum, zero } from '#lib/money.ts';
 	import { hashQuery } from '#lib/query.ts';
 	import { reference, type Reference } from '#lib/reference.ts';
@@ -19,12 +20,18 @@
 	async function load(month: string) {
 		const [ref, pool] = await Promise.all([
 			reference(),
-			api.GET('/api/v1/reports/household-pool/{month}', { params: { path: { month } } }).then(ok)
+			api
+				.GET('/api/v1/reports/household-pool/{month}', { params: { path: { month } } })
+				.then(ok)
+				.then(fetched)
 		]);
 		return { ref, pool };
 	}
 
-	let data = $derived(load(month));
+	const data = latest(
+		() => month,
+		() => load(month)
+	);
 
 	const at = (m: string) => resolve(`/reports/pool?month=${m}`);
 	const name = (r: Reference, id: string | null | undefined) =>
@@ -56,9 +63,14 @@
 	</nav>
 </div>
 
-{#await data}
-	<p class="muted">Loading…</p>
-{:then { ref, pool }}
+{#await data.promise}
+	{#if !data.value}<p class="muted">Loading…</p>{/if}
+{:catch error}
+	<Failure {error} />
+{/await}
+
+{#if data.value}
+	{@const { ref, pool } = data.value}
 	{@const currency = ref.commodities.get(pool.currency_id)}
 	{@const code = currency?.code}
 	{@const none = zero(currency?.precision ?? 0)}
@@ -127,9 +139,7 @@
 	<p>
 		<a href={resolve('/settlement/[month]', { month })}>Settlement statement</a>
 	</p>
-{:catch error}
-	<Failure {error} />
-{/await}
+{/if}
 
 <style>
 	.heading {

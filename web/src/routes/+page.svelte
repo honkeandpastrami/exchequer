@@ -5,6 +5,7 @@
 	import Failure from '#lib/components/Failure.svelte';
 	import Worth from '#lib/components/Worth.svelte';
 	import { today } from '#lib/dates.ts';
+	import { fetched, latest } from '#lib/fetching.svelte.ts';
 	import { accountKinds, holdings, partyKinds } from '#lib/labels.ts';
 	import { SETTLEMENT_CODE } from '#lib/usd.ts';
 	import { groupBalances, mixed } from '#lib/views/accounts.ts';
@@ -22,12 +23,16 @@
 					params: { query: { date, value_in: SETTLEMENT_CODE } }
 				})
 				.then(ok)
+				.then(fetched)
 		]);
 		const groups = groupBalances(parties, commodities, accounts, balances.balances, showArchived);
 		return { groups, valued: mixed(groups, SETTLEMENT_CODE) };
 	}
 
-	let groups = $derived(load(date, showArchived));
+	const data = latest(
+		() => `${date} ${showArchived}`,
+		() => load(date, showArchived)
+	);
 </script>
 
 <div class="heading">
@@ -36,9 +41,14 @@
 	<label class="check"><input type="checkbox" bind:checked={showArchived} /> Show archived</label>
 </div>
 
-{#await groups}
-	<p class="muted">Loading…</p>
-{:then { groups, valued }}
+{#await data.promise}
+	{#if !data.value}<p class="muted">Loading…</p>{/if}
+{:catch error}
+	<Failure {error} />
+{/await}
+
+{#if data.value}
+	{@const { groups, valued } = data.value}
 	{#each groups as g (g.owner.id)}
 		<section class="owner">
 			<h2>{g.owner.name} <span class="muted kind">{partyKinds[g.owner.kind]}</span></h2>
@@ -114,9 +124,7 @@
 	{:else}
 		<p class="muted">No accounts yet.</p>
 	{/each}
-{:catch error}
-	<Failure {error} />
-{/await}
+{/if}
 
 <style>
 	.heading {
