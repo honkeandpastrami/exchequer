@@ -17,8 +17,9 @@ Sam, and the *Household* itself. Amounts are round and illustrative.
    wins.
 2. **The server is a pure REST service over a database.** It only acts when a request comes
    in. It runs no cron jobs, timers, background workers or startup tasks beyond schema
-   migrations, so it can sleep for days and lose nothing.
-3. **The server can reach the internet, but only while handling a request.** It calls
+   migrations, so it can sleep for days and lose nothing. The one thing a request leaves
+   running after it answers is the price fetch it started (§3.4).
+3. **The server can reach the internet, but only because of a request.** It calls
    exchange-rate/quote providers and the LLM provider when a request needs them, never on a
    schedule. Clients do the local work: reading files from disk and talking to humans.
 4. **The API contract is the product.** An OpenAPI spec is the boundary. Any client that
@@ -178,18 +179,24 @@ from conversion splits after the fact, without a schema change.
 - Converted figures always state **which price and which date** were used, and flag missing
   or stale prices. The server never silently invents numbers.
 
-**Price fetching** happens inside the request:
+**Price fetching** never makes a request wait:
 
 1. A valuation needs `ACME→USD` on date D. If the price exists, it's used.
-2. If not, the server fetches the missing prices **in one batch** (every commodity × date the
-   request needs, back-filling gaps since the last stored price), stores them, then answers.
-   This is the one deliberate exception to "a GET never writes": a historical closing price
-   never changes, so storing it is caching an external fact.
+2. If not, the request answers at once with the latest stored price (the figure marked
+   stale, or missing) and `fetching: true`, and starts fetching the missing prices **in one
+   batch** in the background (every commodity × date the request needs, back-filling gaps
+   since the last stored price). A pair already being fetched isn't fetched twice. Asked
+   again shortly, the same request answers with what arrived; the web app does so by
+   itself, keeping what it shows until then. Storing a fetched price is the one
+   deliberate exception to "a GET never writes": a historical closing price never changes,
+   so storing it is caching an external fact.
 3. A price for a day still in progress is *provisional*: refetched when older than a
    configurable age and replaced by the close once available.
-4. If the provider is unreachable or rate-limited, the request still succeeds with the
-   latest stored price and marks the figure stale. Outages degrade answers, never fail them.
-5. `POST /prices/refresh` forces a fetch.
+4. If the provider is unreachable or rate-limited, nothing is fetched and answers keep the
+   latest stored price, marked stale. Outages degrade answers, never fail them.
+5. `POST /prices/refresh` starts a forced fetch and answers at once (`202`);
+   `GET /prices/refresh` tells whether it's still running and how it went. While one runs,
+   another isn't started.
 
 **Sources** are pluggable and tried in order, each a `PriceSource` behind one interface
 (how it would value a pair, and a batch fetch of pairs × dates), so a source can be added,
@@ -204,9 +211,14 @@ replaced or dropped without touching valuation:
 
 A price is asked of the next source when one doesn't cover the pair, fails, is
 rate-limited or has nothing; the first that answers is recorded (`provider:<name>`), so a
-source's prices outlive it. Within an hour, a source isn't asked for the same pair and days
-again (a ticker it doesn't know would otherwise cost a request on every page), except by
-`POST /prices/refresh` (also on Setup → Prices, and `exchequer prices refresh`). Only
+source's prices outlive it. A source that answered isn't asked for the same pair and days
+again within an hour (a ticker it doesn't know would otherwise cost a request on every
+page). A source that didn't answer (the network, a timeout, its server's error) is passed
+over for the rest of that fetch and for a minute after, then asked again: a network that's
+down for a few minutes, as after the machine wakes, costs one failed request per source,
+not one per pair, and prices arrive soon after it's back. A rate-limited source waits 15
+minutes. `POST /prices/refresh` (also on Setup → Prices, and `exchequer prices refresh`)
+asks anyway. Only
 commodity codes and dates are sent.
 
 A source that needs a key has its own secret, `exchequer_<source>_api_key`, read as
@@ -1047,7 +1059,7 @@ document changes with the pull request that builds it.
 | # | Topic | Decision | Where |
 |---|---|---|---|
 | 1 | Securities | One account per institution holds many commodities; per-security accounts are collapsed on migration | §3.3, §11 |
-| 2 | Outbound calls | Allowed only while handling a request (prices, remote AI); never on a timer | §2, §3.4 |
+| 2 | Outbound calls | Only because of a request (prices, remote AI), possibly after it answers; never on a timer | §2, §3.4 |
 | 3 | Pending transactions | Not modeled; imports contain finalized transactions only | §6 |
 | 4 | Attachments / raw files | Neither is stored; banks can always re-export | §6 |
 | 5 | Migration scope | One calendar year at a time; older years optional | §11 |

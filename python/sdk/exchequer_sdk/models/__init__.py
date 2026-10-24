@@ -165,6 +165,7 @@ from .transfer_match import TransferMatch
 from .unpriced import Unpriced
 from .user import User
 from .valuation_out import ValuationOut
+from .valued import Valued
 from .version import Version
 
 __all__ = (
@@ -333,5 +334,6 @@ __all__ = (
     "Unpriced",
     "User",
     "ValuationOut",
+    "Valued",
     "Version",
 )

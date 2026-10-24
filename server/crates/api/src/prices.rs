@@ -22,14 +22,14 @@ use crate::AppState;
 use crate::auth::Principal;
 use crate::common::{audit, write_error};
 use crate::conventions::{IfMatch, Page, etag};
-use crate::pricing::{Need, same, to_domain};
+use crate::pricing::{Need, Refresh, same, to_domain};
 use crate::problem::{Json, Path, Problem, Query};
 
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(list, create))
         .routes(routes!(value))
-        .routes(routes!(refresh))
+        .routes(routes!(refresh, refresh_status))
         .routes(routes!(get, update, delete))
 }
 
@@ -125,15 +125,48 @@ pub struct RefreshRequest {
     to: Option<Date>,
 }
 
+/// A refresh: running, or how it went.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Refreshed {
     /// The configured sources, in the order asked.
     sources: Vec<String>,
+    /// Still fetching: ask `GET /prices/refresh` again shortly.
+    running: bool,
+    #[serde(with = "time::serde::rfc3339")]
+    started_at: OffsetDateTime,
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    finished_at: Option<OffsetDateTime>,
     /// Prices stored or replaced.
     stored: usize,
     /// `source: what went wrong`, for each failure; the next source was
     /// asked instead.
     errors: Vec<String>,
+}
+
+impl Refreshed {
+    fn new(sources: Vec<String>, r: Refresh) -> Self {
+        Self {
+            sources,
+            running: r.finished_at.is_none(),
+            started_at: r.started_at,
+            finished_at: r.finished_at,
+            stored: r.stored,
+            errors: r.errors,
+        }
+    }
+}
+
+/// A valuation, and whether fresher prices for it are being fetched.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct Valued {
+    #[serde(flatten)]
+    valuation: ValuationOut,
+    /// Missing or stale prices are being fetched: asked again shortly, the
+    /// answer may be fresher.
+    fetching: bool,
 }
 
 /// A stored price as a valuation used it.
@@ -414,16 +447,16 @@ async fn delete(
 }
 
 /// What one commodity was worth in another at the end of a day, from
-/// stored prices.
+/// stored prices. Missing ones are fetched after it answers.
 #[utoipa::path(get, path = "/prices/value", tag = "prices", security(("bearer" = [])),
     params(ValueParams),
-    responses((status = OK, body = ValuationOut),
-              (status = NOT_FOUND, description = "No stored price connects them", body = Problem, content_type = "application/problem+json"),
+    responses((status = OK, body = Valued),
+              (status = NOT_FOUND, description = "No stored price connects them (yet, if being fetched)", body = Problem, content_type = "application/problem+json"),
               (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json")))]
 async fn value(
     State(state): State<AppState>,
     Query(p): Query<ValueParams>,
-) -> Result<axum::Json<ValuationOut>, Problem> {
+) -> Result<axum::Json<Valued>, Problem> {
     let date = p.date.unwrap_or_else(|| state.today());
     let mut conn = state.pool.acquire().await?;
     let from = commodity(&mut conn, &p.from).await?;
@@ -431,7 +464,7 @@ async fn value(
     let need = Need { from, to, date };
     let loaded = state
         .pricing
-        .load(&mut conn, state.today(), &[need], false)
+        .load(&state.pool, &mut conn, state.today(), &[need])
         .await?;
     let v = loaded
         .prices
@@ -441,21 +474,31 @@ async fn value(
             date,
         )
         .ok_or_else(|| {
-            Problem::not_found().detail(format!("no price connects {} and {}", p.from, p.to))
+            let yet = if loaded.fetching {
+                " yet; fetching, ask again shortly"
+            } else {
+                ""
+            };
+            Problem::not_found().detail(format!("no price connects {} and {}{yet}", p.from, p.to))
         })?;
-    Ok(axum::Json(ValuationOut::new(&v, &loaded.rows)))
+    Ok(axum::Json(Valued {
+        valuation: ValuationOut::new(&v, &loaded.rows),
+        fetching: loaded.fetching,
+    }))
 }
 
-/// Fetch every commodity's prices in `value_in` for a range of days,
-/// again, from the configured sources in order.
+/// Start fetching every commodity's prices in `value_in` for a range of
+/// days, again, from the configured sources in order. It answers at once;
+/// `GET /prices/refresh` tells how it went. While one runs, another isn't
+/// started: the one running is returned.
 #[utoipa::path(post, path = "/prices/refresh", tag = "prices", security(("bearer" = [])),
     request_body = RefreshRequest,
-    responses((status = OK, body = Refreshed),
+    responses((status = ACCEPTED, body = Refreshed),
               (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json")))]
 async fn refresh(
     State(state): State<AppState>,
     Json(req): Json<RefreshRequest>,
-) -> Result<axum::Json<Refreshed>, Problem> {
+) -> Result<(StatusCode, axum::Json<Refreshed>), Problem> {
     let today = state.today();
     let to_date = req.to.unwrap_or(today).min(today);
     let from_date = req.from.unwrap_or(to_date);
@@ -476,10 +519,24 @@ async fn refresh(
             })
         })
         .collect();
-    let loaded = state.pricing.load(&mut conn, today, &needs, true).await?;
-    Ok(axum::Json(Refreshed {
-        sources: state.pricing.names(),
-        stored: loaded.stored,
-        errors: loaded.errors,
-    }))
+    let r = state
+        .pricing
+        .refresh(&state.pool, &mut conn, today, &needs)
+        .await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        axum::Json(Refreshed::new(state.pricing.names(), r)),
+    ))
+}
+
+/// The latest refresh since the server started: running, or how it went.
+#[utoipa::path(get, path = "/prices/refresh", tag = "prices", security(("bearer" = [])),
+    responses((status = OK, body = Refreshed),
+              (status = NOT_FOUND, description = "None since the server started", body = Problem, content_type = "application/problem+json")))]
+async fn refresh_status(State(state): State<AppState>) -> Result<axum::Json<Refreshed>, Problem> {
+    let r = state
+        .pricing
+        .last_refresh()
+        .ok_or_else(Problem::not_found)?;
+    Ok(axum::Json(Refreshed::new(state.pricing.names(), r)))
 }

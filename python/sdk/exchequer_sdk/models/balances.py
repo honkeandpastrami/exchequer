@@ -23,11 +23,14 @@ class Balances:
     Attributes:
         balances (list[AccountBalance]): Every account and commodity whose balance on the date isn't zero.
         date (datetime.date):
+        fetching (bool): Missing or stale prices are being fetched: asked again shortly, the
+            figures may be fresher.
         value_in_id (None | Unset | UUID): The commodity values are in, when asked.
     """
 
     balances: list[AccountBalance]
     date: datetime.date
+    fetching: bool
     value_in_id: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -38,6 +41,8 @@ class Balances:
             balances.append(balances_item)
 
         date = self.date.isoformat()
+
+        fetching = self.fetching
 
         value_in_id: None | str | Unset
         if isinstance(self.value_in_id, Unset):
@@ -53,6 +58,7 @@ class Balances:
             {
                 "balances": balances,
                 "date": date,
+                "fetching": fetching,
             }
         )
         if value_in_id is not UNSET:
@@ -74,6 +80,8 @@ class Balances:
 
         date = datetime.date.fromisoformat(d.pop("date"))
 
+        fetching = d.pop("fetching")
+
         def _parse_value_in_id(data: object) -> None | Unset | UUID:
             if data is None:
                 return data
@@ -94,6 +102,7 @@ class Balances:
         balances = cls(
             balances=balances,
             date=date,
+            fetching=fetching,
             value_in_id=value_in_id,
         )
 

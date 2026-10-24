@@ -3801,11 +3801,45 @@
       }
     },
     "/api/v1/prices/refresh": {
+      "get": {
+        "tags": [
+          "prices"
+        ],
+        "summary": "The latest refresh since the server started: running, or how it went.",
+        "operationId": "prices_refresh_status",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refreshed"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "None since the server started",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
       "post": {
         "tags": [
           "prices"
         ],
-        "summary": "Fetch every commodity's prices in `value_in` for a range of days,\nagain, from the configured sources in order.",
+        "summary": "Start fetching every commodity's prices in `value_in` for a range of\ndays, again, from the configured sources in order. It answers at once;\n`GET /prices/refresh` tells how it went. While one runs, another isn't\nstarted: the one running is returned.",
         "operationId": "prices_refresh",
         "requestBody": {
           "content": {
@@ -3818,8 +3852,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "OK",
+          "202": {
+            "description": "Accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -3851,7 +3885,7 @@
         "tags": [
           "prices"
         ],
-        "summary": "What one commodity was worth in another at the end of a day, from\nstored prices.",
+        "summary": "What one commodity was worth in another at the end of a day, from\nstored prices. Missing ones are fetched after it answers.",
         "operationId": "prices_value",
         "parameters": [
           {
@@ -3889,13 +3923,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ValuationOut"
+                  "$ref": "#/components/schemas/Valued"
                 }
               }
             }
           },
           "404": {
-            "description": "No stored price connects them",
+            "description": "No stored price connects them (yet, if being fetched)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4185,7 +4219,7 @@
         "tags": [
           "reports"
         ],
-        "summary": "Each account's balance in each commodity at the end of a day, and with\n`value_in`, its value at prices (fetched if missing).",
+        "summary": "Each account's balance in each commodity at the end of a day, and with\n`value_in`, its value at stored prices (missing ones fetched after it answers).",
         "operationId": "reports_balances",
         "parameters": [
           {
@@ -6746,7 +6780,8 @@
         "type": "object",
         "required": [
           "date",
-          "balances"
+          "balances",
+          "fetching"
         ],
         "properties": {
           "balances": {
@@ -6759,6 +6794,10 @@
           "date": {
             "type": "string",
             "format": "date"
+          },
+          "fetching": {
+            "type": "boolean",
+            "description": "Missing or stale prices are being fetched: asked again shortly, the\nfigures may be fresher."
           },
           "value_in_id": {
             "type": [
@@ -7582,12 +7621,17 @@
         "required": [
           "currency_id",
           "months",
-          "unpriced"
+          "unpriced",
+          "fetching"
         ],
         "properties": {
           "currency_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "fetching": {
+            "type": "boolean",
+            "description": "Missing or stale prices are being fetched: asked again shortly, the\nfigures may be fresher."
           },
           "months": {
             "type": "array",
@@ -7614,7 +7658,8 @@
           "expenses",
           "stipends",
           "business_funding",
-          "shared_savings_change"
+          "shared_savings_change",
+          "fetching"
         ],
         "properties": {
           "business_funding": {
@@ -7634,6 +7679,10 @@
               "$ref": "#/components/schemas/CategoryAmount"
             },
             "description": "Spending for the household, by category (negative). Money into an\ninvestment or a loan (a mortgage's principal) counts."
+          },
+          "fetching": {
+            "type": "boolean",
+            "description": "Missing or stale prices are being fetched: asked again shortly, the\nfigures may be fresher."
           },
           "income": {
             "type": "array",
@@ -9917,8 +9966,11 @@
       },
       "Refreshed": {
         "type": "object",
+        "description": "A refresh: running, or how it went.",
         "required": [
           "sources",
+          "running",
+          "started_at",
           "stored",
           "errors"
         ],
@@ -9930,12 +9982,27 @@
             },
             "description": "`source: what went wrong`, for each failure; the next source was\nasked instead."
           },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "running": {
+            "type": "boolean",
+            "description": "Still fetching: ask `GET /prices/refresh` again shortly."
+          },
           "sources": {
             "type": "array",
             "items": {
               "type": "string"
             },
             "description": "The configured sources, in the order asked."
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
           },
           "stored": {
             "type": "integer",
@@ -10806,7 +10873,8 @@
           "closed",
           "currency_id",
           "edges",
-          "unpriced"
+          "unpriced",
+          "fetching"
         ],
         "properties": {
           "closed": {
@@ -10821,6 +10889,10 @@
             "items": {
               "$ref": "#/components/schemas/Edge"
             }
+          },
+          "fetching": {
+            "type": "boolean",
+            "description": "Missing or stale prices are being fetched: asked again shortly, the\nfigures may be fresher."
           },
           "month": {
             "type": "string",
@@ -11171,6 +11243,26 @@
             "description": "No price close enough to the date: the newest older one was used."
           }
         }
+      },
+      "Valued": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ValuationOut"
+          },
+          {
+            "type": "object",
+            "required": [
+              "fetching"
+            ],
+            "properties": {
+              "fetching": {
+                "type": "boolean",
+                "description": "Missing or stale prices are being fetched: asked again shortly, the\nanswer may be fresher."
+              }
+            }
+          }
+        ],
+        "description": "A valuation, and whether fresher prices for it are being fetched."
       },
       "Version": {
         "type": "object",

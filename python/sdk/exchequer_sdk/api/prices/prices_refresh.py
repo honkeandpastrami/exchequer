@@ -31,10 +31,10 @@ def _get_kwargs(
 
 
 def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Problem | Refreshed | None:
-    if response.status_code == 200:
-        response_200 = Refreshed.from_dict(response.json())
+    if response.status_code == 202:
+        response_202 = Refreshed.from_dict(response.json())
 
-        return response_200
+        return response_202
 
     if response.status_code == 422:
         response_422 = Problem.from_dict(response.json())
@@ -61,8 +61,10 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: RefreshRequest,
 ) -> Response[Problem | Refreshed]:
-    """Fetch every commodity's prices in `value_in` for a range of days,
-    again, from the configured sources in order.
+    """Start fetching every commodity's prices in `value_in` for a range of
+    days, again, from the configured sources in order. It answers at once;
+    `GET /prices/refresh` tells how it went. While one runs, another isn't
+    started: the one running is returned.
 
     Args:
         body (RefreshRequest):
@@ -91,8 +93,10 @@ def sync(
     client: AuthenticatedClient,
     body: RefreshRequest,
 ) -> Problem | Refreshed | None:
-    """Fetch every commodity's prices in `value_in` for a range of days,
-    again, from the configured sources in order.
+    """Start fetching every commodity's prices in `value_in` for a range of
+    days, again, from the configured sources in order. It answers at once;
+    `GET /prices/refresh` tells how it went. While one runs, another isn't
+    started: the one running is returned.
 
     Args:
         body (RefreshRequest):
@@ -116,8 +120,10 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: RefreshRequest,
 ) -> Response[Problem | Refreshed]:
-    """Fetch every commodity's prices in `value_in` for a range of days,
-    again, from the configured sources in order.
+    """Start fetching every commodity's prices in `value_in` for a range of
+    days, again, from the configured sources in order. It answers at once;
+    `GET /prices/refresh` tells how it went. While one runs, another isn't
+    started: the one running is returned.
 
     Args:
         body (RefreshRequest):
@@ -144,8 +150,10 @@ async def asyncio(
     client: AuthenticatedClient,
     body: RefreshRequest,
 ) -> Problem | Refreshed | None:
-    """Fetch every commodity's prices in `value_in` for a range of days,
-    again, from the configured sources in order.
+    """Start fetching every commodity's prices in `value_in` for a range of
+    days, again, from the configured sources in order. It answers at once;
+    `GET /prices/refresh` tells how it went. While one runs, another isn't
+    started: the one running is returned.
 
     Args:
         body (RefreshRequest):

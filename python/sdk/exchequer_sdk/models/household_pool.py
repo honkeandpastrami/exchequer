@@ -27,6 +27,8 @@ class HouseholdPool:
             currency_id (UUID):
             expenses (list[CategoryAmount]): Spending for the household, by category (negative). Money into an
                 investment or a loan (a mortgage's principal) counts.
+            fetching (bool): Missing or stale prices are being fetched: asked again shortly, the
+                figures may be fresher.
             income (list[CategoryAmount]): Income for the household, by category (positive). Money out of an
                 investment into a liquid account counts.
             month (str):  Example: 2026-06.
@@ -37,6 +39,7 @@ class HouseholdPool:
     business_funding: list[PartyAmount]
     currency_id: UUID
     expenses: list[CategoryAmount]
+    fetching: bool
     income: list[CategoryAmount]
     month: str
     shared_savings_change: str
@@ -55,6 +58,8 @@ class HouseholdPool:
         for expenses_item_data in self.expenses:
             expenses_item = expenses_item_data.to_dict()
             expenses.append(expenses_item)
+
+        fetching = self.fetching
 
         income = []
         for income_item_data in self.income:
@@ -77,6 +82,7 @@ class HouseholdPool:
                 "business_funding": business_funding,
                 "currency_id": currency_id,
                 "expenses": expenses,
+                "fetching": fetching,
                 "income": income,
                 "month": month,
                 "shared_savings_change": shared_savings_change,
@@ -108,6 +114,8 @@ class HouseholdPool:
 
             expenses.append(expenses_item)
 
+        fetching = d.pop("fetching")
+
         income = []
         _income = d.pop("income")
         for income_item_data in _income:
@@ -130,6 +138,7 @@ class HouseholdPool:
             business_funding=business_funding,
             currency_id=currency_id,
             expenses=expenses,
+            fetching=fetching,
             income=income,
             month=month,
             shared_savings_change=shared_savings_change,

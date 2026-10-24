@@ -16,7 +16,7 @@ use domain::settlement::{
 };
 use domain::{Amount, CommodityId, Month, PartyId, PartyKind, TransactionId};
 use serde::{Deserialize, Serialize};
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgPool};
 use store::audit::Action;
 use store::settlements::{Params, SettlementRow};
 use time::{Date, OffsetDateTime};
@@ -202,6 +202,9 @@ pub struct Statement {
     edges: Vec<Edge>,
     /// Splits left out because they have no value in USD.
     unpriced: Vec<Unpriced>,
+    /// Missing or stale prices are being fetched: asked again shortly, the
+    /// figures may be fresher.
+    fetching: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -210,6 +213,9 @@ pub struct History {
     /// One statement per month, without lines.
     months: Vec<Statement>,
     unpriced: Vec<Unpriced>,
+    /// Missing or stale prices are being fetched: asked again shortly, the
+    /// figures may be fresher.
+    fetching: bool,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -326,11 +332,14 @@ pub(crate) struct Computed {
     /// Splits with no leg in USD, valued at a price.
     valued: HashMap<SplitRef, ValuationOut>,
     closed: HashSet<Month>,
+    pub(crate) fetching: bool,
 }
 
 /// Every settlement item in the ledger, routed through `through`. A split
-/// with no leg in USD is valued at its date's price (fetched if missing).
+/// with no leg in USD is valued at its date's stored price; missing ones are
+/// fetched after the request answers.
 pub(crate) async fn compute(
+    pool: &PgPool,
     db: &mut PgConnection,
     pricing: &Pricing,
     today: Date,
@@ -383,6 +392,7 @@ pub(crate) async fn compute(
 
     let mut unpriced = Vec::new();
     let mut valued = HashMap::new();
+    let mut fetching = false;
     if !pending.is_empty() {
         let needs: Vec<Need> = pending
             .iter()
@@ -392,7 +402,8 @@ pub(crate) async fn compute(
                 date: item.date,
             })
             .collect();
-        let loaded = pricing.load(db, today, &needs, false).await?;
+        let loaded = pricing.load(pool, db, today, &needs).await?;
+        fetching = loaded.fetching;
         for (mut item, leg) in pending {
             match loaded.prices.value(leg.commodity, currency, item.date) {
                 Some(v) => {
@@ -428,6 +439,7 @@ pub(crate) async fn compute(
         unpriced,
         valued,
         closed,
+        fetching,
     })
 }
 
@@ -492,6 +504,7 @@ fn statement_out(c: &Computed, month: Month, with_lines: bool) -> Result<Stateme
         params_from: st.params_from,
         edges,
         unpriced: Vec::new(),
+        fetching: c.fetching,
     })
 }
 
@@ -630,7 +643,7 @@ async fn history(
         return Err(Problem::invalid("`from` is after `to`"));
     }
     let mut conn = state.pool.acquire().await?;
-    let c = compute(&mut conn, &state.pricing, state.today(), p.to).await?;
+    let c = compute(&state.pool, &mut conn, &state.pricing, state.today(), p.to).await?;
     let mut out = Vec::new();
     for m in months {
         out.push(statement_out(&c, m, false)?);
@@ -639,6 +652,7 @@ async fn history(
         currency_id: *c.currency.as_uuid(),
         months: out,
         unpriced: unpriced_out(&c, p.to),
+        fetching: c.fetching,
     }))
 }
 
@@ -716,7 +730,7 @@ async fn statement(
     Path(month): Path<Month>,
 ) -> Result<axum::Json<Statement>, Problem> {
     let mut conn = state.pool.acquire().await?;
-    let c = compute(&mut conn, &state.pricing, state.today(), month).await?;
+    let c = compute(&state.pool, &mut conn, &state.pricing, state.today(), month).await?;
     let mut st = statement_out(&c, month, true)?;
     st.unpriced = unpriced_out(&c, month);
     Ok(axum::Json(st))

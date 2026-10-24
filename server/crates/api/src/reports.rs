@@ -63,10 +63,13 @@ pub struct Balances {
     value_in_id: Option<Uuid>,
     /// Every account and commodity whose balance on the date isn't zero.
     balances: Vec<AccountBalance>,
+    /// Missing or stale prices are being fetched: asked again shortly, the
+    /// figures may be fresher.
+    fetching: bool,
 }
 
 /// Each account's balance in each commodity at the end of a day, and with
-/// `value_in`, its value at prices (fetched if missing).
+/// `value_in`, its value at stored prices (missing ones fetched after it answers).
 #[utoipa::path(get, path = "/reports/balances", tag = "reports", security(("bearer" = [])),
     params(BalancesParams),
     responses((status = OK, body = Balances),
@@ -97,6 +100,7 @@ async fn balances(
         })
         .collect();
     let mut value_in_id = None;
+    let mut fetching = false;
     if let Some(code) = &p.value_in {
         let target = store::commodities::by_code(&mut *conn, code)
             .await?
@@ -113,7 +117,7 @@ async fn balances(
             .collect();
         let loaded = state
             .pricing
-            .load(&mut conn, state.today(), &needs, false)
+            .load(&state.pool, &mut conn, state.today(), &needs)
             .await?;
         for b in &mut balances {
             if b.commodity_id == target.id {
@@ -135,11 +139,13 @@ async fn balances(
             b.valuation = Some(ValuationOut::new(&v, &loaded.rows));
         }
         value_in_id = Some(target.id);
+        fetching = loaded.fetching;
     }
     Ok(axum::Json(Balances {
         date: p.date,
         value_in_id,
         balances,
+        fetching,
     }))
 }
 
@@ -179,6 +185,9 @@ pub struct HouseholdPool {
     /// The change in the household's own liquid accounts over the month.
     #[schema(value_type = String)]
     shared_savings_change: Amount,
+    /// Missing or stale prices are being fetched: asked again shortly, the
+    /// figures may be fresher.
+    fetching: bool,
 }
 
 async fn flow(
@@ -244,7 +253,7 @@ async fn household_pool(
         .filter(|a| a.liquid && a.owner_id == household_id)
         .map(|a| a.id)
         .collect();
-    let c = compute(db, &state.pricing, state.today(), month).await?;
+    let c = compute(&state.pool, db, &state.pricing, state.today(), month).await?;
     let m = |a: Amount| money(a, c.scale);
     let balance = async |db: &mut PgConnection, day: Date| -> Result<Amount, Problem> {
         if shared.is_empty() {
@@ -321,5 +330,6 @@ async fn household_pool(
         stipends,
         business_funding,
         shared_savings_change,
+        fetching: c.fetching,
     }))
 }

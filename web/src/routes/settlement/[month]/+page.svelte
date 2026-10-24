@@ -8,6 +8,7 @@
 	import MonthControls from '#lib/components/MonthControls.svelte';
 	import StatusMark from '#lib/components/StatusMark.svelte';
 	import { addMonths, monthName, thisMonth } from '#lib/dates.ts';
+	import { fetched, latest } from '#lib/fetching.svelte.ts';
 	import { lineKinds } from '#lib/labels.ts';
 	import { reference } from '#lib/reference.ts';
 	import { transactionsById } from '#lib/transactions.ts';
@@ -19,7 +20,10 @@
 	async function load(month: string) {
 		const [ref, statement] = await Promise.all([
 			reference(),
-			api.GET('/api/v1/settlements/{month}/statement', { params: { path: { month } } }).then(ok)
+			api
+				.GET('/api/v1/settlements/{month}/statement', { params: { path: { month } } })
+				.then(ok)
+				.then(fetched)
 		]);
 		const ids = statement.edges.flatMap((e) => (e.lines ?? []).map((l) => l.transaction_id));
 		const txs = await transactionsById(ids);
@@ -28,16 +32,11 @@
 
 	// Bumped after closing, reopening or new parameters: the statement changes.
 	let revision = $state(0);
-	let data = $derived((void revision, load(month)));
 	// Keeps the month's last statement on screen while it reloads.
-	let loaded = $state<Awaited<ReturnType<typeof load>> | null>(null);
-	let shown = $derived(loaded?.month === month ? loaded : null);
-	$effect(() => {
-		const d = data;
-		d.then((v) => {
-			if (d === data) loaded = v;
-		}).catch(() => {});
-	});
+	const data = latest(
+		() => month,
+		() => (void revision, load(month))
+	);
 
 	const summary = [
 		['carried', 'Carried'],
@@ -67,14 +66,14 @@
 	</nav>
 </div>
 
-{#await data}
-	{#if !shown}<p class="muted">Loading…</p>{/if}
+{#await data.promise}
+	{#if !data.value}<p class="muted">Loading…</p>{/if}
 {:catch error}
 	<Failure {error} />
 {/await}
 
-{#if shown}
-	{@const { ref, statement, txs } = shown}
+{#if data.value}
+	{@const { ref, statement, txs } = data.value}
 	{@const name = (id: string) => ref.parties.get(id)?.name ?? '?'}
 	{#key month}
 		<MonthControls {month} {ref} onchange={() => revision++} />

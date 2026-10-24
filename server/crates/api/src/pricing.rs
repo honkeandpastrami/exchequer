@@ -1,20 +1,21 @@
-//! Prices for a request (design §3.4): what's stored, and what's missing
-//! fetched from the price sources, in order, inside the request. A source
-//! that fails, is rate-limited or has nothing is passed over for the next,
-//! and the request still answers, with the newest stored figure marked
-//! stale.
+//! Prices for a request (design §3.4): what's stored now, and what's
+//! missing fetched from the price sources, in order, after the request has
+//! answered. A source that fails, is rate-limited or has nothing is passed
+//! over for the next; the request answers at once, with the newest stored
+//! figure marked stale, and says a fetch is under way.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use domain::CommodityId;
 use domain::valuation::{self, Prices, Source};
-use outbound::prices::{Kind, Pair, PriceSource, Quote};
-use sqlx::PgConnection;
+use outbound::prices::{Error, Kind, Pair, PriceSource, Quote};
+use sqlx::{PgConnection, PgPool};
 use store::commodities::CommodityRow;
 use store::prices::PriceRow;
 use time::{Date, OffsetDateTime};
+use tokio::sync::watch;
 use uuid::Uuid;
 
 use crate::problem::Problem;
@@ -22,10 +23,15 @@ use crate::problem::Problem;
 /// How far back of a range prices are loaded day by day; before that,
 /// only each pair's latest.
 const WINDOW_DAYS: i64 = 31;
-/// A source isn't asked for the same pair and days again sooner, unless
-/// forced: a ticker it doesn't know would otherwise cost a request on every
-/// page.
+/// A source that answered isn't asked for the same pair and days again
+/// sooner, unless forced: a ticker it doesn't know would otherwise cost a
+/// request on every page.
 const COOLDOWN: Duration = Duration::from_secs(60 * 60);
+/// A source that didn't answer (the network, a timeout, its server) is
+/// passed over for this long, by default; one that rate-limited, for
+/// `RATE_LIMITED`.
+const OUTAGE: Duration = Duration::from_secs(60);
+const RATE_LIMITED: Duration = Duration::from_secs(15 * 60);
 /// A price for a day still in progress is fetched again when older.
 const PROVISIONAL_AGE: time::Duration = time::Duration::hours(1);
 
@@ -33,12 +39,40 @@ const PROVISIONAL_AGE: time::Duration = time::Duration::hours(1);
 /// it answered for all of the pair.
 type Asked = HashMap<(String, Uuid, Uuid), Vec<(Date, Date, Instant, bool)>>;
 
+/// Each pair's date range.
+type Gaps = BTreeMap<(Uuid, Uuid), (Date, Date)>;
+
+#[derive(Default)]
+struct Memory {
+    asked: Asked,
+    /// Until when each source (by name) is passed over.
+    down: HashMap<String, Instant>,
+    /// The pairs (either way round) a fetch is under way for.
+    fetching: HashSet<(Uuid, Uuid)>,
+    refresh: Option<Refresh>,
+}
+
+/// The latest `POST /prices/refresh`.
+#[derive(Debug, Clone)]
+pub struct Refresh {
+    pub started_at: OffsetDateTime,
+    /// `None` while it runs.
+    pub finished_at: Option<OffsetDateTime>,
+    /// Prices stored or replaced.
+    pub stored: usize,
+    /// `source: what went wrong`, for each source that failed.
+    pub errors: Vec<String>,
+}
+
 /// The price sources, in order, and how valuations choose among prices.
 #[derive(Clone)]
 pub struct Pricing {
     sources: Vec<Arc<dyn PriceSource>>,
     fresh_days: u32,
-    asked: Arc<Mutex<Asked>>,
+    outage: Duration,
+    memory: Arc<Mutex<Memory>>,
+    /// How many fetches are running.
+    running: Arc<watch::Sender<usize>>,
 }
 
 impl Default for Pricing {
@@ -56,14 +90,13 @@ pub struct Need {
     pub date: Date,
 }
 
-/// The prices a request may use, and what fetching them did.
+/// The prices a request may use.
 pub struct Loaded {
     pub prices: Prices,
     pub rows: Vec<PriceRow>,
-    /// Prices stored by this request.
-    pub stored: usize,
-    /// `source: what went wrong`, for each source that failed.
-    pub errors: Vec<String>,
+    /// Prices some of these needs lack are being fetched: asked again
+    /// shortly, the answer may be fresher.
+    pub fetching: bool,
 }
 
 impl Pricing {
@@ -74,14 +107,36 @@ impl Pricing {
         Self {
             sources,
             fresh_days,
-            asked: Arc::default(),
+            outage: OUTAGE,
+            memory: Arc::default(),
+            running: Arc::new(watch::Sender::new(0)),
         }
+    }
+
+    /// How long a source that didn't answer is passed over (a minute).
+    #[must_use]
+    pub fn outage(mut self, wait: Duration) -> Self {
+        self.outage = wait;
+        self
     }
 
     /// The sources' names, in order.
     #[must_use]
     pub fn names(&self) -> Vec<String> {
         self.sources.iter().map(|s| s.name().to_owned()).collect()
+    }
+
+    /// Waits until no fetch is running.
+    pub async fn settled(&self) {
+        let mut rx = self.running.subscribe();
+        // The sender lives as long as `self`.
+        let _ = rx.wait_for(|n| *n == 0).await;
+    }
+
+    /// The latest refresh, if any since the server started.
+    #[must_use]
+    pub fn last_refresh(&self) -> Option<Refresh> {
+        self.lock().refresh.clone()
     }
 
     /// The stored prices that may value `commodities` between two dates.
@@ -98,15 +153,14 @@ impl Pricing {
         Ok((Prices::new(prices, self.names(), self.fresh_days), rows))
     }
 
-    /// Prices for `needs`: those stored, after fetching what's missing,
-    /// stale or provisional for too long. `force` fetches every need's
-    /// range again, ignoring the cooldown.
+    /// The stored prices for `needs`, at once. What's missing, stale or
+    /// provisional for too long is fetched in the background.
     pub async fn load(
         &self,
+        pool: &PgPool,
         db: &mut PgConnection,
         today: Date,
         needs: &[Need],
-        force: bool,
     ) -> Result<Loaded, Problem> {
         let needs: Vec<Need> = needs.iter().filter(|n| n.from != n.to).copied().collect();
         let mut ids: Vec<Uuid> = needs.iter().flat_map(|n| [n.from, n.to]).collect();
@@ -119,64 +173,223 @@ impl Pricing {
             return Ok(Loaded {
                 prices: Prices::new(Vec::new(), self.names(), self.fresh_days),
                 rows: Vec::new(),
-                stored: 0,
-                errors: Vec::new(),
+                fetching: false,
             });
         };
         let (prices, rows) = self.stored(db, &ids, lo, hi).await?;
-        let gaps = if force {
-            ranges(needs.iter())
+        let now = OffsetDateTime::now_utc();
+        let gaps = ranges(needs.iter().filter(|n| {
+            let Some(v) = prices.value(
+                CommodityId::from_uuid(n.from),
+                CommodityId::from_uuid(n.to),
+                n.date,
+            ) else {
+                return true;
+            };
+            v.stale
+                || v.used.iter().any(|u| {
+                    u.price.provisional
+                        && rows
+                            .iter()
+                            .find(|r| same(r, &u.price))
+                            .is_some_and(|r| now - r.fetched_at > PROVISIONAL_AGE)
+                })
+        }));
+        let fetching = if gaps.is_empty() || self.sources.is_empty() {
+            false
         } else {
-            let now = OffsetDateTime::now_utc();
-            ranges(needs.iter().filter(|n| {
-                let Some(v) = prices.value(
-                    CommodityId::from_uuid(n.from),
-                    CommodityId::from_uuid(n.to),
-                    n.date,
-                ) else {
-                    return true;
-                };
-                v.stale
-                    || v.used.iter().any(|u| {
-                        u.price.provisional
-                            && rows
-                                .iter()
-                                .find(|r| same(r, &u.price))
-                                .is_some_and(|r| now - r.fetched_at > PROVISIONAL_AGE)
-                    })
-            }))
+            let commodities = store::commodities::list(&mut *db, None, i64::MAX).await?;
+            self.start(pool, today, commodities, gaps)
         };
-        if gaps.is_empty() || self.sources.is_empty() {
-            return Ok(Loaded {
-                prices,
-                rows,
-                stored: 0,
-                errors: Vec::new(),
-            });
+        Ok(Loaded {
+            prices,
+            rows,
+            fetching,
+        })
+    }
+
+    /// Starts fetching the gaps some source would be asked for, unless
+    /// they're being fetched already. Whether any are being fetched.
+    fn start(
+        &self,
+        pool: &PgPool,
+        today: Date,
+        commodities: Vec<CommodityRow>,
+        gaps: Gaps,
+    ) -> bool {
+        let mut memory = self.lock();
+        let mut fetching = false;
+        let mut wanted = Gaps::new();
+        for (pair, days) in gaps {
+            if memory.fetching.contains(&key_of(pair)) {
+                fetching = true;
+            } else if self.worth_asking(&mut memory, &commodities, pair, days, today) {
+                wanted.insert(pair, days);
+            }
+        }
+        if wanted.is_empty() {
+            return fetching;
+        }
+        let guard = self.begin(&mut memory, wanted.keys().copied());
+        drop(memory);
+        let this = self.clone();
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            let _guard = guard;
+            this.fetch(&pool, today, &commodities, &wanted, false).await;
+        });
+        true
+    }
+
+    /// Fetches every need's range again in the background, ignoring what
+    /// was asked lately, unless a refresh is running already. The refresh
+    /// that's running or just started.
+    pub async fn refresh(
+        &self,
+        pool: &PgPool,
+        db: &mut PgConnection,
+        today: Date,
+        needs: &[Need],
+    ) -> Result<Refresh, Problem> {
+        if let Some(r) = self.last_refresh().filter(|r| r.finished_at.is_none()) {
+            return Ok(r);
         }
         let commodities = store::commodities::list(&mut *db, None, i64::MAX).await?;
+        let gaps = ranges(needs.iter().filter(|n| n.from != n.to));
+        let mut memory = self.lock();
+        if let Some(r) = memory.refresh.as_ref().filter(|r| r.finished_at.is_none()) {
+            return Ok(r.clone());
+        }
+        let started = Refresh {
+            started_at: OffsetDateTime::now_utc(),
+            finished_at: None,
+            stored: 0,
+            errors: Vec::new(),
+        };
+        memory.refresh = Some(started.clone());
+        let guard = self.begin(&mut memory, gaps.keys().copied());
+        drop(memory);
+        let this = self.clone();
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            let _guard = guard;
+            let (stored, errors) = this.fetch(&pool, today, &commodities, &gaps, true).await;
+            if let Some(r) = this.lock().refresh.as_mut() {
+                r.finished_at = Some(OffsetDateTime::now_utc());
+                r.stored = stored;
+                r.errors = errors;
+            }
+        });
+        Ok(started)
+    }
+
+    /// Whether a fetch would ask some source for `pair`: one that would
+    /// value it, isn't passed over, and hasn't answered for those days
+    /// lately.
+    fn worth_asking(
+        &self,
+        memory: &mut Memory,
+        commodities: &[CommodityRow],
+        (from, to): (Uuid, Uuid),
+        days: (Date, Date),
+        today: Date,
+    ) -> bool {
+        let (Some(base), Some(quote)) = (
+            commodities.iter().find(|c| c.id == from),
+            commodities.iter().find(|c| c.id == to),
+        ) else {
+            return false;
+        };
+        let Some(days) = self.window(days, today) else {
+            return false;
+        };
+        let now = Instant::now();
+        for source in &self.sources {
+            if source
+                .plan(&base.code, kind(base), &quote.code, kind(quote))
+                .is_none()
+                || memory.down.get(source.name()).is_some_and(|t| now < *t)
+            {
+                continue;
+            }
+            match asked(memory, source.name(), from, to, days) {
+                Some(true) => return false,
+                Some(false) => {}
+                None => return true,
+            }
+        }
+        false
+    }
+
+    /// The days to ask a source for: back far enough to cover the fresh
+    /// days before the first, and no later than today.
+    fn window(&self, (start, end): (Date, Date), today: Date) -> Option<(Date, Date)> {
+        let start = start - time::Duration::days(i64::from(self.fresh_days));
+        let end = end.min(today);
+        (start <= end).then_some((start, end))
+    }
+
+    /// Marks `pairs` as being fetched until the guard is dropped.
+    fn begin(&self, memory: &mut Memory, pairs: impl Iterator<Item = (Uuid, Uuid)>) -> Running {
+        let pairs: Vec<_> = pairs
+            .map(key_of)
+            .filter(|k| memory.fetching.insert(*k))
+            .collect();
+        self.running.send_modify(|n| *n += 1);
+        Running {
+            pricing: self.clone(),
+            pairs,
+        }
+    }
+
+    /// Asks the sources, in order, for each gap, and stores what they
+    /// answer. A source that fails is passed over for the rest of the
+    /// fetch, and for a while after. `force` asks again what was asked
+    /// lately, and sources passed over. How many prices were stored, and
+    /// `source: what went wrong` for each source that failed.
+    async fn fetch(
+        &self,
+        pool: &PgPool,
+        today: Date,
+        commodities: &[CommodityRow],
+        gaps: &Gaps,
+        force: bool,
+    ) -> (usize, Vec<String>) {
+        let mut db = match pool.acquire().await {
+            Ok(db) => db,
+            Err(e) => {
+                tracing::error!(error = %e, "prices: no database connection");
+                return (0, vec!["the database: unavailable".to_owned()]);
+            }
+        };
         let mut stored = 0;
         let mut errors = Vec::new();
-        for ((from, to), (start, end)) in gaps {
+        let mut failed: HashSet<String> = HashSet::new();
+        for (&(from, to), &days) in gaps {
             let (Some(base), Some(quote)) = (
                 commodities.iter().find(|c| c.id == from),
                 commodities.iter().find(|c| c.id == to),
             ) else {
                 continue;
             };
-            let start = start - time::Duration::days(i64::from(self.fresh_days));
-            let end = end.min(today);
-            if start > end {
+            let Some((start, end)) = self.window(days, today) else {
                 continue;
-            }
+            };
             for source in &self.sources {
+                let name = source.name();
                 let Some(pairs) = source.plan(&base.code, kind(base), &quote.code, kind(quote))
                 else {
                     continue;
                 };
-                let days = (start, end);
+                if failed.contains(name) {
+                    continue;
+                }
                 if !force {
-                    match self.asked(source.name(), from, to, days) {
+                    let mut memory = self.lock();
+                    if memory.down.get(name).is_some_and(|t| Instant::now() < *t) {
+                        continue;
+                    }
+                    match asked(&mut memory, name, from, to, (start, end)) {
                         // It answered: what it had is stored.
                         Some(true) => break,
                         Some(false) => continue,
@@ -190,60 +403,93 @@ impl Pricing {
                 let quotes = match fetched {
                     Ok(Ok(q)) => q,
                     Ok(Err(e)) => {
-                        tracing::warn!(source = source.name(), "prices: {e}");
-                        errors.push(format!("{}: {e}", source.name()));
-                        self.note(source.name(), from, to, days, false);
+                        tracing::warn!(source = name, "prices: {e}");
+                        errors.push(format!("{name}: {e}"));
+                        failed.insert(name.to_owned());
+                        let wait = if matches!(e, Error::RateLimited) {
+                            RATE_LIMITED
+                        } else {
+                            self.outage
+                        };
+                        self.lock()
+                            .down
+                            .insert(name.to_owned(), Instant::now() + wait);
                         continue;
                     }
-                    Err(_) => return Err(Problem::internal()),
+                    Err(e) => {
+                        tracing::error!(source = name, error = %e, "prices: the fetch panicked");
+                        errors.push(format!("{name}: failed"));
+                        failed.insert(name.to_owned());
+                        continue;
+                    }
                 };
-                let (n, covered) =
-                    save(db, source.name(), &commodities, &pairs, &quotes, today).await?;
+                self.lock().down.remove(name);
+                let Ok((n, covered)) =
+                    save(&mut db, name, commodities, &pairs, &quotes, today).await
+                else {
+                    errors.push("the database: storing prices failed".to_owned());
+                    return (stored, errors);
+                };
                 stored += n;
-                self.note(source.name(), from, to, days, covered);
+                self.lock()
+                    .asked
+                    .entry(key(name, from, to))
+                    .or_default()
+                    .push((start, end, Instant::now(), covered));
                 if covered {
                     break;
                 }
             }
         }
-        let (prices, rows) = self.stored(db, &ids, lo, hi).await?;
-        Ok(Loaded {
-            prices,
-            rows,
-            stored,
-            errors,
-        })
+        (stored, errors)
     }
 
-    /// Whether `source` was asked for all of a pair's days within the
-    /// cooldown, and if so, whether it answered.
-    fn asked(&self, source: &str, from: Uuid, to: Uuid, days: (Date, Date)) -> Option<bool> {
-        let mut asked = self.lock();
-        let now = Instant::now();
-        let before = asked.get_mut(&key(source, from, to))?;
-        before.retain(|(_, _, t, _)| now - *t < COOLDOWN);
-        let (start, end) = days;
-        before
-            .iter()
-            .rev()
-            .find(|(s, e, _, _)| *s <= start && end <= *e)
-            .map(|(_, _, _, answered)| *answered)
-    }
-
-    fn note(&self, source: &str, from: Uuid, to: Uuid, days: (Date, Date), answered: bool) {
-        self.lock().entry(key(source, from, to)).or_default().push((
-            days.0,
-            days.1,
-            Instant::now(),
-            answered,
-        ));
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, Asked> {
-        self.asked
+    fn lock(&self) -> std::sync::MutexGuard<'_, Memory> {
+        self.memory
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+}
+
+/// A fetch under way: its pairs, until it's dropped.
+struct Running {
+    pricing: Pricing,
+    pairs: Vec<(Uuid, Uuid)>,
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let mut memory = self.pricing.lock();
+        for p in &self.pairs {
+            memory.fetching.remove(p);
+        }
+        drop(memory);
+        self.pricing.running.send_modify(|n| *n -= 1);
+    }
+}
+
+/// Whether `source` answered for all of a pair's days within the
+/// cooldown, if it was asked.
+fn asked(
+    memory: &mut Memory,
+    source: &str,
+    from: Uuid,
+    to: Uuid,
+    days: (Date, Date),
+) -> Option<bool> {
+    let now = Instant::now();
+    let before = memory.asked.get_mut(&key(source, from, to))?;
+    before.retain(|(_, _, t, _)| now - *t < COOLDOWN);
+    let (start, end) = days;
+    before
+        .iter()
+        .rev()
+        .find(|(s, e, _, _)| *s <= start && end <= *e)
+        .map(|(_, _, _, answered)| *answered)
+}
+
+fn key_of((from, to): (Uuid, Uuid)) -> (Uuid, Uuid) {
+    (from.min(to), from.max(to))
 }
 
 /// Either way round is the same pair.
@@ -252,8 +498,8 @@ fn key(source: &str, from: Uuid, to: Uuid) -> (String, Uuid, Uuid) {
 }
 
 /// Each pair's date range.
-fn ranges<'a>(needs: impl Iterator<Item = &'a Need>) -> BTreeMap<(Uuid, Uuid), (Date, Date)> {
-    let mut out: BTreeMap<(Uuid, Uuid), (Date, Date)> = BTreeMap::new();
+fn ranges<'a>(needs: impl Iterator<Item = &'a Need>) -> Gaps {
+    let mut out = Gaps::new();
     for n in needs {
         out.entry((n.from, n.to))
             .and_modify(|(lo, hi)| {

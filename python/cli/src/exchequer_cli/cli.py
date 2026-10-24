@@ -12,11 +12,11 @@ from typing import Annotated
 import typer
 
 from exchequer_cli import config
-from exchequer_cli.imports import ApiError, Importer, ok
+from exchequer_cli.imports import ApiError, Importer
 from exchequer_cli.login import login as sign_in
+from exchequer_cli.prices import refresh
 from exchequer_cli.rules import Rules, error_lines, month_range
 from exchequer_sdk import AuthenticatedClient, Client
-from exchequer_sdk.api.prices import prices_refresh
 from exchequer_sdk.models import RefreshRequest, RuleScript
 from exchequer_sdk.types import UNSET
 
@@ -242,7 +242,7 @@ def prices_refresh_(
             to=datetime.date.fromisoformat(end) if end else UNSET,
         )
         with client:
-            r = ok(prices_refresh.sync_detailed(client=client, body=body), "refresh")
+            r = refresh(client, body)
     except (config.ConfigError, ApiError, ValueError) as e:
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(2) from e
