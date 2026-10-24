@@ -521,6 +521,327 @@
         ]
       }
     },
+    "/api/v1/auth": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "What this server offers for signing in.",
+        "operationId": "auth_info",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/device": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "The CLI starts signing in: it shows `user_code` and a link, and polls.",
+        "operationId": "auth_start_device",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartDevice"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceCode"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/device/token": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "The CLI polls: its token once a user has approved, handed out once.",
+        "operationId": "auth_device_token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PollDevice"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceToken"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such device code, or it expired",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Start registering a passkey with an invite.",
+        "operationId": "auth_start_register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartRegistration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ceremony"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such invite, or it was used or expired",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Passkey sign-in is off",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/register/{id}": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Finish registering: the passkey is kept, the invite used up, and the\nbrowser signed in as its user.",
+        "operationId": "auth_finish_register",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Ceremony ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishRegistration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The passkey wasn't accepted, or the ceremony expired",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "That passkey is registered already",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Passkey sign-in is off",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/sign-in": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Start signing in: the browser offers the passkeys it holds for this\nserver.",
+        "operationId": "auth_start_sign_in",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ceremony"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Passkey sign-in is off",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/sign-in/{id}": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Finish signing in with the browser's answer.",
+        "operationId": "auth_finish_sign_in",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Ceremony ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishSignIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The passkey wasn't accepted, or the ceremony expired",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Passkey sign-in is off",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/balance-checks": {
       "get": {
         "tags": [
@@ -1742,6 +2063,123 @@
         ]
       }
     },
+    "/api/v1/devices/{code}": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "The CLI waiting for approval under this code (`ABCD-EFGH`).",
+        "operationId": "users_device",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "description": "The code the CLI shows",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceSignIn"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such code, or it expired",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/devices/{code}/approve": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Approve the CLI waiting under this code: it signs in as you.",
+        "operationId": "users_approve_device",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "description": "The code the CLI shows",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not signed in as a user",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such code, or it expired",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/import-batches": {
       "get": {
         "tags": [
@@ -2767,6 +3205,71 @@
         ]
       }
     },
+    "/api/v1/me": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "The signed-in user and their token.",
+        "operationId": "users_me",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/me/session": {
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Sign out: revokes the request's token if it's a session. Other tokens are\nleft alone (revoke those through `/tokens`).",
+        "operationId": "users_sign_out",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/parties": {
       "get": {
         "tags": [
@@ -3087,6 +3590,57 @@
           },
           "428": {
             "description": "Precondition Required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/passkeys/{id}": {
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Delete a passkey; it stops working at once.",
+        "operationId": "users_remove_passkey",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Passkey ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4904,7 +5458,7 @@
         "tags": [
           "tokens"
         ],
-        "summary": "Create a token for one client.",
+        "summary": "Create a token for one client. A signed-in user's token belongs to them.",
         "operationId": "tokens_create",
         "requestBody": {
           "content": {
@@ -5509,6 +6063,218 @@
         ]
       }
     },
+    "/api/v1/users": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "The users who can sign in, with their passkeys.",
+        "operationId": "users_list",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Add a user, with an invite for their first passkey.",
+        "operationId": "users_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewUser"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedUser"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Name already used",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/{id}": {
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Remove a user: their passkeys are deleted and their tokens revoked.",
+        "operationId": "users_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "User ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/{id}/invites": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "A new invite for a user: to add a passkey on another device, or replace\nlost ones. It works once, for 24 hours.",
+        "operationId": "users_invite",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "User ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invite"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/healthz": {
       "get": {
         "tags": [
@@ -5748,6 +6514,19 @@
           }
         },
         "additionalProperties": false
+      },
+      "AuthInfo": {
+        "type": "object",
+        "description": "What this server offers.",
+        "required": [
+          "passkeys"
+        ],
+        "properties": {
+          "passkeys": {
+            "type": "boolean",
+            "description": "Whether passkey sign-in is on (`EXCHEQUER_ORIGIN` is set)."
+          }
+        }
       },
       "Backtest": {
         "type": "object",
@@ -6124,6 +6903,30 @@
           }
         }
       },
+      "Ceremony": {
+        "type": "object",
+        "description": "A ceremony started: hand `options` to the browser.",
+        "required": [
+          "id",
+          "options"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "options": {
+            "description": "For `navigator.credentials.create` or `.get`, binary fields as\nbase64url: `{ \"publicKey\": … }`."
+          },
+          "user": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Whose passkey a registration makes; none when signing in."
+          }
+        }
+      },
       "CommitReady": {
         "type": "object",
         "required": [
@@ -6311,6 +7114,22 @@
           }
         ]
       },
+      "CreatedUser": {
+        "type": "object",
+        "required": [
+          "user",
+          "invite"
+        ],
+        "properties": {
+          "invite": {
+            "$ref": "#/components/schemas/Invite",
+            "description": "Their first invite: opening it registers their first passkey."
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        }
+      },
       "CreditLimit": {
         "type": "object",
         "description": "A credit card's limit: display metadata, never part of the balance. Only\na `credit_card` account has one (422 otherwise); changing a card to\nanother kind needs the limit cleared, in the same request or before.",
@@ -6370,6 +7189,67 @@
           },
           "suggester": {
             "$ref": "#/components/schemas/Suggester"
+          }
+        }
+      },
+      "DeviceCode": {
+        "type": "object",
+        "description": "Show `user_code` to the user; poll with `device_code` until approved.",
+        "required": [
+          "device_code",
+          "user_code",
+          "expires_at",
+          "interval"
+        ],
+        "properties": {
+          "device_code": {
+            "type": "string",
+            "description": "The CLI's secret. Shown only in this response."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "interval": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Seconds between polls.",
+            "minimum": 0
+          },
+          "user_code": {
+            "type": "string",
+            "description": "What the user approves in the web app, at `#/device/<user_code>`."
+          }
+        }
+      },
+      "DeviceSignIn": {
+        "type": "object",
+        "description": "The CLI waiting to sign in, as the approver sees it.",
+        "required": [
+          "client",
+          "expires_at"
+        ],
+        "properties": {
+          "client": {
+            "type": "string",
+            "description": "What the CLI called itself, e.g. `cli on laptop`."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DeviceToken": {
+        "type": "object",
+        "description": "The CLI's token once approved; none while waiting.",
+        "properties": {
+          "token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Shown only once: store it in the token file."
           }
         }
       },
@@ -6622,6 +7502,37 @@
           "ofx",
           "csv"
         ]
+      },
+      "FinishRegistration": {
+        "type": "object",
+        "required": [
+          "credential"
+        ],
+        "properties": {
+          "credential": {
+            "description": "The browser's `PublicKeyCredential`, as JSON (binary fields base64url)."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What to call the passkey, e.g. `iPhone`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "FinishSignIn": {
+        "type": "object",
+        "required": [
+          "credential"
+        ],
+        "properties": {
+          "credential": {
+            "description": "The browser's `PublicKeyCredential`, as JSON (binary fields base64url)."
+          }
+        },
+        "additionalProperties": false
       },
       "Funder": {
         "type": "object",
@@ -6916,6 +7827,29 @@
           }
         }
       },
+      "Invite": {
+        "type": "object",
+        "description": "A one-time link's secret: the web app opens it at `#/invite/<code>`.",
+        "required": [
+          "user_id",
+          "code",
+          "expires_at"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Shown only in this response."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "Kind": {
         "type": "string",
         "description": "Derived from who is on each side; never stored or entered.",
@@ -7109,6 +8043,34 @@
           "claim",
           "payment"
         ]
+      },
+      "Me": {
+        "type": "object",
+        "description": "Who the request's token belongs to.",
+        "properties": {
+          "token": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Token",
+                "description": "None for the bootstrap token."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/User",
+                "description": "None for a script's token or the bootstrap token."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
       },
       "Measure": {
         "type": "string",
@@ -7525,6 +8487,19 @@
               "type": "string"
             },
             "description": "Tag names; unknown ones are created."
+          }
+        },
+        "additionalProperties": false
+      },
+      "NewUser": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "What they're called, e.g. `Alex`. Unique."
           }
         },
         "additionalProperties": false
@@ -8477,6 +9452,47 @@
         },
         "additionalProperties": false
       },
+      "Passkey": {
+        "type": "object",
+        "description": "A passkey: only what tells it apart, never its key.",
+        "required": [
+          "id",
+          "name",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "PollDevice": {
+        "type": "object",
+        "required": [
+          "device_code"
+        ],
+        "properties": {
+          "device_code": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "Price": {
         "type": "object",
         "required": [
@@ -9332,6 +10348,28 @@
           }
         }
       },
+      "Session": {
+        "type": "object",
+        "description": "A browser signed in: send `token` as the bearer token until it expires.",
+        "required": [
+          "token",
+          "expires_at",
+          "user"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "token": {
+            "type": "string",
+            "description": "Shown only in this response."
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        }
+      },
       "Settlement": {
         "type": "object",
         "description": "A month's parameters and state.",
@@ -9734,6 +10772,32 @@
           }
         }
       },
+      "StartDevice": {
+        "type": "object",
+        "required": [
+          "client"
+        ],
+        "properties": {
+          "client": {
+            "type": "string",
+            "description": "What the CLI calls itself, shown to the approver: `cli on laptop`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "StartRegistration": {
+        "type": "object",
+        "required": [
+          "invite"
+        ],
+        "properties": {
+          "invite": {
+            "type": "string",
+            "description": "The invite's code."
+          }
+        },
+        "additionalProperties": false
+      },
       "Statement": {
         "type": "object",
         "description": "The statement for one month (design §4.3).",
@@ -9892,6 +10956,14 @@
             "type": "string",
             "format": "date-time"
           },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When a session stops working; other tokens last until revoked."
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -9905,6 +10977,14 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The user it belongs to; none for a script's token."
           }
         }
       },
@@ -10025,6 +11105,35 @@
           }
         ],
         "description": "A split the settlement couldn't value: neither leg is in USD, and no\nprice connects its commodity to USD."
+      },
+      "User": {
+        "type": "object",
+        "description": "A household member who signs in.",
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "passkeys"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "passkeys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Passkey"
+            }
+          }
+        }
       },
       "ValuationOut": {
         "type": "object",

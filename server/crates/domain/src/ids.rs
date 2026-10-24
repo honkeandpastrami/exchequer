@@ -64,6 +64,8 @@ id_type!(
     CategoryId,
     BillId,
     TokenId,
+    UserId,
+    PasskeyId,
 );
 
 #[cfg(test)]

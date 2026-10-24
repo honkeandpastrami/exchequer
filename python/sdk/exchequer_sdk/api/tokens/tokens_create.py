@@ -73,7 +73,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: NewToken,
 ) -> Response[CreatedToken | Problem]:
-    """Create a token for one client.
+    """Create a token for one client. A signed-in user's token belongs to them.
 
     Args:
         body (NewToken):
@@ -102,7 +102,7 @@ def sync(
     client: AuthenticatedClient,
     body: NewToken,
 ) -> CreatedToken | Problem | None:
-    """Create a token for one client.
+    """Create a token for one client. A signed-in user's token belongs to them.
 
     Args:
         body (NewToken):
@@ -126,7 +126,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: NewToken,
 ) -> Response[CreatedToken | Problem]:
-    """Create a token for one client.
+    """Create a token for one client. A signed-in user's token belongs to them.
 
     Args:
         body (NewToken):
@@ -153,7 +153,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: NewToken,
 ) -> CreatedToken | Problem | None:
-    """Create a token for one client.
+    """Create a token for one client. A signed-in user's token belongs to them.
 
     Args:
         body (NewToken):

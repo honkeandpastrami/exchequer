@@ -4,6 +4,7 @@ Exchequer's command line.
 
 ```sh
 cd python
+uv run exchequer login                     # sign in through the web app; writes the token file
 uv run exchequer import FILE...            # upload, review, commit bank files
 uv run exchequer import FILE... --yes      # take every default, no questions
 uv run exchequer rules edit -m "why"       # edit the rules script in $EDITOR, upload on save
@@ -19,4 +20,5 @@ url = "https://example.com/exchequer"
 token_file = "~/.config/exchequer/token"   # a file holding only the token
 ```
 
-Make a token for the CLI alone, so it can be revoked on its own. The token is never printed.
+`exchequer login` fills the token file: approve its code in the web app, signed in with your
+passkey. The token is the CLI's own, revocable on its own, and never printed.

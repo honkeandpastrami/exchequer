@@ -82,7 +82,8 @@ Where outside data comes from:
 | **BalanceCheck** | "Account X held N of commodity C at date D" | Entered by the user from the bank's app (optionally dated), or taken from OFX `LEDGERBAL`. Mismatches go to the discrepancy finder (§7.1). |
 | **ImportBatch / StagedRow** | The import workflow state | §6. |
 | **AuditLog** | Append-only change history | Records which token changed what. |
-| **Token** | A client's credential | Named, stored hashed, revocable (§10). |
+| **User / Passkey** | A household member who signs in | A name and one or more passkeys (§10). |
+| **Token** | A client's credential | Named, stored hashed, revocable; a user's own, or a script's (§10). |
 
 ### 3.2 There are no transaction types
 
@@ -689,18 +690,37 @@ learned from the transaction history (#36). The ledger has no bill field yet.
 
 A pluggable middleware layer: every request resolves to a principal or is rejected.
 
-- **Static bearer tokens,** created through `POST /tokens` and stored **hashed** (SHA-256:
-  the secrets are 256 random bits, so a slow password hash adds cost without adding
-  safety). One token per client, named, shown once, and individually revocable. A
-  bootstrap token from a podman secret (§14.1) is accepted only for managing tokens, to
-  create the first one.
-- **Not built:** sign-in with Microsoft Entra ID (OIDC) for each household member (#37).
-  Sign in with Apple was ruled out: it needs a paid developer account and HTTPS redirect
-  URIs on a public domain, and has no device-code flow, a poor fit for a VPN-only service.
-- **TLS** is terminated by the operator's existing reverse proxy.
+- **Users sign in with passkeys** (WebAuthn): Face ID, Touch ID, Windows Hello or a
+  security key. There are no passwords and no outside identity provider. For each passkey the
+  server keeps its credential ID, public key and signature counter, nothing secret, so a
+  leaked database lets no one sign in. A user is a household member with a name; the audit
+  log ties every change to one through its token.
+- **Invites.** A user is added with a one-time invite link, valid for 24 hours: opening it
+  registers a passkey for that user. Nobody registers without one. The same kind of link
+  adds a passkey on another device, or replaces lost ones. Removing a user deletes their
+  passkeys and revokes their tokens.
+- **Sign-in** is usernameless: the browser offers the passkeys it holds for the server's
+  domain. Success creates a **session**, a token that belongs to the user and expires after
+  30 days; signing out revokes it.
+- **The CLI signs in through the browser,** like OAuth's device flow: `exchequer login`
+  shows a link with a short code, a signed-in user approves it, and the CLI receives a token
+  of its own, kept in its token file.
+- **Passkeys are bound to the server's domain:** `EXCHEQUER_ORIGIN` (e.g.
+  `https://books.example.org`; a path under it is fine). Moving to another domain means
+  registering again. Without it, passkey sign-in is off and only tokens work.
+- **Bearer tokens** underlie everything: sessions, the CLI's, and static tokens for scripts
+  created through `POST /tokens`. They're stored **hashed** (SHA-256: the secrets are 256
+  random bits, so a slow password hash adds cost without adding safety), named, shown once,
+  and individually revocable. A token created by a signed-in user belongs to that user.
+  Invite links and the CLI's device codes are stored hashed too; a ceremony's challenge
+  lives in the database for five minutes and is used once.
+- **The bootstrap token** from a podman secret (§14.1) is accepted only for managing users
+  and tokens: to add the first user and make their invite.
+- **TLS** is terminated by the operator's existing reverse proxy. Passkeys require it.
 
-**One ledger, several people.** Everyone with a token sees and edits everything; the audit
-log records which token changed what. No multi-tenancy: one household per server.
+**One ledger, several people.** Everyone signed in sees and edits everything, users
+included; the audit log records which token, and so which user, changed what. No
+multi-tenancy: one household per server.
 
 ## 11. Component: Firefly III migration (one-time)
 
@@ -784,6 +804,7 @@ A thin client built on the generated SDK; it never imports server code. It reads
 and a token file from `~/.config/exchequer/config.toml` (or `EXCHEQUER_URL` and
 `EXCHEQUER_TOKEN_FILE`), and never prints the token.
 
+- `login`: sign in through the web app (§10) and write the token file.
 - `import <files…>`: upload, review each statement and row in the terminal, then commit
   (`--yes` takes every default; `--account` names the account a file doesn't).
 - `rules show | edit | upload | log | diff | rollback | dry-run` (§8).
@@ -795,7 +816,8 @@ Everything else (settlement, reports, balance checks, setup) is in the web app.
 
 - A static build (SvelteKit) served by the API container at `/`, the same origin as
   `/api/v1`, so no CORS. It works under a path when a reverse proxy strips it.
-- Sign-in is a token, kept in that browser until signing out.
+- Sign-in is with a passkey (§10), or an API token; the session is kept in that browser
+  until signing out. Setup → Users adds people, makes invite links and lists passkeys.
 - Pages: **Accounts** (balances on a date, valued in USD, by owner and liquid,
   investment and loan, with a link to check each against the bank); **Transactions**
   (search, and editing with splits); **Imports** (upload, review and commit, §6);
@@ -828,7 +850,7 @@ secrets**, generated on the host once and handed to containers as files under
 | Secret | Consumers |
 |---|---|
 | `exchequer_db_password` | db (sets it), api (connects), backup (dumps) |
-| `exchequer_bootstrap_token` | api (first admin token, §10) |
+| `exchequer_bootstrap_token` | api (first user and token, §10) |
 | `exchequer_remote_ai_key` | api (optional: remote AI, §8) |
 | `exchequer_tiingo_api_key` | api (optional: the Tiingo price source, §3.4); each keyed price source has its own, `exchequer_<source>_api_key` |
 
@@ -900,7 +922,8 @@ boundary, so each side uses the language that suits it.
 
 - **OpenAPI:** `utoipa-axum` registers each route together with its spec entry. The spec is
   committed, and CI fails on drift.
-- **Auth:** SHA-256 token hashes (`sha2`).
+- **Auth:** SHA-256 token hashes (`sha2`); passkeys with `webauthn-rs` (MPL-2.0, used
+  unmodified), whose OpenSSL is compiled in statically.
 - **Database:** PostgreSQL 17 (`NUMERIC`, `pg_trgm`); `sqlx` migrations compiled into the
   binary.
 - **Container:** multi-stage build (`Containerfile`): the web app's static build, then one
@@ -1001,10 +1024,11 @@ exchequer/
 Apache-2.0 or BSD, and CI checks licenses (`cargo-deny` for Rust, plus a check over the Python
 and npm lockfiles). GPL-licensed OFX libraries (e.g. Python's `ofxtools`) are never
 imported; `ofx-check` compares against the output of an external program instead. ISC
-(TLS: `ring`, `rustls-webpki`) is allowed alongside them. Three exceptions, each for one
-crate (`server/deny.toml`): two Rhai can't do without, `smartstring` (MPL-2.0, copyleft
-per file, used unmodified) and `tiny-keccak` (CC0-1.0); and `webpki-roots`
-(CDLA-Permissive-2.0, root certificates as data) for remote AI's TLS.
+(TLS: `ring`, `rustls-webpki`) is allowed alongside them. The exceptions, each for named
+crates (`server/deny.toml`): two Rhai can't do without, `smartstring` (MPL-2.0, copyleft
+per file, used unmodified) and `tiny-keccak` (CC0-1.0); `webpki-roots`
+(CDLA-Permissive-2.0, root certificates as data) for remote AI's TLS; and passkeys'
+`webauthn-rs` and its own crates (MPL-2.0, used unmodified).
 
 ## 17. Not built
 
@@ -1013,7 +1037,6 @@ these, each an issue:
 
 - The discrepancy finder's AI explanation (§7.1): #34.
 - Bills and recurrences (§9): #35; learned bills: #36.
-- Sign-in with Microsoft Entra ID (§10): #37.
 - Encrypted offsite backups (§14.2): #38.
 
 New work is proposed and tracked as GitHub issues ([`issues.md`](issues.md)); this

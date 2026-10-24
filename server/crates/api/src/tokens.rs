@@ -3,7 +3,7 @@
 use axum::Extension;
 use axum::extract::State;
 use axum::http::StatusCode;
-use domain::TokenId;
+use domain::{TokenId, UserId};
 use serde::{Deserialize, Serialize};
 use store::audit::{self, Action};
 use store::tokens::TokenRow;
@@ -32,6 +32,11 @@ pub struct Token {
     created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339::option")]
     revoked_at: Option<OffsetDateTime>,
+    /// The user it belongs to; none for a script's token.
+    user_id: Option<Uuid>,
+    /// When a session stops working; other tokens last until revoked.
+    #[serde(with = "time::serde::rfc3339::option")]
+    expires_at: Option<OffsetDateTime>,
 }
 
 impl From<TokenRow> for Token {
@@ -41,8 +46,57 @@ impl From<TokenRow> for Token {
             name: r.name,
             created_at: r.created_at,
             revoked_at: r.revoked_at,
+            user_id: r.user_id.map(|u| *u.as_uuid()),
+            expires_at: r.expires_at,
         }
     }
+}
+
+/// The user the request's token belongs to, if any (never for bootstrap).
+pub(crate) async fn user_of(
+    db: impl sqlx::PgExecutor<'_>,
+    principal: Principal,
+) -> Result<Option<UserId>, Problem> {
+    let Some(id) = principal.actor() else {
+        return Ok(None);
+    };
+    Ok(store::tokens::find(db, id).await?.and_then(|t| t.user_id))
+}
+
+/// Makes a token and records it in the audit log; the actor is `by`, or the
+/// new token itself when a user signs in. Returns it and its full text.
+pub(crate) async fn issue(
+    tx: &mut sqlx::PgConnection,
+    by: Option<Principal>,
+    name: &str,
+    user: Option<UserId>,
+    expires_at: Option<OffsetDateTime>,
+) -> Result<(Token, String), Problem> {
+    let generated = auth::generate(auth::Kind::Token)?;
+    let id = TokenId::from_uuid(generated.id);
+    let row = store::tokens::insert(&mut *tx, id, name, &generated.hash, user, expires_at)
+        .await
+        .map_err(|e| {
+            if is_unique_violation(&e) {
+                Problem::conflict(format!("a token named {name:?} already exists"))
+            } else {
+                e.into()
+            }
+        })?;
+    let token = Token::from(row);
+    audit::record(
+        &mut *tx,
+        audit::Entry {
+            actor: by.map_or(Some(id), Principal::actor),
+            action: Action::Create,
+            entity: "token",
+            entity_id: token.id,
+            before: None,
+            after: Some(serde_json::to_value(&token).map_err(|_| Problem::internal())?),
+        },
+    )
+    .await?;
+    Ok((token, generated.text))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -76,7 +130,7 @@ async fn list(State(state): State<AppState>) -> Result<axum::Json<Vec<Token>>, P
     Ok(axum::Json(rows.into_iter().map(Token::from).collect()))
 }
 
-/// Create a token for one client.
+/// Create a token for one client. A signed-in user's token belongs to them.
 #[utoipa::path(
     post,
     path = "/tokens",
@@ -99,38 +153,16 @@ async fn create(
     if name.is_empty() || name.chars().count() > 64 {
         return Err(Problem::invalid("name must be 1-64 characters"));
     }
-    let generated = auth::generate()?;
-
     let mut tx = state.pool.begin().await?;
-    let row = store::tokens::insert(&mut *tx, generated.id, name, &generated.secret_hash)
-        .await
-        .map_err(|e| {
-            if is_unique_violation(&e) {
-                Problem::conflict(format!("a token named {name:?} already exists"))
-            } else {
-                e.into()
-            }
-        })?;
-    let token = Token::from(row);
-    audit::record(
-        &mut *tx,
-        audit::Entry {
-            actor: principal.actor(),
-            action: Action::Create,
-            entity: "token",
-            entity_id: token.id,
-            before: None,
-            after: Some(serde_json::to_value(&token).map_err(|_| Problem::internal())?),
-        },
-    )
-    .await?;
+    let user = user_of(&mut *tx, principal).await?;
+    let (token, text) = issue(&mut tx, Some(principal), name, user, None).await?;
     tx.commit().await?;
 
     Ok((
         StatusCode::CREATED,
         axum::Json(CreatedToken {
             meta: token,
-            token: generated.token,
+            token: text,
         }),
     ))
 }

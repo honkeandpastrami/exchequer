@@ -33,8 +33,8 @@ allow = [
     "Zlib",
 ]
 confidence-threshold = 0.9
-# One crate each (design §16.4), none GPL: two pulled in by Rhai, one by
-# the remote AI client.
+# Each for named crates (design §16.4), none GPL: two pulled in by Rhai, one
+# by the remote AI client, and passkeys' (webauthn-rs).
 exceptions = [
     # MPL-2.0: copyleft per file, used unmodified from crates.io.
     { crate = "smartstring", allow = ["MPL-2.0"] },
@@ -43,6 +43,12 @@ exceptions = [
     # CDLA-Permissive-2.0: Mozilla's root certificates as data, via ureq
     # (remote AI); the image has no system certificates.
     { crate = "webpki-roots", allow = ["CDLA-Permissive-2.0"] },
+    # MPL-2.0: passkeys (design §10), used unmodified from crates.io.
+    { crate = "webauthn-rs", allow = ["MPL-2.0"] },
+    { crate = "webauthn-rs-core", allow = ["MPL-2.0"] },
+    { crate = "webauthn-rs-proto", allow = ["MPL-2.0"] },
+    { crate = "webauthn-attestation-ca", allow = ["MPL-2.0"] },
+    { crate = "base64urlsafedata", allow = ["MPL-2.0"] },
 ]
 
 [licenses.private]

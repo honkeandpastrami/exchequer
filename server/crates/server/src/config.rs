@@ -60,8 +60,13 @@ pub struct Config {
     /// `EXCHEQUER_BIND`, default `127.0.0.1:7438`.
     pub bind: SocketAddr,
     pub db: DbConfig,
-    /// `BOOTSTRAP_TOKEN_FILE`: accepted only for managing tokens (design §10).
+    /// `BOOTSTRAP_TOKEN_FILE`: accepted only for managing users and tokens
+    /// (design §10).
     pub bootstrap_token: Option<Secret>,
+    /// `EXCHEQUER_ORIGIN`: where people open the web app, e.g.
+    /// `https://books.example.org/exchequer/`. Passkeys are bound to its host;
+    /// unset, passkey sign-in is off.
+    pub origin: Option<String>,
     /// `EXCHEQUER_WEB_DIR`: the web app's static build, served at `/`. The
     /// image sets it; unset, only the API is served.
     pub web_dir: Option<PathBuf>,
@@ -280,6 +285,15 @@ impl Config {
                     });
                 }
                 t => t,
+            },
+            origin: match env("EXCHEQUER_ORIGIN") {
+                Some(o) if api::passkeys(&o).is_err() => {
+                    return Err(ConfigError::Invalid {
+                        name: "EXCHEQUER_ORIGIN",
+                        value: o,
+                    });
+                }
+                o => o,
             },
             web_dir: env("EXCHEQUER_WEB_DIR").map(PathBuf::from),
             zone: match env("TZ") {

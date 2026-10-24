@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, secret_hash, created_at, revoked_at FROM api_token ORDER BY id",
+  "query": "INSERT INTO app_user (id, name) VALUES ($1, $2)\n         RETURNING id, name, created_at, removed_at",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "api_token",
+            "table": "app_user",
             "name": "id"
           }
         }
@@ -20,55 +20,46 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "api_token",
+            "table": "app_user",
             "name": "name"
           }
         }
       },
       {
         "ordinal": 2,
-        "name": "secret_hash",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "api_token",
-            "name": "secret_hash"
-          }
-        }
-      },
-      {
-        "ordinal": 3,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "api_token",
+            "table": "app_user",
             "name": "created_at"
           }
         }
       },
       {
-        "ordinal": 4,
-        "name": "revoked_at",
+        "ordinal": 3,
+        "name": "removed_at",
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "api_token",
-            "name": "revoked_at"
+            "table": "app_user",
+            "name": "removed_at"
           }
         }
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
     },
     "nullable": [
-      false,
       false,
       false,
       false,
       true
     ]
   },
-  "hash": "35889e4119b677fe03e24c4b36832c6b1e3b0ea1fc442e398d0922591a6bdddf"
+  "hash": "7d43c9516edecd86dc7c102e5c7cb771049527647c41941de30c93912d72ff3d"
 }

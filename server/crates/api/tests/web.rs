@@ -42,6 +42,7 @@ async fn serves_the_build(pool: PgPool) {
         api::AppState {
             pool,
             bootstrap_token: None,
+            passkeys: None,
             zone: jiff::tz::TimeZone::get("America/New_York").unwrap(),
             suggestions: api::Suggestions::default(),
             pricing: api::Pricing::default(),

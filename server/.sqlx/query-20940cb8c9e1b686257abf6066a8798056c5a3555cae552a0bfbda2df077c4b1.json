@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, secret_hash, created_at, revoked_at FROM api_token WHERE id = $1",
+  "query": "UPDATE app_user new SET removed_at = now()\n           FROM app_user old WHERE new.id = old.id AND new.id = $1 AND new.removed_at IS NULL\n           RETURNING old.id, old.name, old.created_at, old.removed_at",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "api_token",
+            "table": "app_user",
             "name": "id"
           }
         }
@@ -20,41 +20,30 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "api_token",
+            "table": "app_user",
             "name": "name"
           }
         }
       },
       {
         "ordinal": 2,
-        "name": "secret_hash",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "api_token",
-            "name": "secret_hash"
-          }
-        }
-      },
-      {
-        "ordinal": 3,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "api_token",
+            "table": "app_user",
             "name": "created_at"
           }
         }
       },
       {
-        "ordinal": 4,
-        "name": "revoked_at",
+        "ordinal": 3,
+        "name": "removed_at",
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "api_token",
-            "name": "revoked_at"
+            "table": "app_user",
+            "name": "removed_at"
           }
         }
       }
@@ -68,9 +57,8 @@
       false,
       false,
       false,
-      false,
       true
     ]
   },
-  "hash": "515793686f308e0e8eee33e7530edff213b8303b2eec6966d9fe53396f4be94a"
+  "hash": "20940cb8c9e1b686257abf6066a8798056c5a3555cae552a0bfbda2df077c4b1"
 }

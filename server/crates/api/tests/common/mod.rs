@@ -1,6 +1,7 @@
 //! Calls the app in-process, as a client would.
 #![allow(dead_code)] // each test file uses a different subset
 
+pub mod authenticator;
 pub mod household;
 
 use axum::body::Body;
@@ -11,6 +12,8 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 
 pub const BOOTSTRAP: &str = "bootstrap-token-for-tests-0123456789abcdef";
+/// Where the web app is served, for passkeys.
+pub const ORIGIN: &str = "https://books.example.org";
 
 pub struct Response {
     pub status: StatusCode,
@@ -38,6 +41,7 @@ pub struct Call<'a> {
     bytes: Option<Vec<u8>>,
     suggestions: Option<api::Suggestions>,
     pricing: Option<api::Pricing>,
+    passkeys_off: bool,
 }
 
 pub fn call<'a>(pool: &'a PgPool, method: &'a str, path: impl Into<String>) -> Call<'a> {
@@ -50,6 +54,7 @@ pub fn call<'a>(pool: &'a PgPool, method: &'a str, path: impl Into<String>) -> C
         bytes: None,
         suggestions: None,
         pricing: None,
+        passkeys_off: false,
     }
 }
 
@@ -86,6 +91,12 @@ impl Call<'_> {
         self
     }
 
+    /// A server without `EXCHEQUER_ORIGIN`: no passkeys.
+    pub fn passkeys_off(mut self) -> Self {
+        self.passkeys_off = true;
+        self
+    }
+
     /// A raw body, e.g. an uploaded file.
     pub fn bytes(mut self, body: impl Into<Vec<u8>>) -> Self {
         self.bytes = Some(body.into());
@@ -96,6 +107,7 @@ impl Call<'_> {
         let app = api::app(api::AppState {
             pool: self.pool.clone(),
             bootstrap_token: Some(BOOTSTRAP.into()),
+            passkeys: (!self.passkeys_off).then(|| api::passkeys(ORIGIN).unwrap()),
             zone: jiff::tz::TimeZone::get("America/New_York").unwrap(),
             suggestions: self.suggestions.unwrap_or_default(),
             pricing: self.pricing.unwrap_or_default(),
