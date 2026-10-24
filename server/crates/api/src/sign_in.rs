@@ -125,6 +125,8 @@ pub struct Session {
 pub struct StartDevice {
     /// What the CLI calls itself, shown to the approver: `cli on laptop`.
     client: String,
+    /// How many days its token works, 1-365; shown to the approver.
+    ttl_days: u32,
 }
 
 /// Show `user_code` to the user; poll with `device_code` until approved.
@@ -200,7 +202,15 @@ async fn session(
 ) -> Result<Session, Problem> {
     let expires_at = OffsetDateTime::now_utc() + SESSION_LIFE;
     let name = format!("{} · web · {}", user.name, auth::hex(&auth::random::<3>()?));
-    let (_, token) = tokens::issue(tx, None, &name, Some(user.id), Some(expires_at)).await?;
+    let (_, token) = tokens::issue(
+        tx,
+        None,
+        &name,
+        store::tokens::Kind::Session,
+        user.id,
+        expires_at,
+    )
+    .await?;
     let passkeys = store::users::passkeys(&mut *tx).await?;
     Ok(Session {
         token,
@@ -491,6 +501,8 @@ async fn start_device(
     Json(req): Json<StartDevice>,
 ) -> Result<axum::Json<DeviceCode>, Problem> {
     let client = valid_name(&req.client)?;
+    tokens::ttl(req.ttl_days)?;
+    let ttl_days = i32::try_from(req.ttl_days).map_err(|_| Problem::internal())?;
     let mut tx = state.pool.begin().await?;
     store::sign_in::prune(&mut tx).await?;
     let secret = auth::generate(auth::Kind::Device)?;
@@ -502,6 +514,7 @@ async fn start_device(
         &secret.hash,
         &user_code,
         client,
+        ttl_days,
         expires_at,
     )
     .await
@@ -563,7 +576,17 @@ async fn device_token(
         device.client,
         auth::hex(&auth::random::<3>()?)
     );
-    let (_, token) = tokens::issue(&mut tx, None, &name, Some(user.id), None).await?;
+    let days = u32::try_from(device.ttl_days).map_err(|_| Problem::internal())?;
+    let expires_at = OffsetDateTime::now_utc() + tokens::ttl(days)?;
+    let (_, token) = tokens::issue(
+        &mut tx,
+        None,
+        &name,
+        store::tokens::Kind::Cli,
+        user.id,
+        expires_at,
+    )
+    .await?;
     tx.commit().await?;
     Ok(axum::Json(DeviceToken { token: Some(token) }))
 }

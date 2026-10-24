@@ -1,12 +1,18 @@
 //! Token authentication and `/api/v1/tokens`, end to end.
 //! Needs the dev database: `just db-up`.
 
+mod common;
+
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 use tower::ServiceExt;
+
+use common::{new_token as create_token, script_token};
 
 const BOOTSTRAP: &str = "bootstrap-token-for-tests-0123456789abcdef";
 
@@ -58,20 +64,8 @@ async fn call(
     }
 }
 
-async fn create_token(pool: &PgPool, name: &str) -> (String, String) {
-    let r = call(
-        pool,
-        "POST",
-        "/api/v1/tokens",
-        Some(BOOTSTRAP),
-        Some(json!({ "name": name })),
-    )
-    .await;
-    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
-    (
-        r.body["id"].as_str().unwrap().to_owned(),
-        r.body["token"].as_str().unwrap().to_owned(),
-    )
+fn at(v: &Value) -> OffsetDateTime {
+    OffsetDateTime::parse(v.as_str().unwrap(), &Rfc3339).unwrap()
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
@@ -114,40 +108,53 @@ async fn token_lifecycle(pool: PgPool) {
     let (id, token) = create_token(&pool, "alex-laptop").await;
     assert!(token.starts_with("exq_"));
 
-    // The new token works, and listing never shows secrets.
+    // The token works, and listing never shows secrets.
     let r = call(&pool, "GET", "/api/v1/tokens", Some(&token), None).await;
     assert_eq!(r.status, StatusCode::OK);
     assert_eq!(r.body.as_array().unwrap().len(), 1);
     assert_eq!(r.body[0]["name"], "alex-laptop");
     assert!(r.body[0]["revoked_at"].is_null());
+    assert!(
+        r.body[0]["last_used_at"].is_string(),
+        "this request used it"
+    );
     assert!(!r.body.to_string().contains(&token[37..]));
     assert!(r.body[0].get("secret_hash").is_none());
+    let owner = r.body[0]["user_id"].clone();
 
-    // A token can create others; names are unique.
+    // A user's token makes others, theirs, for as long as asked; names are
+    // unique.
     let r = call(
         &pool,
         "POST",
         "/api/v1/tokens",
         Some(&token),
-        Some(json!({ "name": "web" })),
+        Some(json!({ "name": "backup", "ttl_days": 7 })),
     )
     .await;
-    assert_eq!(r.status, StatusCode::CREATED);
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    assert_eq!(r.body["kind"], "script");
+    assert_eq!(r.body["user_id"], owner);
+    assert!(r.body["last_used_at"].is_null());
+    let left = at(&r.body["expires_at"]) - OffsetDateTime::now_utc();
+    assert!(left > time::Duration::days(7) - time::Duration::minutes(1));
+    assert!(left <= time::Duration::days(7));
     let r = call(
         &pool,
         "POST",
         "/api/v1/tokens",
         Some(&token),
-        Some(json!({ "name": "web" })),
+        Some(json!({ "name": "backup", "ttl_days": 7 })),
     )
     .await;
     assert_eq!(r.status, StatusCode::CONFLICT);
     assert_eq!(r.body["type"], "urn:exchequer:problem:conflict");
 
     // Revoking stops it immediately; revoking twice is harmless.
+    let (_, other) = create_token(&pool, "other").await;
     let path = format!("/api/v1/tokens/{id}");
     assert_eq!(
-        call(&pool, "DELETE", &path, Some(BOOTSTRAP), None)
+        call(&pool, "DELETE", &path, Some(&other), None)
             .await
             .status,
         StatusCode::NO_CONTENT
@@ -159,7 +166,7 @@ async fn token_lifecycle(pool: PgPool) {
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        call(&pool, "DELETE", &path, Some(BOOTSTRAP), None)
+        call(&pool, "DELETE", &path, Some(&other), None)
             .await
             .status,
         StatusCode::NO_CONTENT
@@ -169,50 +176,130 @@ async fn token_lifecycle(pool: PgPool) {
         &pool,
         "DELETE",
         "/api/v1/tokens/00000000-0000-0000-0000-000000000000",
-        Some(BOOTSTRAP),
+        Some(&other),
         None,
     )
     .await;
     assert_eq!(r.status, StatusCode::NOT_FOUND);
 
-    // The audit log has create, create, revoke, and never a secret.
+    // The audit log has the create and the revoke, and never a secret.
     let rows: Vec<(String, Option<Value>)> =
         sqlx::query_as("SELECT action, after FROM audit_log ORDER BY id")
             .fetch_all(&pool)
             .await
             .unwrap();
     let actions: Vec<&str> = rows.iter().map(|(a, _)| a.as_str()).collect();
-    assert_eq!(actions, ["create", "create", "update"]);
+    assert_eq!(actions, ["create", "update"]);
     let all = format!("{rows:?}");
     assert!(!all.contains(&token[37..]));
     assert!(!all.contains("secret_hash"));
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
-async fn bootstrap_token_only_manages_tokens(pool: PgPool) {
-    let r = call(&pool, "GET", "/api/v1/tokens", Some(BOOTSTRAP), None).await;
+async fn expired_tokens_are_refused(pool: PgPool) {
+    let (id, token) = create_token(&pool, "script").await;
+    sqlx::query("UPDATE api_token SET expires_at = now() - interval '1 second' WHERE id = $1")
+        .bind(uuid::Uuid::parse_str(&id).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let r = call(&pool, "GET", "/api/v1/tokens", Some(&token), None).await;
+    assert_eq!(r.status, StatusCode::UNAUTHORIZED);
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn the_kill_switch_revokes_every_token(pool: PgPool) {
+    let (_, mine) = create_token(&pool, "mine").await;
+    let (_, script) = create_token(&pool, "script").await;
+    let (gone, _) = create_token(&pool, "revoked already").await;
+    let r = call(
+        &pool,
+        "DELETE",
+        &format!("/api/v1/tokens/{gone}"),
+        Some(&mine),
+        None,
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::NO_CONTENT);
+
+    let r = call(&pool, "DELETE", "/api/v1/tokens", Some(&mine), None).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(r.body, json!({ "revoked": 2 }));
+    for t in [&mine, &script] {
+        let r = call(&pool, "GET", "/api/v1/me", Some(t), None).await;
+        assert_eq!(r.status, StatusCode::UNAUTHORIZED, "this request's too");
+    }
+    let revokes: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE entity = 'token' AND action = 'update'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(revokes, 3, "one by one, then two at once");
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn a_script_cannot_make_tokens(pool: PgPool) {
+    let (_, script) = script_token(&pool, "script").await;
+    let r = call(
+        &pool,
+        "POST",
+        "/api/v1/tokens",
+        Some(&script),
+        Some(json!({ "name": "successor", "ttl_days": 30 })),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN, "{}", r.body);
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn bootstrap_token_only_manages_users(pool: PgPool) {
+    let r = call(&pool, "GET", "/api/v1/users", Some(BOOTSTRAP), None).await;
     assert_eq!(r.status, StatusCode::OK);
-    let r = call(&pool, "GET", "/api/v1/no-such-thing", Some(BOOTSTRAP), None).await;
+    for path in ["/api/v1/tokens", "/api/v1/no-such-thing"] {
+        let r = call(&pool, "GET", path, Some(BOOTSTRAP), None).await;
+        assert_eq!(r.status, StatusCode::FORBIDDEN, "{path}");
+        assert_eq!(r.body["type"], "urn:exchequer:problem:forbidden");
+    }
+    let r = call(
+        &pool,
+        "POST",
+        "/api/v1/tokens",
+        Some(BOOTSTRAP),
+        Some(json!({ "name": "script", "ttl_days": 30 })),
+    )
+    .await;
     assert_eq!(r.status, StatusCode::FORBIDDEN);
-    assert_eq!(r.body["type"], "urn:exchequer:problem:forbidden");
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn bad_requests_are_problem_details(pool: PgPool) {
+    let (_, token) = create_token(&pool, "script").await;
     for body in [
         json!({}),
-        json!({ "name": "  " }),
-        json!({ "name": "x".repeat(65) }),
+        json!({ "name": "no ttl" }),
+        json!({ "name": "  ", "ttl_days": 30 }),
+        json!({ "name": "x".repeat(65), "ttl_days": 30 }),
+        json!({ "name": "forever", "ttl_days": 0 }),
+        json!({ "name": "too long", "ttl_days": 366 }),
+        json!({ "name": "negative", "ttl_days": -1 }),
     ] {
-        let r = call(&pool, "POST", "/api/v1/tokens", Some(BOOTSTRAP), Some(body)).await;
-        assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY);
+        let r = call(
+            &pool,
+            "POST",
+            "/api/v1/tokens",
+            Some(&token),
+            Some(body.clone()),
+        )
+        .await;
+        assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
         assert_eq!(r.headers[header::CONTENT_TYPE], "application/problem+json");
     }
     let r = call(
         &pool,
         "DELETE",
         "/api/v1/tokens/not-a-uuid",
-        Some(BOOTSTRAP),
+        Some(&token),
         None,
     )
     .await;

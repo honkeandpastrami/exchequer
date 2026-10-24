@@ -1,4 +1,5 @@
-//! `/api/v1/tokens`: create, list and revoke API tokens (design §10).
+//! `/api/v1/tokens`: create, list and revoke API tokens (design §10). Every
+//! token belongs to a user and expires; `DELETE /tokens` revokes them all.
 
 use axum::Extension;
 use axum::extract::State;
@@ -7,7 +8,7 @@ use domain::{TokenId, UserId};
 use serde::{Deserialize, Serialize};
 use store::audit::{self, Action};
 use store::tokens::TokenRow;
-use time::OffsetDateTime;
+use time::{Duration, OffsetDateTime};
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -19,8 +20,33 @@ use crate::problem::{Json, Path, Problem, is_unique_violation};
 
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
-        .routes(routes!(list, create))
+        .routes(routes!(list, create, revoke_all))
         .routes(routes!(revoke))
+}
+
+/// The longest time to live a token can be given.
+pub(crate) const MAX_TTL_DAYS: u32 = 365;
+
+/// How a token came to be.
+#[derive(Serialize, ToSchema, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TokenKind {
+    /// A browser signed in with a passkey; signing out revokes it.
+    Session,
+    /// `exchequer login`.
+    Cli,
+    /// Made by hand, for a script.
+    Script,
+}
+
+impl From<store::tokens::Kind> for TokenKind {
+    fn from(k: store::tokens::Kind) -> Self {
+        match k {
+            store::tokens::Kind::Session => Self::Session,
+            store::tokens::Kind::Cli => Self::Cli,
+            store::tokens::Kind::Script => Self::Script,
+        }
+    }
 }
 
 /// A token, without its secret.
@@ -28,15 +54,19 @@ pub fn routes() -> OpenApiRouter<AppState> {
 pub struct Token {
     id: Uuid,
     name: String,
+    kind: TokenKind,
+    /// The user it belongs to; none only for old tokens, all revoked.
+    user_id: Option<Uuid>,
     #[serde(with = "time::serde::rfc3339")]
     created_at: OffsetDateTime,
+    /// When it stops working, unless revoked first.
+    #[serde(with = "time::serde::rfc3339")]
+    expires_at: OffsetDateTime,
+    /// To the minute.
+    #[serde(with = "time::serde::rfc3339::option")]
+    last_used_at: Option<OffsetDateTime>,
     #[serde(with = "time::serde::rfc3339::option")]
     revoked_at: Option<OffsetDateTime>,
-    /// The user it belongs to; none for a script's token.
-    user_id: Option<Uuid>,
-    /// When a session stops working; other tokens last until revoked.
-    #[serde(with = "time::serde::rfc3339::option")]
-    expires_at: Option<OffsetDateTime>,
 }
 
 impl From<TokenRow> for Token {
@@ -44,37 +74,62 @@ impl From<TokenRow> for Token {
         Self {
             id: *r.id.as_uuid(),
             name: r.name,
-            created_at: r.created_at,
-            revoked_at: r.revoked_at,
+            kind: r.kind.into(),
             user_id: r.user_id.map(|u| *u.as_uuid()),
+            created_at: r.created_at,
             expires_at: r.expires_at,
+            last_used_at: r.last_used_at,
+            revoked_at: r.revoked_at,
         }
     }
 }
 
-/// The user the request's token belongs to, if any (never for bootstrap).
-pub(crate) async fn user_of(
-    db: impl sqlx::PgExecutor<'_>,
-    principal: Principal,
-) -> Result<Option<UserId>, Problem> {
-    let Some(id) = principal.actor() else {
-        return Ok(None);
-    };
-    Ok(store::tokens::find(db, id).await?.and_then(|t| t.user_id))
+/// A time to live in days, `1..=MAX_TTL_DAYS`.
+pub(crate) fn ttl(days: u32) -> Result<Duration, Problem> {
+    if !(1..=MAX_TTL_DAYS).contains(&days) {
+        return Err(Problem::invalid(format!(
+            "ttl_days must be 1-{MAX_TTL_DAYS}"
+        )));
+    }
+    Ok(Duration::days(days.into()))
 }
 
-/// Makes a token and records it in the audit log; the actor is `by`, or the
-/// new token itself when a user signs in. Returns it and its full text.
+fn json(r: TokenRow) -> Result<serde_json::Value, Problem> {
+    serde_json::to_value(Token::from(r)).map_err(|_| Problem::internal())
+}
+
+/// The person behind the request: the user of a session or a CLI's token.
+/// A script's token can't make tokens or approve sign-ins, so a leaked one
+/// can't make itself successors.
+pub(crate) async fn person_of(
+    db: impl sqlx::PgExecutor<'_>,
+    principal: Principal,
+) -> Result<UserId, Problem> {
+    let refused = || Problem::forbidden("only a person signed in (a browser or the CLI) can");
+    let id = principal.actor().ok_or_else(refused)?;
+    let token = store::tokens::find(db, id).await?.ok_or_else(refused)?;
+    match token.kind {
+        store::tokens::Kind::Session | store::tokens::Kind::Cli => {
+            token.user_id.ok_or_else(refused)
+        }
+        store::tokens::Kind::Script => Err(refused()),
+    }
+}
+
+/// Makes the user a token and records it in the audit log; the actor is
+/// `by`, or the new token itself when a user signs in. Returns it and its full
+/// text.
 pub(crate) async fn issue(
     tx: &mut sqlx::PgConnection,
     by: Option<Principal>,
     name: &str,
-    user: Option<UserId>,
-    expires_at: Option<OffsetDateTime>,
+    kind: store::tokens::Kind,
+    user: UserId,
+    expires_at: OffsetDateTime,
 ) -> Result<(Token, String), Problem> {
     let generated = auth::generate(auth::Kind::Token)?;
     let id = TokenId::from_uuid(generated.id);
-    let row = store::tokens::insert(&mut *tx, id, name, &generated.hash, user, expires_at)
+    let row = store::tokens::insert(&mut *tx, id, name, kind, &generated.hash, user, expires_at)
         .await
         .map_err(|e| {
             if is_unique_violation(&e) {
@@ -102,8 +157,17 @@ pub(crate) async fn issue(
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NewToken {
-    /// Which client uses the token, e.g. `alex-laptop-cli`. Unique.
+    /// What uses the token, e.g. `backup script`. Unique.
     name: String,
+    /// How many days it works, 1-365. It can be revoked sooner.
+    ttl_days: u32,
+}
+
+/// What `DELETE /tokens` did.
+#[derive(Serialize, ToSchema)]
+pub struct RevokedAll {
+    /// How many tokens were still working.
+    revoked: usize,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -114,7 +178,7 @@ pub struct CreatedToken {
     token: String,
 }
 
-/// List every token, revoked ones included.
+/// List every token, revoked and expired ones included.
 #[utoipa::path(
     get,
     path = "/tokens",
@@ -130,7 +194,8 @@ async fn list(State(state): State<AppState>) -> Result<axum::Json<Vec<Token>>, P
     Ok(axum::Json(rows.into_iter().map(Token::from).collect()))
 }
 
-/// Create a token for one client. A signed-in user's token belongs to them.
+/// Make a token for a script: it belongs to the user signed in (in a browser
+/// or the CLI), and works for `ttl_days` unless revoked.
 #[utoipa::path(
     post,
     path = "/tokens",
@@ -140,6 +205,7 @@ async fn list(State(state): State<AppState>) -> Result<axum::Json<Vec<Token>>, P
     responses(
         (status = CREATED, body = CreatedToken),
         (status = UNAUTHORIZED, body = Problem, content_type = "application/problem+json"),
+        (status = FORBIDDEN, description = "Not a session or the CLI's token", body = Problem, content_type = "application/problem+json"),
         (status = CONFLICT, description = "Name already used", body = Problem, content_type = "application/problem+json"),
         (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json"),
     ),
@@ -153,9 +219,18 @@ async fn create(
     if name.is_empty() || name.chars().count() > 64 {
         return Err(Problem::invalid("name must be 1-64 characters"));
     }
+    let expires_at = OffsetDateTime::now_utc() + ttl(req.ttl_days)?;
     let mut tx = state.pool.begin().await?;
-    let user = user_of(&mut *tx, principal).await?;
-    let (token, text) = issue(&mut tx, Some(principal), name, user, None).await?;
+    let user = person_of(&mut *tx, principal).await?;
+    let (token, text) = issue(
+        &mut tx,
+        Some(principal),
+        name,
+        store::tokens::Kind::Script,
+        user,
+        expires_at,
+    )
+    .await?;
     tx.commit().await?;
 
     Ok((
@@ -194,8 +269,6 @@ async fn revoke(
         let after = store::tokens::find(&mut *tx, id)
             .await?
             .ok_or_else(Problem::internal)?;
-        let json =
-            |r: TokenRow| serde_json::to_value(Token::from(r)).map_err(|_| Problem::internal());
         audit::record(
             &mut *tx,
             audit::Entry {
@@ -211,4 +284,47 @@ async fn revoke(
     }
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// The kill switch: revoke every token, everyone's, this request's too.
+/// Everyone is signed out, and the CLI and scripts stop working; passkeys
+/// still sign in, and `exchequer login` makes the CLI a new token.
+#[utoipa::path(
+    delete,
+    path = "/tokens",
+    tag = "tokens",
+    security(("bearer" = [])),
+    responses(
+        (status = OK, body = RevokedAll),
+        (status = UNAUTHORIZED, body = Problem, content_type = "application/problem+json"),
+    ),
+)]
+async fn revoke_all(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<axum::Json<RevokedAll>, Problem> {
+    let mut tx = state.pool.begin().await?;
+    let revoked = store::tokens::revoke_all(&mut *tx).await?;
+    for after in &revoked {
+        let before = TokenRow {
+            revoked_at: None,
+            ..after.clone()
+        };
+        audit::record(
+            &mut *tx,
+            audit::Entry {
+                actor: principal.actor(),
+                action: Action::Update,
+                entity: "token",
+                entity_id: *after.id.as_uuid(),
+                before: Some(json(before)?),
+                after: Some(json(after.clone())?),
+            },
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(axum::Json(RevokedAll {
+        revoked: revoked.len(),
+    }))
 }

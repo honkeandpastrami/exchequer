@@ -5,7 +5,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::authenticator::Authenticator;
-use common::{BOOTSTRAP, Response, call, new_token};
+use common::{BOOTSTRAP, Response, call, script_token};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
@@ -75,6 +75,7 @@ async fn an_invite_registers_a_passkey_that_signs_in(pool: PgPool) {
 
     let r = me(&pool, &session).await;
     assert_eq!(r.body["user"]["id"], alex.as_str());
+    assert_eq!(r.body["token"]["kind"], "session");
     assert!(
         r.body["token"]["expires_at"].is_string(),
         "a session expires"
@@ -177,7 +178,7 @@ async fn signing_out_ends_the_session_only(pool: PgPool) {
     assert_eq!(me(&pool, &session).await.status, StatusCode::UNAUTHORIZED);
 
     // A script's token isn't a session: signing out leaves it working.
-    let (_, script) = new_token(&pool, "script").await;
+    let (_, script) = script_token(&pool, "script").await;
     let r = call(&pool, "DELETE", "/api/v1/me/session")
         .token(&script)
         .send()
@@ -255,7 +256,7 @@ async fn the_cli_signs_in_when_a_user_approves(pool: PgPool) {
     let session = token(&register(&pool, &mut Authenticator::new(1), &invite).await);
 
     let r = call(&pool, "POST", "/api/v1/auth/device")
-        .json(json!({ "client": "cli on laptop" }))
+        .json(json!({ "client": "cli on laptop", "ttl_days": 90 }))
         .send()
         .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
@@ -275,9 +276,13 @@ async fn the_cli_signs_in_when_a_user_approves(pool: PgPool) {
         .send()
         .await;
     assert_eq!(r.body["client"], "cli on laptop");
+    assert_eq!(
+        r.body["ttl_days"], 90,
+        "the approver sees how long it lasts"
+    );
 
     // Only a user can approve: not a script, not the bootstrap token.
-    let (_, script) = new_token(&pool, "script").await;
+    let (_, script) = script_token(&pool, "script").await;
     for t in [script.as_str(), BOOTSTRAP] {
         let r = call(
             &pool,
@@ -302,11 +307,14 @@ async fn the_cli_signs_in_when_a_user_approves(pool: PgPool) {
     let cli = token(&poll().await);
     let r = me(&pool, &cli).await;
     assert_eq!(r.body["user"]["id"], alex.as_str());
-    assert_eq!(
-        r.body["token"]["expires_at"],
-        Value::Null,
-        "the CLI's token lasts"
-    );
+    assert_eq!(r.body["token"]["kind"], "cli");
+    let expires = time::OffsetDateTime::parse(
+        r.body["token"]["expires_at"].as_str().unwrap(),
+        &time::format_description::well_known::Rfc3339,
+    )
+    .unwrap();
+    let left = expires - time::OffsetDateTime::now_utc();
+    assert!(left > time::Duration::days(89), "the TTL the CLI asked for");
     // Handed out once.
     assert_eq!(poll().await.status, StatusCode::NOT_FOUND);
 }

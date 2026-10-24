@@ -1131,12 +1131,20 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List every token, revoked ones included. */
+		/** List every token, revoked and expired ones included. */
 		get: operations['tokens_list'];
 		put?: never;
-		/** Create a token for one client. A signed-in user's token belongs to them. */
+		/**
+		 * Make a token for a script: it belongs to the user signed in (in a browser
+		 *     or the CLI), and works for `ttl_days` unless revoked.
+		 */
 		post: operations['tokens_create'];
-		delete?: never;
+		/**
+		 * The kill switch: revoke every token, everyone's, this request's too.
+		 *     Everyone is signed out, and the CLI and scripts stop working; passkeys
+		 *     still sign in, and `exchequer login` makes the CLI a new token.
+		 */
+		delete: operations['tokens_revoke_all'];
 		options?: never;
 		head?: never;
 		patch?: never;
@@ -1684,6 +1692,11 @@ export interface components {
 			client: string;
 			/** Format: date-time */
 			expires_at: string;
+			/**
+			 * Format: int32
+			 * @description How many days its token will work.
+			 */
+			ttl_days: number;
 		};
 		/** @description The CLI's token once approved; none while waiting. */
 		DeviceToken: {
@@ -2197,8 +2210,13 @@ export interface components {
 			name: string;
 		};
 		NewToken: {
-			/** @description Which client uses the token, e.g. `alex-laptop-cli`. Unique. */
+			/** @description What uses the token, e.g. `backup script`. Unique. */
 			name: string;
+			/**
+			 * Format: int32
+			 * @description How many days it works, 1-365. It can be revoked sooner.
+			 */
+			ttl_days: number;
 		};
 		NewTransaction: {
 			/** Format: date */
@@ -2757,6 +2775,11 @@ export interface components {
 			/** @description Prices stored or replaced. */
 			stored: number;
 		};
+		/** @description What `DELETE /tokens` did. */
+		RevokedAll: {
+			/** @description How many tokens were still working. */
+			revoked: number;
+		};
 		/**
 		 * @description One row. A grouped field is present (`null` for "none", e.g. no
 		 *     category); a field not grouped by is absent.
@@ -3099,6 +3122,11 @@ export interface components {
 		StartDevice: {
 			/** @description What the CLI calls itself, shown to the approver: `cli on laptop`. */
 			client: string;
+			/**
+			 * Format: int32
+			 * @description How many days its token works, 1-365; shown to the approver.
+			 */
+			ttl_days: number;
 		};
 		StartRegistration: {
 			/** @description The invite's code. */
@@ -3172,20 +3200,31 @@ export interface components {
 			created_at: string;
 			/**
 			 * Format: date-time
-			 * @description When a session stops working; other tokens last until revoked.
+			 * @description When it stops working, unless revoked first.
 			 */
-			expires_at?: string | null;
+			expires_at: string;
 			/** Format: uuid */
 			id: string;
+			kind: components['schemas']['TokenKind'];
+			/**
+			 * Format: date-time
+			 * @description To the minute.
+			 */
+			last_used_at?: string | null;
 			name: string;
 			/** Format: date-time */
 			revoked_at?: string | null;
 			/**
 			 * Format: uuid
-			 * @description The user it belongs to; none for a script's token.
+			 * @description The user it belongs to; none only for old tokens, all revoked.
 			 */
 			user_id?: string | null;
 		};
+		/**
+		 * @description How a token came to be.
+		 * @enum {string}
+		 */
+		TokenKind: 'session' | 'cli' | 'script';
 		Transaction: {
 			/** Format: date */
 			date: string;
@@ -4690,7 +4729,7 @@ export interface operations {
 					'application/problem+json': components['schemas']['Problem'];
 				};
 			};
-			/** @description Not signed in as a user */
+			/** @description Not a session or the CLI's token */
 			403: {
 				headers: {
 					[name: string]: unknown;
@@ -6881,6 +6920,15 @@ export interface operations {
 					'application/problem+json': components['schemas']['Problem'];
 				};
 			};
+			/** @description Not a session or the CLI's token */
+			403: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
 			/** @description Name already used */
 			409: {
 				headers: {
@@ -6892,6 +6940,35 @@ export interface operations {
 			};
 			/** @description Unprocessable Entity */
 			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	tokens_revoke_all: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['RevokedAll'];
+				};
+			};
+			/** @description Unauthorized */
+			401: {
 				headers: {
 					[name: string]: unknown;
 				};

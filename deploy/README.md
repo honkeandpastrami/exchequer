@@ -82,8 +82,8 @@ Run these as the (non-root) user that will own the service, from a clone of this
    curl -s http://127.0.0.1:7438/version
    ```
 
-6. Add yourself as the first user with the bootstrap token (design §10). It goes through
-   stdin, so it never shows up in `ps`:
+6. Bootstrap: add yourself as the first user with the bootstrap token (design §10). It
+   goes through stdin, so it never shows up in `ps`:
 
    ```sh
    podman secret inspect --showsecret --format '{{.SecretData}}' exchequer_bootstrap_token |
@@ -93,11 +93,18 @@ Run these as the (non-root) user that will own the service, from a clone of this
    ```
 
    Open `<EXCHEQUER_ORIGIN>#/invite/<invite.code>` within 24 hours, on the device that will
-   hold your passkey, and create it. Everyone else is added from Setup → Users.
+   hold your passkey, and create it: you're signed in. That is all the bootstrap token
+   does; every token comes from a signed-in user, each with its time to live:
 
-   For a script (or a server without `EXCHEQUER_ORIGIN`), make a token the same way at
-   `/api/v1/tokens` with `{"name": "backup-script"}`, and keep the `token` it prints: it's
-   shown only once.
+   - **Other people:** Setup → Security → Add user, and send them the invite link.
+   - **The CLI:** `exchequer login` (90 days; `--days N` for another), approved in the web
+     app.
+   - **A script:** Setup → Security → New token for a script, or
+     `exchequer tokens create backup-script --days 365`. Keep the token: it's shown once.
+
+   Revoke any of them there, or all at once with the kill switch (design §10). Lost every
+   passkey? Another user makes you an invite; alone, the bootstrap token does, with your
+   ID from `GET /api/v1/users`: `POST /api/v1/users/<id>/invites`.
 
 The API applies schema migrations at startup. `GET /healthz` and `GET /version` need no
 token.
@@ -150,12 +157,12 @@ Before the database holds anything real, rehearse a backup and a restore once:
 1. Take a backup and look at it: `systemctl --user start exchequer-backup.service`, then
    `ls -l /mnt/backup/exchequer`.
 2. Follow [Restore](#restore) with that file.
-3. The `admin` token from step 6 still works, so the data came back:
+3. The user from step 6 is listed, so the data came back:
 
    ```sh
    podman secret inspect --showsecret --format '{{.SecretData}}' exchequer_bootstrap_token |
        sed 's/^/Authorization: Bearer /' |
-       curl -s -H @- http://127.0.0.1:7438/api/v1/tokens
+       curl -s -H @- http://127.0.0.1:7438/api/v1/users
    ```
 
 ## Backups

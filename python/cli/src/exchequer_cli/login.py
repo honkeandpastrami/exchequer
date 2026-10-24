@@ -31,14 +31,13 @@ def login(
     token_file: Path,
     *,
     name: str,
+    days: int,
     say: Callable[[str], None],
     open_url: Callable[[str], object] = lambda _: None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> int:
-    start = ok(
-        auth_start_device.sync_detailed(client=client, body=StartDevice(client=name)),
-        "start signing in",
-    )
+    body = StartDevice(client=name, ttl_days=days)
+    start = ok(auth_start_device.sync_detailed(client=client, body=body), "start signing in")
     link = f"{url}/#/device/{start.user_code}"
     say(f"Open {link}")
     say(f"and approve the code {start.user_code} (signed in as yourself).")
@@ -53,7 +52,7 @@ def login(
         token = ok(r, "sign in").token
         if isinstance(token, str):
             write_token(token_file, token)
-            say(f"Signed in. The token is in {token_file}.")
+            say(f"Signed in for {days} days. The token is in {token_file}.")
             return 0
 
 

@@ -12,8 +12,9 @@
 //! per request instead of milliseconds.
 //!
 //! Everything under `/auth` is how a token is obtained, so it needs none. The
-//! bootstrap token (a podman secret) is accepted only on `/users` and
-//! `/tokens`, to add the first user and the first tokens.
+//! bootstrap token (a podman secret) is accepted only on `/users`: to add the
+//! first user, whose invite registers a passkey. Every token then comes from
+//! a signed-in user.
 
 use axum::extract::{Request, State};
 use axum::http::header;
@@ -147,12 +148,10 @@ pub async fn require(
         && bool::from(presented.as_bytes().ct_eq(boot.as_bytes()))
     {
         let path = req.uri().path();
-        let managing = ["/tokens", "/users"]
-            .iter()
-            .any(|p| path == *p || path.strip_prefix(p).is_some_and(|r| r.starts_with('/')));
-        if !managing {
+        let users = path == "/users" || path.starts_with("/users/");
+        if !users {
             return Err(Problem::forbidden(
-                "the bootstrap token can only manage users and tokens; sign in or use a token",
+                "the bootstrap token can only manage users; sign in with a passkey",
             ));
         }
         Principal::Bootstrap
@@ -165,6 +164,7 @@ pub async fn require(
         if !check(Kind::Token, presented, |_| Some(row.secret_hash)) {
             return Err(Problem::unauthorized());
         }
+        store::tokens::used(&state.pool, row.id).await?;
         Principal::Token(row.id)
     };
 

@@ -36,7 +36,8 @@
 	{:else}
 		<p>
 			<strong>{d.client}</strong> is asking to sign in as you with the code
-			<code>{code.toUpperCase()}</code>. Approve it only if that's the code your terminal shows.
+			<code>{code.toUpperCase()}</code>, with a token that works for {d.ttl_days} days. Approve it only
+			if that's the code your terminal shows.
 		</p>
 		<button type="button" onclick={approve} disabled={busy}>Approve</button>
 	{/if}

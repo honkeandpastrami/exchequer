@@ -46,12 +46,17 @@ def test_login_waits_for_approval_and_writes_the_token(tmp_path: Path):
         "https://books.example.org/x",
         token_file,
         name="cli on laptop",
+        days=30,
         say=said.append,
         open_url=opened.append,
         sleep=lambda _: None,
     )
     assert code == 0
-    assert sent[0] == {"path": "/x/api/v1/auth/device", "client": "cli on laptop"}
+    assert sent[0] == {
+        "path": "/x/api/v1/auth/device",
+        "client": "cli on laptop",
+        "ttl_days": 30,
+    }
     assert sent[1] == {"path": "/x/api/v1/auth/device/token", "device_code": "exd_secret"}
     assert opened == ["https://books.example.org/x/#/device/BCDF-GHJK"]
     assert any("BCDF-GHJK" in s for s in said)
@@ -66,7 +71,13 @@ def test_login_gives_up_when_the_code_expires(tmp_path: Path):
     said: list[str] = []
     token_file = tmp_path / "token"
     code = login(
-        client, "https://b.example", token_file, name="cli", say=said.append, sleep=lambda _: None
+        client,
+        "https://b.example",
+        token_file,
+        name="cli",
+        days=90,
+        say=said.append,
+        sleep=lambda _: None,
     )
     assert code == 1
     assert not token_file.exists()

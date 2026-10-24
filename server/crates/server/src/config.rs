@@ -60,8 +60,7 @@ pub struct Config {
     /// `EXCHEQUER_BIND`, default `127.0.0.1:7438`.
     pub bind: SocketAddr,
     pub db: DbConfig,
-    /// `BOOTSTRAP_TOKEN_FILE`: accepted only for managing users and tokens
-    /// (design §10).
+    /// `BOOTSTRAP_TOKEN_FILE`: accepted only for managing users (design §10).
     pub bootstrap_token: Option<Secret>,
     /// `EXCHEQUER_ORIGIN`: where people open the web app, e.g.
     /// `https://books.example.org/exchequer/`. Passkeys are bound to its host;

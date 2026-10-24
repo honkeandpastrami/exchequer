@@ -720,16 +720,35 @@ A pluggable middleware layer: every request resolves to a principal or is reject
   shows a link with a short code, a signed-in user approves it, and the CLI receives a token
   of its own, kept in its token file.
 - **Passkeys are bound to the server's domain:** `EXCHEQUER_ORIGIN` (e.g.
-  `https://books.example.org`; a path under it is fine). Moving to another domain means
-  registering again. Without it, passkey sign-in is off and only tokens work.
-- **Bearer tokens** underlie everything: sessions, the CLI's, and static tokens for scripts
-  created through `POST /tokens`. They're stored **hashed** (SHA-256: the secrets are 256
-  random bits, so a slow password hash adds cost without adding safety), named, shown once,
-  and individually revocable. A token created by a signed-in user belongs to that user.
-  Invite links and the CLI's device codes are stored hashed too; a ceremony's challenge
-  lives in the database for five minutes and is used once.
-- **The bootstrap token** from a podman secret (§14.1) is accepted only for managing users
-  and tokens: to add the first user and make their invite.
+  `https://books.example.org`, or `http://localhost:5173` in development; a path under it
+  is fine). Moving to another domain means registering again. Without it, passkey sign-in
+  is off, and with it every way to get a new token: only tokens made before keep working.
+- **Bearer tokens** underlie everything, of three kinds: **sessions** (a browser signed in),
+  **the CLI's** (`exchequer login`) and **scripts'** (made by hand, in Setup → Security or
+  with `exchequer tokens create`). Each **belongs to a user**: the one who signed in,
+  approved the CLI, or made it. Only a session or the CLI's token makes tokens or approves
+  the CLI: a leaked script's token can't outlive its expiry. They're stored **hashed** (SHA-256: the secrets are 256
+  random bits, so a slow password hash adds cost without adding safety), named, and shown
+  once. Invite links and the CLI's device codes are stored hashed too; a ceremony's
+  challenge lives in the database for five minutes and is used once.
+- **Every token expires.** Its time to live is chosen when it's made: 30 days for a
+  session; for the CLI's and scripts', what the person making it asks for, at most 365
+  days (`exchequer login` asks 90 unless told otherwise, and the approver sees it). Each
+  records when it was created and, to the minute, when it was last used.
+- **Revoking.** Any token can be revoked at any time, in Setup → Security, with
+  `exchequer tokens revoke`, or through `DELETE /tokens/{id}`: it stops working at once,
+  and nothing else does. Signing out revokes the browser's session. **The kill switch**
+  (`DELETE /tokens`, also in Setup → Security and `exchequer tokens revoke-all`) revokes
+  every token at once, everyone's, the caller's too: everyone is signed out and every CLI
+  and script stops; passkeys still sign in, and the CLI signs in again with
+  `exchequer login`.
+- **Bootstrap: one way in, for passkeys and tokens alike.** The bootstrap token from a
+  podman secret (§14.1) is accepted only for managing users: it adds the first user, whose
+  invite registers their passkey. Every token then comes from a signed-in user, so the
+  first token follows the first passkey: a session when they sign in, the CLI's when they
+  approve `exchequer login`, a script's when they make one. Someone who lost every
+  passkey gets a new invite from another user, or from the bootstrap token. The steps are
+  in [`deploy/README.md`](../deploy/README.md#install), step 6.
 - **TLS** is terminated by the operator's existing reverse proxy. Passkeys require it.
 
 **One ledger, several people.** Everyone signed in sees and edits everything, users
@@ -831,7 +850,9 @@ Everything else (settlement, reports, balance checks, setup) is in the web app.
 - A static build (SvelteKit) served by the API container at `/`, the same origin as
   `/api/v1`, so no CORS. It works under a path when a reverse proxy strips it.
 - Sign-in is with a passkey (§10), or an API token; the session is kept in that browser
-  until signing out. Setup → Users adds people, makes invite links and lists passkeys.
+  until signing out. Setup → Security holds all of sign-in: it adds people, makes invite
+  links, lists passkeys and tokens (created, last used, expiry), makes scripts' tokens,
+  revokes any, and has the kill switch.
 - Pages: **Accounts** (balances on a date, valued in USD, by owner and liquid,
   investment and loan, with a link to check each against the bank); **Transactions**
   (search, and editing with splits); **Imports** (upload, review and commit, §6);
@@ -864,7 +885,7 @@ secrets**, generated on the host once and handed to containers as files under
 | Secret | Consumers |
 |---|---|
 | `exchequer_db_password` | db (sets it), api (connects), backup (dumps) |
-| `exchequer_bootstrap_token` | api (first user and token, §10) |
+| `exchequer_bootstrap_token` | api (the first user, §10) |
 | `exchequer_remote_ai_key` | api (optional: remote AI, §8) |
 | `exchequer_tiingo_api_key` | api (optional: the Tiingo price source, §3.4); each keyed price source has its own, `exchequer_<source>_api_key` |
 

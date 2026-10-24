@@ -17,7 +17,7 @@
 		{ href: resolve('/setup/tags'), label: 'Tags', route: '/setup/tags' },
 		{ href: resolve('/setup/commodities'), label: 'Commodities', route: '/setup/commodities' },
 		{ href: resolve('/setup/prices'), label: 'Prices', route: '/setup/prices' },
-		{ href: resolve('/setup/users'), label: 'Users', route: '/setup/users' }
+		{ href: resolve('/setup/security'), label: 'Security', route: '/setup/security' }
 	];
 </script>
 

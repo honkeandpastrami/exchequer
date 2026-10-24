@@ -11,7 +11,7 @@ from typing import Annotated
 
 import typer
 
-from exchequer_cli import config
+from exchequer_cli import config, tokens
 from exchequer_cli.imports import ApiError, Importer
 from exchequer_cli.login import login as sign_in
 from exchequer_cli.prices import refresh
@@ -60,6 +60,7 @@ def login(
         str | None,
         typer.Option(help="What to call this CLI's token; default `cli on <host>`."),
     ] = None,
+    days: Annotated[int, typer.Option(help="How many days the token works, 1-365.")] = 90,
 ) -> None:
     """Sign in through the web app: approve a code, and the token file is written."""
     try:
@@ -70,6 +71,7 @@ def login(
                 cfg.url,
                 cfg.token_file,
                 name=name or f"cli on {socket.gethostname().split('.')[0]}",
+                days=days,
                 say=typer.echo,
                 open_url=webbrowser.open,
             )
@@ -251,6 +253,82 @@ def prices_refresh_(
     for e in r.errors:
         typer.echo(f"  {e}")
     raise typer.Exit(1 if r.errors and not r.stored else 0)
+
+
+tokens_app = typer.Typer(
+    no_args_is_help=True,
+    help="The server's tokens: sessions, CLIs' and scripts' (design §10).",
+)
+app.add_typer(tokens_app, name="tokens")
+
+
+def _tokens(run: Callable[[AuthenticatedClient], int]) -> None:
+    try:
+        cfg = config.load()
+        with AuthenticatedClient(base_url=cfg.url, token=cfg.token()) as client:
+            code = run(client)
+    except (config.ConfigError, ApiError) as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(2) from e
+    raise typer.Exit(code)
+
+
+@tokens_app.command("list")
+def tokens_list(
+    everything: Annotated[
+        bool, typer.Option("--all", help="Revoked and expired ones too.")
+    ] = False,
+) -> None:
+    """List the tokens still working: whose, created, last used, expires."""
+    _tokens(lambda c: _print(tokens.table(c, everything=everything)))
+
+
+@tokens_app.command("create")
+def tokens_create(
+    name: Annotated[str, typer.Argument(help="What uses it, e.g. `backup script`.")],
+    days: Annotated[int, typer.Option(help="How many days it works, 1-365.")],
+) -> None:
+    """Make a token for a script; it's yours. Prints it, once, on stdout."""
+
+    def run(c: AuthenticatedClient) -> int:
+        t = tokens.create(c, name, days)
+        typer.echo(f"Expires {t.expires_at.astimezone():%Y-%m-%d %H:%M}; shown once:", err=True)
+        typer.echo(t.token)
+        return 0
+
+    _tokens(run)
+
+
+@tokens_app.command("revoke")
+def tokens_revoke(
+    token: Annotated[str, typer.Argument(help="Its name (or ID).")],
+) -> None:
+    """Revoke a token: it stops working at once."""
+
+    def run(c: AuthenticatedClient) -> int:
+        typer.echo(f"Revoked {tokens.revoke(c, token).name}.")
+        return 0
+
+    _tokens(run)
+
+
+@tokens_app.command("revoke-all")
+def tokens_revoke_all(
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Don't ask.")] = False,
+) -> None:
+    """The kill switch: revoke every token, everyone's, this CLI's too."""
+    if not yes and not typer.confirm(
+        "Revoke every token? Everyone is signed out (passkeys still sign in), "
+        "and every CLI and script stops working, this one too."
+    ):
+        raise typer.Exit(1)
+
+    def run(c: AuthenticatedClient) -> int:
+        n = tokens.revoke_all(c)
+        typer.echo(f"Revoked {n} tokens. Run exchequer login to sign this CLI in again.")
+        return 0
+
+    _tokens(run)
 
 
 def main() -> None:

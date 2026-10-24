@@ -2153,7 +2153,7 @@
             }
           },
           "403": {
-            "description": "Not signed in as a user",
+            "description": "Not a session or the CLI's token",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -5507,7 +5507,7 @@
         "tags": [
           "tokens"
         ],
-        "summary": "List every token, revoked ones included.",
+        "summary": "List every token, revoked and expired ones included.",
         "operationId": "tokens_list",
         "responses": {
           "200": {
@@ -5544,7 +5544,7 @@
         "tags": [
           "tokens"
         ],
-        "summary": "Create a token for one client. A signed-in user's token belongs to them.",
+        "summary": "Make a token for a script: it belongs to the user signed in (in a browser\nor the CLI), and works for `ttl_days` unless revoked.",
         "operationId": "tokens_create",
         "requestBody": {
           "content": {
@@ -5577,6 +5577,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a session or the CLI's token",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Name already used",
             "content": {
@@ -5589,6 +5599,40 @@
           },
           "422": {
             "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "tokens"
+        ],
+        "summary": "The kill switch: revoke every token, everyone's, this request's too.\nEveryone is signed out, and the CLI and scripts stop working; passkeys\nstill sign in, and `exchequer login` makes the CLI a new token.",
+        "operationId": "tokens_revoke_all",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokedAll"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -7318,6 +7362,7 @@
         "description": "The CLI waiting to sign in, as the approver sees it.",
         "required": [
           "client",
+          "ttl_days",
           "expires_at"
         ],
         "properties": {
@@ -7328,6 +7373,11 @@
           "expires_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "ttl_days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many days its token will work."
           }
         }
       },
@@ -8544,12 +8594,19 @@
       "NewToken": {
         "type": "object",
         "required": [
-          "name"
+          "name",
+          "ttl_days"
         ],
         "properties": {
           "name": {
             "type": "string",
-            "description": "Which client uses the token, e.g. `alex-laptop-cli`. Unique."
+            "description": "What uses the token, e.g. `backup script`. Unique."
+          },
+          "ttl_days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many days it works, 1-365. It can be revoked sooner.",
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -10076,6 +10133,20 @@
           }
         }
       },
+      "RevokedAll": {
+        "type": "object",
+        "description": "What `DELETE /tokens` did.",
+        "required": [
+          "revoked"
+        ],
+        "properties": {
+          "revoked": {
+            "type": "integer",
+            "description": "How many tokens were still working.",
+            "minimum": 0
+          }
+        }
+      },
       "Row": {
         "type": "object",
         "description": "One row. A grouped field is present (`null` for \"none\", e.g. no\ncategory); a field not grouped by is absent.",
@@ -10907,12 +10978,19 @@
       "StartDevice": {
         "type": "object",
         "required": [
-          "client"
+          "client",
+          "ttl_days"
         ],
         "properties": {
           "client": {
             "type": "string",
             "description": "What the CLI calls itself, shown to the approver: `cli on laptop`."
+          },
+          "ttl_days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many days its token works, 1-365; shown to the approver.",
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -11086,7 +11164,9 @@
         "required": [
           "id",
           "name",
-          "created_at"
+          "kind",
+          "created_at",
+          "expires_at"
         ],
         "properties": {
           "created_at": {
@@ -11094,16 +11174,24 @@
             "format": "date-time"
           },
           "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it stops working, unless revoked first."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TokenKind"
+          },
+          "last_used_at": {
             "type": [
               "string",
               "null"
             ],
             "format": "date-time",
-            "description": "When a session stops working; other tokens last until revoked."
-          },
-          "id": {
-            "type": "string",
-            "format": "uuid"
+            "description": "To the minute."
           },
           "name": {
             "type": "string"
@@ -11121,9 +11209,18 @@
               "null"
             ],
             "format": "uuid",
-            "description": "The user it belongs to; none for a script's token."
+            "description": "The user it belongs to; none only for old tokens, all revoked."
           }
         }
+      },
+      "TokenKind": {
+        "type": "string",
+        "description": "How a token came to be.",
+        "enum": [
+          "session",
+          "cli",
+          "script"
+        ]
       },
       "Transaction": {
         "type": "object",

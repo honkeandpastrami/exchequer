@@ -78,6 +78,8 @@ pub struct DeviceRow {
     pub secret_hash: String,
     pub user_code: String,
     pub client: String,
+    /// How long the CLI's token will last.
+    pub ttl_days: i32,
     pub expires_at: OffsetDateTime,
     pub approved_by: Option<UserId>,
 }
@@ -87,6 +89,7 @@ struct RawDevice {
     secret_hash: String,
     user_code: String,
     client: String,
+    ttl_days: i32,
     expires_at: OffsetDateTime,
     approved_by: Option<Uuid>,
 }
@@ -98,6 +101,7 @@ impl From<RawDevice> for DeviceRow {
             secret_hash: r.secret_hash,
             user_code: r.user_code,
             client: r.client,
+            ttl_days: r.ttl_days,
             expires_at: r.expires_at,
             approved_by: r.approved_by.map(UserId::from_uuid),
         }
@@ -111,15 +115,17 @@ pub async fn start_device(
     secret_hash: &str,
     user_code: &str,
     client: &str,
+    ttl_days: i32,
     expires_at: OffsetDateTime,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "INSERT INTO device_sign_in (id, secret_hash, user_code, client, expires_at)
-         VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO device_sign_in (id, secret_hash, user_code, client, ttl_days, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6)",
         id,
         secret_hash,
         user_code,
         client,
+        ttl_days,
         expires_at,
     )
     .execute(db)
@@ -131,7 +137,7 @@ pub async fn start_device(
 pub async fn device(db: impl PgExecutor<'_>, id: Uuid) -> Result<Option<DeviceRow>, sqlx::Error> {
     sqlx::query_as!(
         RawDevice,
-        "SELECT id, secret_hash, user_code, client, expires_at, approved_by
+        "SELECT id, secret_hash, user_code, client, ttl_days, expires_at, approved_by
          FROM device_sign_in WHERE id = $1 AND expires_at > now()",
         id,
     )
@@ -147,7 +153,7 @@ pub async fn pending_device(
 ) -> Result<Option<DeviceRow>, sqlx::Error> {
     sqlx::query_as!(
         RawDevice,
-        "SELECT id, secret_hash, user_code, client, expires_at, approved_by
+        "SELECT id, secret_hash, user_code, client, ttl_days, expires_at, approved_by
          FROM device_sign_in
          WHERE user_code = $1 AND expires_at > now() AND approved_by IS NULL",
         user_code,

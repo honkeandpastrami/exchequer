@@ -18,7 +18,7 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::auth::{self, Principal};
 use crate::problem::{Json, Path, Problem, is_unique_violation};
-use crate::tokens::{Token, user_of};
+use crate::tokens::{Token, person_of};
 
 /// How long an invite link works.
 const INVITE_LIFE: Duration = Duration::hours(24);
@@ -120,6 +120,8 @@ pub struct Me {
 pub struct DeviceSignIn {
     /// What the CLI called itself, e.g. `cli on laptop`.
     client: String,
+    /// How many days its token will work.
+    ttl_days: i32,
     #[serde(with = "time::serde::rfc3339")]
     expires_at: OffsetDateTime,
 }
@@ -412,7 +414,7 @@ async fn sign_out(
     };
     let mut tx = state.pool.begin().await?;
     if let Some(before) = store::tokens::find(&mut *tx, id).await?
-        && before.expires_at.is_some()
+        && before.kind == store::tokens::Kind::Session
         && before.revoked_at.is_none()
     {
         store::tokens::revoke(&mut *tx, id).await?;
@@ -459,6 +461,7 @@ async fn device(
         .ok_or_else(Problem::not_found)?;
     Ok(axum::Json(DeviceSignIn {
         client: d.client,
+        ttl_days: d.ttl_days,
         expires_at: d.expires_at,
     }))
 }
@@ -473,7 +476,7 @@ async fn device(
     responses(
         (status = NO_CONTENT),
         (status = UNAUTHORIZED, body = Problem, content_type = "application/problem+json"),
-        (status = FORBIDDEN, description = "Not signed in as a user", body = Problem, content_type = "application/problem+json"),
+        (status = FORBIDDEN, description = "Not a session or the CLI's token", body = Problem, content_type = "application/problem+json"),
         (status = NOT_FOUND, description = "No such code, or it expired", body = Problem, content_type = "application/problem+json"),
     ),
 )]
@@ -483,9 +486,7 @@ async fn approve_device(
     Path(code): Path<String>,
 ) -> Result<StatusCode, Problem> {
     let code = crate::sign_in::user_code(&code).ok_or_else(Problem::not_found)?;
-    let user = user_of(&state.pool, principal)
-        .await?
-        .ok_or_else(|| Problem::forbidden("only a signed-in user can approve a sign-in"))?;
+    let user = person_of(&state.pool, principal).await?;
     if !store::sign_in::approve_device(&state.pool, &code, user).await? {
         return Err(Problem::not_found());
     }

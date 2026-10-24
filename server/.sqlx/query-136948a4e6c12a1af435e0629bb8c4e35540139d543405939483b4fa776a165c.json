@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE api_token new SET revoked_at = coalesce(new.revoked_at, now())\n           FROM api_token old WHERE new.id = old.id AND new.id = $1\n           RETURNING old.id, old.name, old.secret_hash, old.created_at, old.revoked_at,\n                     old.user_id, old.expires_at",
+  "query": "SELECT id, name, kind, secret_hash, created_at, revoked_at, user_id, expires_at,\n                last_used_at\n         FROM api_token ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,17 @@
       },
       {
         "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
         "name": "secret_hash",
         "type_info": "Text",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -48,7 +59,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "revoked_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "user_id",
         "type_info": "Uuid",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "expires_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -79,22 +90,33 @@
             "name": "expires_at"
           }
         }
+      },
+      {
+        "ordinal": 8,
+        "name": "last_used_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "last_used_at"
+          }
+        }
       }
     ],
     "parameters": {
-      "Left": [
-        "Uuid"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
       false,
       false,
       false,
+      false,
       true,
       true,
+      false,
       true
     ]
   },
-  "hash": "df3282a32f855cd653018a99d2b2c5495cd52fd004811d7565cd249010586f73"
+  "hash": "136948a4e6c12a1af435e0629bb8c4e35540139d543405939483b4fa776a165c"
 }

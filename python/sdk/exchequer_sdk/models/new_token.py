@@ -12,19 +12,24 @@ T = TypeVar("T", bound="NewToken")
 class NewToken:
     """
     Attributes:
-        name (str): Which client uses the token, e.g. `alex-laptop-cli`. Unique.
+        name (str): What uses the token, e.g. `backup script`. Unique.
+        ttl_days (int): How many days it works, 1-365. It can be revoked sooner.
     """
 
     name: str
+    ttl_days: int
 
     def to_dict(self) -> dict[str, Any]:
         name = self.name
+
+        ttl_days = self.ttl_days
 
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
             {
                 "name": name,
+                "ttl_days": ttl_days,
             }
         )
 
@@ -35,8 +40,11 @@ class NewToken:
         d = dict(src_dict)
         name = d.pop("name")
 
+        ttl_days = d.pop("ttl_days")
+
         new_token = cls(
             name=name,
+            ttl_days=ttl_days,
         )
 
         return new_token

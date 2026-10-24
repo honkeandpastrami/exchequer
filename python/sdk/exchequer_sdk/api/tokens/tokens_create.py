@@ -41,6 +41,11 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 
         return response_401
 
+    if response.status_code == 403:
+        response_403 = Problem.from_dict(response.json())
+
+        return response_403
+
     if response.status_code == 409:
         response_409 = Problem.from_dict(response.json())
 
@@ -73,7 +78,8 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: NewToken,
 ) -> Response[CreatedToken | Problem]:
-    """Create a token for one client. A signed-in user's token belongs to them.
+    """Make a token for a script: it belongs to the user signed in (in a browser
+    or the CLI), and works for `ttl_days` unless revoked.
 
     Args:
         body (NewToken):
@@ -102,7 +108,8 @@ def sync(
     client: AuthenticatedClient,
     body: NewToken,
 ) -> CreatedToken | Problem | None:
-    """Create a token for one client. A signed-in user's token belongs to them.
+    """Make a token for a script: it belongs to the user signed in (in a browser
+    or the CLI), and works for `ttl_days` unless revoked.
 
     Args:
         body (NewToken):
@@ -126,7 +133,8 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: NewToken,
 ) -> Response[CreatedToken | Problem]:
-    """Create a token for one client. A signed-in user's token belongs to them.
+    """Make a token for a script: it belongs to the user signed in (in a browser
+    or the CLI), and works for `ttl_days` unless revoked.
 
     Args:
         body (NewToken):
@@ -153,7 +161,8 @@ async def asyncio(
     client: AuthenticatedClient,
     body: NewToken,
 ) -> CreatedToken | Problem | None:
-    """Create a token for one client. A signed-in user's token belongs to them.
+    """Make a token for a script: it belongs to the user signed in (in a browser
+    or the CLI), and works for `ttl_days` unless revoked.
 
     Args:
         body (NewToken):
