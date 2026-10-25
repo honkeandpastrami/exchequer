@@ -21,14 +21,11 @@ class Invited:
     Attributes:
         added (bool): Whether the user was added just now.
         invite (Invite): A one-time link's secret: the web app opens it at `#/invite/<code>`.
-        tokens (int): How many of their tokens still work: a `replace` invite revokes them
-            when it's used.
         user (User): A household member who signs in.
     """
 
     added: bool
     invite: Invite
-    tokens: int
     user: User
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -36,8 +33,6 @@ class Invited:
         added = self.added
 
         invite = self.invite.to_dict()
-
-        tokens = self.tokens
 
         user = self.user.to_dict()
 
@@ -47,7 +42,6 @@ class Invited:
             {
                 "added": added,
                 "invite": invite,
-                "tokens": tokens,
                 "user": user,
             }
         )
@@ -64,14 +58,11 @@ class Invited:
 
         invite = Invite.from_dict(d.pop("invite"))
 
-        tokens = d.pop("tokens")
-
         user = User.from_dict(d.pop("user"))
 
         invited = cls(
             added=added,
             invite=invite,
-            tokens=tokens,
             user=user,
         )
 

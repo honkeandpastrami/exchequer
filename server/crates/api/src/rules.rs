@@ -42,7 +42,7 @@ pub struct RuleScript {
     source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     note: Option<String>,
-    /// The name of the token that uploaded it.
+    /// Who uploaded it: the name of the user whose token did.
     #[serde(skip_serializing_if = "Option::is_none")]
     author: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

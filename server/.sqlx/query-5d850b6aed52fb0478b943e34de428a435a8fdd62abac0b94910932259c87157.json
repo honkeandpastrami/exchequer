@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, kind, secret_hash, created_at, revoked_at, user_id, expires_at,\n                last_used_at\n         FROM api_token ORDER BY id",
+  "query": "UPDATE api_token new SET revoked_at = coalesce(new.revoked_at, now())\n           FROM api_token old WHERE new.id = old.id AND new.id = $1\n           RETURNING old.id, old.name, old.kind, old.secret_hash, old.created_at,\n                     old.revoked_at, old.user_id, old.expires_at, old.last_used_at,\n                     old.passkey_id",
   "describe": {
     "columns": [
       {
@@ -101,22 +101,36 @@
             "name": "last_used_at"
           }
         }
+      },
+      {
+        "ordinal": 9,
+        "name": "passkey_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "passkey_id"
+          }
+        }
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Uuid"
+      ]
     },
     "nullable": [
       false,
-      false,
+      true,
       false,
       false,
       false,
       true,
       true,
       false,
+      true,
       true
     ]
   },
-  "hash": "136948a4e6c12a1af435e0629bb8c4e35540139d543405939483b4fa776a165c"
+  "hash": "5d850b6aed52fb0478b943e34de428a435a8fdd62abac0b94910932259c87157"
 }

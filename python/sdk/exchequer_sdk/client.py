@@ -1,8 +1,21 @@
+import os
+import socket
 import ssl
+import sys
 from typing import Any, Self
 
 import httpx
 from attrs import define, evolve, field
+
+
+def identity() -> dict[str, str]:
+    """Who is calling, for the server's sessions: the program, e.g. `backup.py`,
+    as `User-Agent`, and the host. A client's own `headers` win."""
+    program = os.path.basename(sys.argv[0]) if sys.argv and sys.argv[0] else ""
+    return {
+        "User-Agent": program or "python",
+        "Exchequer-Host": socket.gethostname().split(".")[0],
+    }
 
 
 @define
@@ -83,7 +96,7 @@ class Client:
             self._client = httpx.Client(
                 base_url=self._base_url,
                 cookies=self._cookies,
-                headers=self._headers,
+                headers={**identity(), **self._headers},
                 timeout=self._timeout,
                 verify=self._verify_ssl,
                 follow_redirects=self._follow_redirects,
@@ -114,7 +127,7 @@ class Client:
             self._async_client = httpx.AsyncClient(
                 base_url=self._base_url,
                 cookies=self._cookies,
-                headers=self._headers,
+                headers={**identity(), **self._headers},
                 timeout=self._timeout,
                 verify=self._verify_ssl,
                 follow_redirects=self._follow_redirects,
@@ -218,7 +231,7 @@ class AuthenticatedClient:
             self._client = httpx.Client(
                 base_url=self._base_url,
                 cookies=self._cookies,
-                headers=self._headers,
+                headers={**identity(), **self._headers},
                 timeout=self._timeout,
                 verify=self._verify_ssl,
                 follow_redirects=self._follow_redirects,
@@ -250,7 +263,7 @@ class AuthenticatedClient:
             self._async_client = httpx.AsyncClient(
                 base_url=self._base_url,
                 cookies=self._cookies,
-                headers=self._headers,
+                headers={**identity(), **self._headers},
                 timeout=self._timeout,
                 verify=self._verify_ssl,
                 follow_redirects=self._follow_redirects,

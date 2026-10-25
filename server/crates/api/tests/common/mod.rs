@@ -145,16 +145,16 @@ impl Call<'_> {
 pub const TESTER: &str = "Tester";
 
 /// A token for `TESTER`, as if they signed the CLI in; returns `(id, token)`.
-pub async fn new_token(pool: &PgPool, name: &str) -> (String, String) {
-    token_of_kind(pool, name, store::tokens::Kind::Cli).await
+pub async fn new_token(pool: &PgPool) -> (String, String) {
+    token_of(pool, store::tokens::NewToken::Cli(None)).await
 }
 
 /// A script's token for `TESTER`; returns `(id, token)`.
 pub async fn script_token(pool: &PgPool, name: &str) -> (String, String) {
-    token_of_kind(pool, name, store::tokens::Kind::Script).await
+    token_of(pool, store::tokens::NewToken::Script(name)).await
 }
 
-async fn token_of_kind(pool: &PgPool, name: &str, kind: store::tokens::Kind) -> (String, String) {
+async fn token_of(pool: &PgPool, new: store::tokens::NewToken<'_>) -> (String, String) {
     let (user,): (uuid::Uuid,) = sqlx::query_as(
         "INSERT INTO app_user (id, name) VALUES ($1, $2)
          ON CONFLICT (name) WHERE removed_at IS NULL DO UPDATE SET name = excluded.name
@@ -169,8 +169,7 @@ async fn token_of_kind(pool: &PgPool, name: &str, kind: store::tokens::Kind) -> 
     store::tokens::insert(
         pool,
         domain::TokenId::from_uuid(secret.id),
-        name,
-        kind,
+        new,
         &secret.hash,
         domain::UserId::from_uuid(user),
         time::OffsetDateTime::now_utc() + time::Duration::days(30),

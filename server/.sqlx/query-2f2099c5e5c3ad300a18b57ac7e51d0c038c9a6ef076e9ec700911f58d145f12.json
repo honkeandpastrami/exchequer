@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE device_sign_in SET approved_by = $2, passkey_id = $3\n         WHERE user_code = $1 AND expires_at > now() AND approved_by IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2f2099c5e5c3ad300a18b57ac7e51d0c038c9a6ef076e9ec700911f58d145f12"
+}

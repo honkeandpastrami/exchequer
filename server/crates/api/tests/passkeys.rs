@@ -11,21 +11,21 @@ use sqlx::PgPool;
 
 /// Invites a user as `exchequer-server invite` does (adding them if need
 /// be); returns their ID and the invite's code.
-async fn invite(pool: &PgPool, name: &str, replace: bool) -> (String, String) {
-    let invited = invited(pool, name, replace).await;
+async fn invite(pool: &PgPool, name: &str) -> (String, String) {
+    let invited = invited(pool, name).await;
     (invited.user.id.to_string(), invited.invite.code)
 }
 
-async fn invited(pool: &PgPool, name: &str, replace: bool) -> api::Invited {
+async fn invited(pool: &PgPool, name: &str) -> api::Invited {
     let mut tx = pool.begin().await.unwrap();
-    let invited = api::invite(&mut tx, None, name, replace).await.unwrap();
+    let invited = api::invite(&mut tx, None, name).await.unwrap();
     tx.commit().await.unwrap();
     invited
 }
 
 /// Adds a user; returns their ID and invite code.
 async fn add_user(pool: &PgPool, name: &str) -> (String, String) {
-    let invited = invited(pool, name, false).await;
+    let invited = invited(pool, name).await;
     assert!(invited.added);
     assert!(invited.user.passkeys.is_empty());
     (invited.user.id.to_string(), invited.invite.code)
@@ -82,9 +82,10 @@ async fn an_invite_registers_a_passkey_that_signs_in(pool: PgPool) {
 
     let r = me(&pool, &session).await;
     assert_eq!(r.body["user"]["id"], alex.as_str());
-    assert_eq!(r.body["token"]["kind"], "session");
+    assert_eq!(r.body["session"]["kind"], "browser");
+    assert_eq!(r.body["session"]["signed_in_with"], "Test key");
     assert!(
-        r.body["token"]["expires_at"].is_string(),
+        r.body["session"]["expires_at"].is_string(),
         "a session expires"
     );
 
@@ -246,7 +247,7 @@ async fn removing_a_user_ends_their_access(pool: PgPool) {
 async fn a_user_is_renamed(pool: PgPool) {
     let (alex, _) = add_user(&pool, "Alex").await;
     add_user(&pool, "Sam").await;
-    let (_, session) = new_token(&pool, "session").await;
+    let (_, session) = new_token(&pool).await;
     let path = format!("/api/v1/users/{alex}");
     let r = call(&pool, "GET", &path).token(&session).send().await;
     assert_eq!(r.status, StatusCode::OK);
@@ -278,7 +279,7 @@ async fn a_user_is_renamed(pool: PgPool) {
         "stale"
     );
     // The old name is free.
-    assert!(invited(&pool, "Alex", false).await.added);
+    assert!(invited(&pool, "Alex").await.added);
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
@@ -356,9 +357,13 @@ async fn the_cli_signs_in_when_a_user_approves(pool: PgPool) {
     let cli = token(&poll().await);
     let r = me(&pool, &cli).await;
     assert_eq!(r.body["user"]["id"], alex.as_str());
-    assert_eq!(r.body["token"]["kind"], "cli");
+    assert_eq!(r.body["session"]["kind"], "cli");
+    assert_eq!(
+        r.body["session"]["signed_in_with"], "Test key",
+        "the passkey its approver signed in with"
+    );
     let expires = time::OffsetDateTime::parse(
-        r.body["token"]["expires_at"].as_str().unwrap(),
+        r.body["session"]["expires_at"].as_str().unwrap(),
         &time::format_description::well_known::Rfc3339,
     )
     .unwrap();
@@ -370,7 +375,7 @@ async fn the_cli_signs_in_when_a_user_approves(pool: PgPool) {
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn one_invite_adds_or_finds_the_user(pool: PgPool) {
-    let (_, session) = new_token(&pool, "session").await;
+    let (_, session) = new_token(&pool).await;
     let post = |body: Value| {
         call(&pool, "POST", "/api/v1/invites")
             .token(&session)
@@ -380,7 +385,6 @@ async fn one_invite_adds_or_finds_the_user(pool: PgPool) {
     let r = post(json!({ "name": "Sam" })).await;
     assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
     assert_eq!(r.body["added"], true);
-    assert_eq!(r.body["invite"]["replace"], false);
     let sam = r.body["user"]["id"].clone();
     let left = time::OffsetDateTime::parse(
         r.body["invite"]["expires_at"].as_str().unwrap(),
@@ -418,37 +422,61 @@ async fn one_invite_adds_or_finds_the_user(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
-async fn a_replacing_invite_takes_over_once_used(pool: PgPool) {
-    let (alex, first) = add_user(&pool, "Alex").await;
+async fn an_invite_only_adds_a_passkey(pool: PgPool) {
+    let (_, first) = add_user(&pool, "Alex").await;
     let mut lost = Authenticator::new(1);
     let old = token(&register(&pool, &mut lost, &first).await);
 
-    // Made, not used: nothing changes yet.
-    let (_, code) = invite(&pool, "Alex", true).await;
-    assert_eq!(me(&pool, &old).await.status, StatusCode::OK);
-    token(&sign_in(&pool, &mut lost).await);
-
+    // A lost passkey: a new invite adds another, and leaves the rest alone.
+    let (_, code) = invite(&pool, "Alex").await;
     let mut found = Authenticator::new(2);
     let r = register(&pool, &mut found, &code).await;
     let new = token(&r);
-    assert_eq!(r.body["user"]["passkeys"].as_array().unwrap().len(), 1);
-    assert_eq!(me(&pool, &new).await.body["user"]["id"], alex.as_str());
-    assert_eq!(
-        me(&pool, &old).await.status,
-        StatusCode::UNAUTHORIZED,
-        "tokens revoked"
-    );
+    let passkeys = r.body["user"]["passkeys"].as_array().unwrap().clone();
+    assert_eq!(passkeys.len(), 2);
+    assert_eq!(me(&pool, &old).await.status, StatusCode::OK);
+    token(&sign_in(&pool, &mut lost).await);
+
+    // Signed in with the new one, they delete the old one and sign out what
+    // it signed in.
+    let r = call(
+        &pool,
+        "DELETE",
+        format!("/api/v1/passkeys/{}", passkeys[0]["id"].as_str().unwrap()),
+    )
+    .token(&new)
+    .send()
+    .await;
+    assert_eq!(r.status, StatusCode::NO_CONTENT);
+    let sessions = call(&pool, "GET", "/api/v1/sessions")
+        .token(&new)
+        .send()
+        .await;
+    let olds: Vec<_> = sessions
+        .body
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|s| s["signed_in_with"].is_null())
+        .collect();
+    assert_eq!(olds.len(), 2, "the passkey's gone: {}", sessions.body);
+    for s in olds {
+        let r = call(
+            &pool,
+            "DELETE",
+            format!("/api/v1/sessions/{}", s["id"].as_str().unwrap()),
+        )
+        .token(&new)
+        .send()
+        .await;
+        assert_eq!(r.status, StatusCode::NO_CONTENT);
+    }
+    assert_eq!(me(&pool, &old).await.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(me(&pool, &new).await.status, StatusCode::OK);
     assert_eq!(
         sign_in(&pool, &mut lost).await.status,
-        StatusCode::UNAUTHORIZED,
-        "the lost passkey is gone"
+        StatusCode::UNAUTHORIZED
     );
-    token(&sign_in(&pool, &mut found).await);
-
-    // A plain invite only adds.
-    let (_, more) = invite(&pool, "Alex", false).await;
-    token(&register(&pool, &mut Authenticator::new(3), &more).await);
-    token(&sign_in(&pool, &mut found).await);
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]

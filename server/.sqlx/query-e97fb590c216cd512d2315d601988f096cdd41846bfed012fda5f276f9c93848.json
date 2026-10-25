@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO api_token (id, name, kind, secret_hash, user_id, expires_at)\n         VALUES ($1, $2, $3, $4, $5, $6)\n         RETURNING id, name, kind, secret_hash, created_at, revoked_at, user_id, expires_at,\n                   last_used_at",
+  "query": "UPDATE api_token SET revoked_at = now()\n         WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()\n         RETURNING id, name, kind, secret_hash, created_at, revoked_at, user_id, expires_at,\n                   last_used_at, passkey_id",
   "describe": {
     "columns": [
       {
@@ -101,29 +101,36 @@
             "name": "last_used_at"
           }
         }
+      },
+      {
+        "ordinal": 9,
+        "name": "passkey_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "passkey_id"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text",
-        "Text",
-        "Text",
-        "Uuid",
-        "Timestamptz"
+        "Uuid"
       ]
     },
     "nullable": [
       false,
-      false,
+      true,
       false,
       false,
       false,
       true,
       true,
       false,
+      true,
       true
     ]
   },
-  "hash": "ac95ad418c8b4b526a75566f359ae037d035f52d2c85a552b58035fa2dfb8a30"
+  "hash": "e97fb590c216cd512d2315d601988f096cdd41846bfed012fda5f276f9c93848"
 }

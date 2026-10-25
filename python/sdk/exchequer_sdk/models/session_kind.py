@@ -1,10 +1,10 @@
 from enum import StrEnum
 
 
-class TokenKind(StrEnum):
+class SessionKind(StrEnum):
+    BROWSER = "browser"
     CLI = "cli"
     SCRIPT = "script"
-    SESSION = "session"
 
     def __str__(self) -> str:
         return str(self.value)

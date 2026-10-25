@@ -28,7 +28,8 @@
 		oncancel: () => void;
 		/** Read the item again, after someone else changed it (412). */
 		onreload?: () => void;
-		children: Snippet;
+		/** Its fields; none for an item with nothing to change, only actions. */
+		children?: Snippet;
 		/** More actions, after Cancel: Copy as new, Delete. */
 		actions?: Snippet;
 		/** Facts about the item: its ID, where it came from. */
@@ -44,7 +45,7 @@
 		onsave();
 	}}
 >
-	{@render children()}
+	{@render children?.()}
 
 	{#if issues.length}
 		<ul class="issues" role="alert">

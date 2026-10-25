@@ -636,7 +636,7 @@ export interface paths {
 		/**
 		 * Invite someone: a one-time link, for 3 hours, that registers a passkey.
 		 *     It adds them if there's no such user; for a user already there it adds a
-		 *     passkey on another device, or, with `replace`, replaces lost ones.
+		 *     passkey, on another device or in place of a lost one.
 		 */
 		post: operations['users_create_invite'];
 		delete?: never;
@@ -652,7 +652,7 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** The signed-in user and their token. */
+		/** The signed-in user and this request's session. */
 		get: operations['users_me'];
 		put?: never;
 		post?: never;
@@ -673,8 +673,8 @@ export interface paths {
 		put?: never;
 		post?: never;
 		/**
-		 * Sign out: revokes the request's token if it's a session. Other tokens are
-		 *     left alone (revoke those through `/tokens`).
+		 * Sign out: revokes the request's token if it's a browser's. Other
+		 *     sessions are left alone (sign those out through `/sessions`).
 		 */
 		delete: operations['users_sign_out'];
 		options?: never;
@@ -900,6 +900,27 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v1/revoke-all': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * The kill switch: sign everyone out and revoke every token, this
+		 *     request's too. Browsers, the CLI and scripts all stop working; passkeys
+		 *     still sign in, and `exchequer login` signs the CLI in again.
+		 */
+		post: operations['tokens_revoke_all'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/rules': {
 		parameters: {
 			query?: never;
@@ -978,6 +999,43 @@ export interface paths {
 		put?: never;
 		post?: never;
 		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/sessions': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** The sessions whose tokens still work, last used first. */
+		get: operations['sessions_list'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v1/sessions/{id}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		post?: never;
+		/**
+		 * Sign a session out: its token is revoked, so every session using that
+		 *     token ends (only a script's token has more than one).
+		 */
+		delete: operations['sessions_sign_out'];
 		options?: never;
 		head?: never;
 		patch?: never;
@@ -1152,7 +1210,10 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List every token, revoked and expired ones included. */
+		/**
+		 * Every script's token, revoked and expired ones included. (Browsers and
+		 *     the CLI are signed in with tokens too: see `/sessions`.)
+		 */
 		get: operations['tokens_list'];
 		put?: never;
 		/**
@@ -1160,12 +1221,7 @@ export interface paths {
 		 *     or the CLI), and works for `ttl_days` unless revoked.
 		 */
 		post: operations['tokens_create'];
-		/**
-		 * The kill switch: revoke every token, everyone's, this request's too.
-		 *     Everyone is signed out, and the CLI and scripts stop working; passkeys
-		 *     still sign in, and `exchequer login` makes the CLI a new token.
-		 */
-		delete: operations['tokens_revoke_all'];
+		delete?: never;
 		options?: never;
 		head?: never;
 		patch?: never;
@@ -1181,8 +1237,11 @@ export interface paths {
 		get?: never;
 		put?: never;
 		post?: never;
-		/** Revoke a token. It stops working immediately; revoking twice is harmless. */
-		delete: operations['tokens_revoke'];
+		/**
+		 * Revoke a script's token. It stops working immediately, and its sessions
+		 *     end; revoking twice is harmless.
+		 */
+		delete: operations['tokens_remove'];
 		options?: never;
 		head?: never;
 		patch?: never;
@@ -1273,7 +1332,10 @@ export interface paths {
 		get: operations['users_get'];
 		put?: never;
 		post?: never;
-		/** Remove a user: their passkeys are deleted and their tokens revoked. */
+		/**
+		 * Remove a user: their passkeys are deleted and their tokens revoked, so
+		 *     their sessions end.
+		 */
 		delete: operations['users_remove'];
 		options?: never;
 		head?: never;
@@ -1977,8 +2039,6 @@ export interface components {
 			code: string;
 			/** Format: date-time */
 			expires_at: string;
-			/** @description Using it removes the user's other passkeys and revokes their tokens. */
-			replace: boolean;
 			/** Format: uuid */
 			user_id: string;
 		};
@@ -1987,12 +2047,6 @@ export interface components {
 			/** @description Whether the user was added just now. */
 			added: boolean;
 			invite: components['schemas']['Invite'];
-			/**
-			 * Format: int64
-			 * @description How many of their tokens still work: a `replace` invite revokes them
-			 *     when it's used.
-			 */
-			tokens: number;
 			user: components['schemas']['User'];
 		};
 		/**
@@ -2072,9 +2126,9 @@ export interface components {
 		};
 		/** @enum {string} */
 		LineKind: 'claim' | 'payment';
-		/** @description Who the request's token belongs to. */
+		/** @description Who is signed in, and the session making the request. */
 		Me: {
-			token?: components['schemas']['Token'] | null;
+			session?: components['schemas']['Session'] | null;
 			user?: components['schemas']['User'] | null;
 		};
 		/** @enum {string} */
@@ -2178,11 +2232,6 @@ export interface components {
 		NewInvite: {
 			/** @description Who it's for, e.g. `Alex`: added if there's no such user yet. */
 			name: string;
-			/**
-			 * @description Using it removes their other passkeys and revokes their tokens: for
-			 *     a lost device.
-			 */
-			replace?: boolean;
 		};
 		NewNumber: {
 			/**
@@ -2792,7 +2841,7 @@ export interface components {
 			/** @description Prices stored or replaced. */
 			stored: number;
 		};
-		/** @description What `DELETE /tokens` did. */
+		/** @description What `POST /revoke-all` did. */
 		RevokedAll: {
 			/** @description How many tokens were still working. */
 			revoked: number;
@@ -2918,7 +2967,7 @@ export interface components {
 		};
 		/** @description A version of the rules script. */
 		RuleScript: {
-			/** @description The name of the token that uploaded it. */
+			/** @description Who uploaded it: the name of the user whose token did. */
 			author?: string | null;
 			/** Format: date-time */
 			created_at?: string | null;
@@ -2977,14 +3026,57 @@ export interface components {
 			 */
 			right: number;
 		};
-		/** @description A browser signed in: send `token` as the bearer token until it expires. */
+		/** @description A client using a token that still works. */
 		Session: {
-			/** Format: date-time */
+			/**
+			 * @description What it last used: `Safari on iPhone`, `exchequer-cli 1.4.0`. As the
+			 *     client reports it (`User-Agent`).
+			 */
+			client?: string | null;
+			/**
+			 * Format: date-time
+			 * @description When its token stops working, unless revoked first.
+			 */
 			expires_at: string;
-			/** @description Shown only in this response. */
-			token: string;
-			user: components['schemas']['User'];
+			/**
+			 * @description The host it last used it from, as the client reports it
+			 *     (`Exchequer-Host`).
+			 */
+			host?: string | null;
+			/** Format: uuid */
+			id: string;
+			/**
+			 * @description The address its last request came from, as the reverse proxy reports
+			 *     it (`X-Forwarded-For`).
+			 */
+			ip?: string | null;
+			kind: components['schemas']['SessionKind'];
+			/**
+			 * Format: date-time
+			 * @description To the minute.
+			 */
+			last_used_at: string;
+			/**
+			 * @description The passkey's name, or the script's token's; none if the passkey was
+			 *     deleted, or for a session older than this record.
+			 */
+			signed_in_with?: string | null;
+			/** Format: date-time */
+			started_at: string;
+			/**
+			 * Format: uuid
+			 * @description The token it uses: signing out revokes it, ending every session
+			 *     using it.
+			 */
+			token_id: string;
+			/** Format: uuid */
+			user_id?: string | null;
 		};
+		/**
+		 * @description What signed a session in.
+		 * @enum {string}
+		 */
+		SessionKind: 'browser' | 'cli' | 'script';
 		/** @description A month's parameters and state. */
 		Settlement: {
 			closed: boolean;
@@ -3004,6 +3096,14 @@ export interface components {
 			/** @description Businesses left out are funded by the household. */
 			funders?: components['schemas']['Funder'][];
 			stipends?: components['schemas']['Stipend'][];
+		};
+		/** @description A browser signed in: send `token` as the bearer token until it expires. */
+		SignedIn: {
+			/** Format: date-time */
+			expires_at: string;
+			/** @description Shown only in this response. */
+			token: string;
+			user: components['schemas']['User'];
 		};
 		/** @description A line of the file that wasn't read. */
 		SkippedLine: {
@@ -3211,7 +3311,7 @@ export interface components {
 			id: string;
 			name: string;
 		};
-		/** @description A token, without its secret. */
+		/** @description A script's token, without its secret. */
 		Token: {
 			/** Format: date-time */
 			created_at: string;
@@ -3222,7 +3322,6 @@ export interface components {
 			expires_at: string;
 			/** Format: uuid */
 			id: string;
-			kind: components['schemas']['TokenKind'];
 			/**
 			 * Format: date-time
 			 * @description To the minute.
@@ -3237,11 +3336,6 @@ export interface components {
 			 */
 			user_id?: string | null;
 		};
-		/**
-		 * @description How a token came to be.
-		 * @enum {string}
-		 */
-		TokenKind: 'session' | 'cli' | 'script';
 		Transaction: {
 			/** Format: date */
 			date: string;
@@ -3807,7 +3901,7 @@ export interface operations {
 					[name: string]: unknown;
 				};
 				content: {
-					'application/json': components['schemas']['Session'];
+					'application/json': components['schemas']['SignedIn'];
 				};
 			};
 			/** @description The passkey wasn't accepted, or the ceremony expired */
@@ -3890,7 +3984,7 @@ export interface operations {
 					[name: string]: unknown;
 				};
 				content: {
-					'application/json': components['schemas']['Session'];
+					'application/json': components['schemas']['SignedIn'];
 				};
 			};
 			/** @description The passkey wasn't accepted, or the ceremony expired */
@@ -6227,6 +6321,35 @@ export interface operations {
 			};
 		};
 	};
+	tokens_revoke_all: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['RevokedAll'];
+				};
+			};
+			/** @description Unauthorized */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
 	rules_get: {
 		parameters: {
 			query?: never;
@@ -6378,6 +6501,74 @@ export interface operations {
 				};
 			};
 			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	sessions_list: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Session'][];
+				};
+			};
+			/** @description Unauthorized */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	sessions_sign_out: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				/** @description Session ID */
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description No Content */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Unauthorized */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description No such session, or it ended */
 			404: {
 				headers: {
 					[name: string]: unknown;
@@ -6992,7 +7183,7 @@ export interface operations {
 					'application/problem+json': components['schemas']['Problem'];
 				};
 			};
-			/** @description Not a session or the CLI's token */
+			/** @description Not a browser's or the CLI's token */
 			403: {
 				headers: {
 					[name: string]: unknown;
@@ -7021,36 +7212,7 @@ export interface operations {
 			};
 		};
 	};
-	tokens_revoke_all: {
-		parameters: {
-			query?: never;
-			header?: never;
-			path?: never;
-			cookie?: never;
-		};
-		requestBody?: never;
-		responses: {
-			/** @description OK */
-			200: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/json': components['schemas']['RevokedAll'];
-				};
-			};
-			/** @description Unauthorized */
-			401: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/problem+json': components['schemas']['Problem'];
-				};
-			};
-		};
-	};
-	tokens_revoke: {
+	tokens_remove: {
 		parameters: {
 			query?: never;
 			header?: never;

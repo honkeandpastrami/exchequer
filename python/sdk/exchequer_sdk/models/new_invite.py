@@ -5,8 +5,6 @@ from typing import Any, TypeVar
 
 from attrs import define as _attrs_define
 
-from ..types import UNSET, Unset
-
 T = TypeVar("T", bound="NewInvite")
 
 
@@ -15,17 +13,12 @@ class NewInvite:
     """
     Attributes:
         name (str): Who it's for, e.g. `Alex`: added if there's no such user yet.
-        replace (bool | Unset): Using it removes their other passkeys and revokes their tokens: for
-            a lost device.
     """
 
     name: str
-    replace: bool | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         name = self.name
-
-        replace = self.replace
 
         field_dict: dict[str, Any] = {}
 
@@ -34,8 +27,6 @@ class NewInvite:
                 "name": name,
             }
         )
-        if replace is not UNSET:
-            field_dict["replace"] = replace
 
         return field_dict
 
@@ -44,11 +35,8 @@ class NewInvite:
         d = dict(src_dict)
         name = d.pop("name")
 
-        replace = d.pop("replace", UNSET)
-
         new_invite = cls(
             name=name,
-            replace=replace,
         )
 
         return new_invite

@@ -19,7 +19,7 @@ class RuleScript:
     Attributes:
         source (str):
         version (int): 0 when there's none yet: no rules.
-        author (None | str | Unset): The name of the token that uploaded it.
+        author (None | str | Unset): Who uploaded it: the name of the user whose token did.
         created_at (datetime.datetime | None | Unset):
         note (None | str | Unset):
     """

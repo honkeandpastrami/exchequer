@@ -48,8 +48,8 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | Problem]:
-    """Sign out: revokes the request's token if it's a session. Other tokens are
-    left alone (revoke those through `/tokens`).
+    """Sign out: revokes the request's token if it's a browser's. Other
+    sessions are left alone (sign those out through `/sessions`).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -72,8 +72,8 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | Problem | None:
-    """Sign out: revokes the request's token if it's a session. Other tokens are
-    left alone (revoke those through `/tokens`).
+    """Sign out: revokes the request's token if it's a browser's. Other
+    sessions are left alone (sign those out through `/sessions`).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -92,8 +92,8 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | Problem]:
-    """Sign out: revokes the request's token if it's a session. Other tokens are
-    left alone (revoke those through `/tokens`).
+    """Sign out: revokes the request's token if it's a browser's. Other
+    sessions are left alone (sign those out through `/sessions`).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -114,8 +114,8 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | Problem | None:
-    """Sign out: revokes the request's token if it's a session. Other tokens are
-    left alone (revoke those through `/tokens`).
+    """Sign out: revokes the request's token if it's a browser's. Other
+    sessions are left alone (sign those out through `/sessions`).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

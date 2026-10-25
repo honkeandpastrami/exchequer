@@ -8,7 +8,6 @@ from uuid import UUID
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..models.token_kind import TokenKind
 from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="Token")
@@ -16,13 +15,12 @@ T = TypeVar("T", bound="Token")
 
 @_attrs_define
 class Token:
-    """A token, without its secret.
+    """A script's token, without its secret.
 
     Attributes:
         created_at (datetime.datetime):
         expires_at (datetime.datetime): When it stops working, unless revoked first.
         id (UUID):
-        kind (TokenKind): How a token came to be.
         name (str):
         last_used_at (datetime.datetime | None | Unset): To the minute.
         revoked_at (datetime.datetime | None | Unset):
@@ -32,7 +30,6 @@ class Token:
     created_at: datetime.datetime
     expires_at: datetime.datetime
     id: UUID
-    kind: TokenKind
     name: str
     last_used_at: datetime.datetime | None | Unset = UNSET
     revoked_at: datetime.datetime | None | Unset = UNSET
@@ -45,8 +42,6 @@ class Token:
         expires_at = self.expires_at.isoformat()
 
         id = str(self.id)
-
-        kind = self.kind.value
 
         name = self.name
 
@@ -81,7 +76,6 @@ class Token:
                 "created_at": created_at,
                 "expires_at": expires_at,
                 "id": id,
-                "kind": kind,
                 "name": name,
             }
         )
@@ -102,8 +96,6 @@ class Token:
         expires_at = datetime.datetime.fromisoformat(d.pop("expires_at"))
 
         id = UUID(d.pop("id"))
-
-        kind = TokenKind(d.pop("kind"))
 
         name = d.pop("name")
 
@@ -162,7 +154,6 @@ class Token:
             created_at=created_at,
             expires_at=expires_at,
             id=id,
-            kind=kind,
             name=name,
             last_used_at=last_used_at,
             revoked_at=revoked_at,

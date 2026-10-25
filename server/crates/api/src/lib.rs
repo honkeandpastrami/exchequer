@@ -40,6 +40,7 @@ pub mod problem;
 mod query;
 mod reports;
 mod rules;
+mod sessions;
 mod settlements;
 mod sign_in;
 mod suggesters;
@@ -111,6 +112,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .merge(sign_in::routes())
         .merge(users::routes())
         .merge(tokens::routes())
+        .merge(sessions::routes())
         .merge(parties::routes())
         .merge(commodities::routes())
         .merge(prices::routes())

@@ -29,7 +29,7 @@ pub async fn create(pool: &PgPool, t: &str, path: &str, body: Value) -> String {
 
 impl H {
     pub async fn new(pool: &PgPool) -> Self {
-        let (_, t) = new_token(pool, "cli").await;
+        let (_, t) = new_token(pool).await;
         let party = |name: &str, kind: &str| json!({ "name": name, "kind": kind });
         let household = create(pool, &t, "/api/v1/parties", party("Household", "household")).await;
         let alex = create(pool, &t, "/api/v1/parties", party("Alex", "person")).await;

@@ -9,7 +9,7 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.token import Token
+    from ..models.session import Session
     from ..models.user import User
 
 
@@ -18,28 +18,28 @@ T = TypeVar("T", bound="Me")
 
 @_attrs_define
 class Me:
-    """Who the request's token belongs to.
+    """Who is signed in, and the session making the request.
 
     Attributes:
-        token (None | Token | Unset):
+        session (None | Session | Unset):
         user (None | Unset | User):
     """
 
-    token: None | Token | Unset = UNSET
+    session: None | Session | Unset = UNSET
     user: None | Unset | User = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        from ..models.token import Token  # noqa: PLC0415
+        from ..models.session import Session  # noqa: PLC0415
         from ..models.user import User  # noqa: PLC0415
 
-        token: dict[str, Any] | None | Unset
-        if isinstance(self.token, Unset):
-            token = UNSET
-        elif isinstance(self.token, Token):
-            token = self.token.to_dict()
+        session: dict[str, Any] | None | Unset
+        if isinstance(self.session, Unset):
+            session = UNSET
+        elif isinstance(self.session, Session):
+            session = self.session.to_dict()
         else:
-            token = self.token
+            session = self.session
 
         user: dict[str, Any] | None | Unset
         if isinstance(self.user, Unset):
@@ -52,8 +52,8 @@ class Me:
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
-        if token is not UNSET:
-            field_dict["token"] = token
+        if session is not UNSET:
+            field_dict["session"] = session
         if user is not UNSET:
             field_dict["user"] = user
 
@@ -61,12 +61,12 @@ class Me:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.token import Token  # noqa: PLC0415
+        from ..models.session import Session  # noqa: PLC0415
         from ..models.user import User  # noqa: PLC0415
 
         d = dict(src_dict)
 
-        def _parse_token(data: object) -> None | Token | Unset:
+        def _parse_session(data: object) -> None | Session | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -74,14 +74,14 @@ class Me:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                token_type_0 = Token.from_dict(data)
+                session_type_0 = Session.from_dict(data)
 
-                return token_type_0
+                return session_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(None | Token | Unset, data)
+            return cast(None | Session | Unset, data)
 
-        token = _parse_token(d.pop("token", UNSET))
+        session = _parse_session(d.pop("session", UNSET))
 
         def _parse_user(data: object) -> None | Unset | User:
             if data is None:
@@ -101,7 +101,7 @@ class Me:
         user = _parse_user(d.pop("user", UNSET))
 
         me = cls(
-            token=token,
+            session=session,
             user=user,
         )
 

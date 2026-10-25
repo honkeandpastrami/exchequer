@@ -1,7 +1,8 @@
 <script lang="ts">
-	// Who can sign in, and every token (design §10). Rows and forms as in
-	// docs/ux.md §10: Add or Edit opens the row's form; what acts on a user or
-	// a token is in its form.
+	// Who can sign in and how (design §10): users, their passkeys, the
+	// sessions signed in, and scripts' tokens. Rows and forms as in
+	// docs/ux.md §10: Add or Edit opens the row's form; what acts on an item
+	// is in its form.
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { api, done, ok, type Schemas } from '#lib/api/client.ts';
@@ -12,49 +13,62 @@
 	import { signOut } from '#lib/session.svelte.ts';
 
 	type User = Schemas['User'];
+	type Passkey = Schemas['Passkey'] & { user: User };
+	type Session = Schemas['Session'];
 	type Token = Schemas['Token'];
 	type Invite = Schemas['Invite'];
 	/** A user's form: a new user (`id` null) or one's, with the invite just made. */
-	type UserForm = {
-		id: string | null;
-		etag: string;
-		name: string;
-		replace: boolean;
-		invite: Invite | null;
-	};
+	type UserForm = { id: string | null; etag: string; name: string; invite: Invite | null };
 	/** A token's form: a new token (`id` null) or one's, with its secret if just made. */
 	type TokenForm = { id: string | null; name: string; days: number; secret: string | null };
+	/** Which form is open: one at a time. */
+	type Open =
+		| { what: 'user'; form: UserForm }
+		| { what: 'passkey'; id: string }
+		| { what: 'session'; id: string }
+		| { what: 'token'; form: TokenForm }
+		| null;
 
-	const KINDS: Record<Token['kind'], string> = { session: 'Session', cli: 'CLI', script: 'Script' };
+	const KINDS: Record<Session['kind'], string> = {
+		browser: 'Browser',
+		cli: 'CLI',
+		script: 'Script'
+	};
 
 	let users: User[] | null = $state(null);
+	let sessions: Session[] | null = $state(null);
 	let tokens: Token[] | null = $state(null);
 	let me: string | null = $state(null);
-	/** This browser's token. */
+	/** This browser's session. */
 	let mine: string | null = $state(null);
 	let loadFailure: unknown = $state(null);
-	let userForm: UserForm | null = $state(null);
-	let tokenForm: TokenForm | null = $state(null);
+	let open = $state<Open>(null);
 	let failure: unknown = $state(null);
 	let busy = $state(false);
 	let everything = $state(false);
 
+	const passkeys = $derived.by((): Passkey[] =>
+		(users ?? []).flatMap((u) => u.passkeys.map((p) => ({ ...p, user: u })))
+	);
 	const working = (t: Token) => !t.revoked_at && new Date(t.expires_at) > new Date();
 	const shown = $derived.by(() => tokens?.filter((t) => everything || working(t)) ?? []);
-	const owner = (t: Token) => users?.find((u) => u.id === t.user_id)?.name ?? null;
-	const tokensOf = (u: User) => tokens?.filter((t) => t.user_id === u.id && working(t)) ?? [];
+	const nameOf = (id: string | null | undefined) => users?.find((u) => u.id === id)?.name ?? null;
+	const userForm = $derived(open?.what === 'user' ? open.form : null);
+	const tokenForm = $derived(open?.what === 'token' ? open.form : null);
 
 	async function load() {
 		try {
-			const [list, who, all] = await Promise.all([
+			const [list, who, signedIn, made] = await Promise.all([
 				api.GET('/api/v1/users').then(ok),
 				api.GET('/api/v1/me').then(ok),
+				api.GET('/api/v1/sessions').then(ok),
 				api.GET('/api/v1/tokens').then(ok)
 			]);
 			users = list;
 			me = who.user?.id ?? null;
-			mine = who.token?.id ?? null;
-			tokens = all;
+			mine = who.session?.id ?? null;
+			sessions = signedIn;
+			tokens = made;
 			loadFailure = null;
 		} catch (e) {
 			loadFailure = e;
@@ -75,16 +89,14 @@
 		}
 	}
 
-	function openUser(f: UserForm | null) {
+	function show(o: Open) {
 		failure = null;
-		tokenForm = null;
-		userForm = f;
+		open = o;
 	}
 
-	function openToken(f: TokenForm | null) {
-		failure = null;
-		userForm = null;
-		tokenForm = f;
+	/** Opens the passkey's or session's form, or closes it if it's open. */
+	function toggle(what: 'passkey' | 'session', id: string) {
+		show(open?.what === what && open.id === id ? null : { what, id });
 	}
 
 	/** The user as stored now, and the ETag to rename them with. */
@@ -94,20 +106,24 @@
 	}
 
 	async function editUser(u: User, again = false) {
-		if (!again && userForm?.id === u.id) return openUser(null);
+		if (!again && userForm?.id === u.id) return show(null);
 		try {
 			const { user, etag } = await readUser(u.id);
-			openUser({ id: u.id, etag, name: user.name, replace: false, invite: null });
+			show({ what: 'user', form: { id: u.id, etag, name: user.name, invite: null } });
 		} catch (e) {
 			failure = e;
 		}
 	}
 
 	const editToken = (t: Token) =>
-		openToken(tokenForm?.id === t.id ? null : { id: t.id, name: t.name, days: 0, secret: null });
+		show(
+			tokenForm?.id === t.id
+				? null
+				: { what: 'token', form: { id: t.id, name: t.name, days: 0, secret: null } }
+		);
 
-	async function invite(name: string, replace: boolean) {
-		return ok(await api.POST('/api/v1/invites', { body: { name, replace } }));
+	async function invite(name: string) {
+		return ok(await api.POST('/api/v1/invites', { body: { name } }));
 	}
 
 	/** Renames the user; or adds one, and their form stays open showing their
@@ -118,7 +134,7 @@
 			if (!f) return;
 			const name = f.name.trim();
 			if (f.id) {
-				if (name !== users?.find((u) => u.id === f.id)?.name) {
+				if (name !== nameOf(f.id)) {
 					ok(
 						await api.PATCH('/api/v1/users/{id}', {
 							params: { path: { id: f.id }, header: { 'If-Match': f.etag } },
@@ -126,40 +142,26 @@
 						})
 					);
 				}
-				userForm = null;
+				open = null;
 				return;
 			}
-			const made = await invite(name, false);
+			const made = await invite(name);
 			const { etag } = await readUser(made.user.id);
-			userForm = {
-				id: made.user.id,
-				etag,
-				name: made.user.name,
-				replace: false,
-				invite: made.invite
+			open = {
+				what: 'user',
+				form: { id: made.user.id, etag, name: made.user.name, invite: made.invite }
 			};
 		});
 
-	function inviteUser(u: User, f: UserForm) {
-		if (f.replace) {
-			const n = u.passkeys.length;
-			const t = tokensOf(u).length;
-			if (
-				!confirm(
-					`When the link is used, ${u.name}’s ${n} passkeys are deleted and their ${t} tokens revoked.`
-				)
-			)
-				return;
-		}
+	const inviteUser = (u: User, f: UserForm) =>
 		run(async () => {
-			f.invite = (await invite(u.name, f.replace)).invite;
+			f.invite = (await invite(u.name)).invite;
 		});
-	}
 
 	/** Registers another passkey for yourself, here. */
 	const addHere = (u: User) =>
 		run(async () => {
-			const made = await invite(u.name, false);
+			const made = await invite(u.name);
 			await goto(resolve('/invite/[code]', { code: made.invite.code }));
 		});
 
@@ -168,16 +170,35 @@
 		if (!confirm(`Delete ${u.name}? Their passkeys and tokens stop working.${yourself}`)) return;
 		run(async () => {
 			done(await api.DELETE('/api/v1/users/{id}', { params: { path: { id: u.id } } }));
-			userForm = null;
+			open = null;
 			if (u.id === me) signOut();
 		});
 	}
 
-	function removePasskey(u: User, p: Schemas['Passkey']) {
-		if (!confirm(`Delete ${u.name}’s passkey “${p.name}”? It stops working at once.`)) return;
-		run(async () =>
-			done(await api.DELETE('/api/v1/passkeys/{id}', { params: { path: { id: p.id } } }))
-		);
+	function removePasskey(p: Passkey) {
+		if (!confirm(`Delete ${p.user.name}’s passkey “${p.name}”? It stops working at once.`)) return;
+		run(async () => {
+			done(await api.DELETE('/api/v1/passkeys/{id}', { params: { path: { id: p.id } } }));
+			open = null;
+		});
+	}
+
+	/** Who a session is and what it is, for a confirmation. */
+	const described = (s: Session) =>
+		[nameOf(s.user_id), KINDS[s.kind], s.client, s.host].filter(Boolean).join(' · ');
+
+	function endSession(s: Session) {
+		const others = sessions?.filter((o) => o.token_id === s.token_id && o.id !== s.id) ?? [];
+		const also = others.length
+			? ` Its token is shared, so these end too: ${others.map(described).join('; ')}.`
+			: '';
+		const yours = s.id === mine ? ' It’s this browser: you’ll be signed out.' : '';
+		if (!confirm(`Sign out ${described(s)}?${also}${yours}`)) return;
+		run(async () => {
+			done(await api.DELETE('/api/v1/sessions/{id}', { params: { path: { id: s.id } } }));
+			open = null;
+			if (s.id === mine) signOut();
+		});
 	}
 
 	/** Makes the token; its form stays open, showing it once. */
@@ -186,34 +207,37 @@
 			const f = tokenForm;
 			if (!f) return;
 			if (f.id) {
-				tokenForm = null;
+				open = null;
 				return;
 			}
 			const made = ok(
 				await api.POST('/api/v1/tokens', { body: { name: f.name.trim(), ttl_days: f.days } })
 			);
-			tokenForm = { id: made.id, name: made.name, days: f.days, secret: made.token };
+			open = {
+				what: 'token',
+				form: { id: made.id, name: made.name, days: f.days, secret: made.token }
+			};
 		});
 
 	function revoke(t: Token) {
-		const yours = t.id === mine ? ' It’s this browser’s: you’ll be signed out.' : '';
-		if (!confirm(`Revoke “${t.name}”? It stops working at once.${yours}`)) return;
+		const n = sessions?.filter((s) => s.token_id === t.id).length ?? 0;
+		const ending = n ? ` Its ${n} sessions end.` : '';
+		if (!confirm(`Revoke “${t.name}”? It stops working at once.${ending}`)) return;
 		run(async () => {
 			done(await api.DELETE('/api/v1/tokens/{id}', { params: { path: { id: t.id } } }));
-			tokenForm = null;
-			if (t.id === mine) signOut();
+			open = null;
 		});
 	}
 
 	function revokeAll() {
 		if (
 			!confirm(
-				'Revoke every token? Everyone is signed out, you included, and every CLI and script stops working.'
+				'Sign everyone out and revoke all tokens? Every browser, CLI and script stops working, this browser too. Passkeys still sign in.'
 			)
 		)
 			return;
 		run(async () => {
-			ok(await api.DELETE('/api/v1/tokens'));
+			ok(await api.POST('/api/v1/revoke-all'));
 			signOut();
 		});
 	}
@@ -225,7 +249,13 @@
 	async function copy(text: string) {
 		await navigator.clipboard?.writeText(text).catch(() => {});
 	}
+
+	const time = (t: string) => new Date(t).toLocaleString();
 </script>
+
+{#snippet dateOrNone(t: string | null | undefined)}
+	{#if t}{localDate(t)}{:else}<NoValue kind="none" />{/if}
+{/snippet}
 
 {#snippet userFields(f: UserForm, u?: User)}
 	<RowForm
@@ -233,7 +263,7 @@
 		{busy}
 		{failure}
 		onsave={saveUser}
-		oncancel={() => openUser(null)}
+		oncancel={() => show(null)}
 		onreload={u ? () => editUser(u, true) : undefined}
 	>
 		<div class="fields">
@@ -242,53 +272,15 @@
 				<!-- svelte-ignore a11y_autofocus -->
 				<input bind:value={f.name} maxlength="64" required autofocus={!u} />
 			</label>
-			{#if u}
-				<label class="check"
-					><input type="checkbox" bind:checked={f.replace} /> Invite replaces their passkeys</label
-				>
-			{/if}
 		</div>
 		{#if f.invite}
 			<p class="secret">
-				Open once on {u?.name ?? f.name}’s device, before {new Date(
-					f.invite.expires_at
-				).toLocaleString()}:
 				<code>{link(f.invite)}</code>
 				<button type="button" class="link" onclick={() => f.invite && copy(link(f.invite))}
 					>Copy</button
 				>
+				<span class="muted">Works once, until {time(f.invite.expires_at)}.</span>
 			</p>
-		{/if}
-		{#if u}
-			{#if u.passkeys.length}
-				<table class="passkeys">
-					<thead><tr><th>Passkey</th><th>Added</th><th>Last used</th><th></th></tr></thead>
-					<tbody>
-						{#each u.passkeys as p (p.id)}
-							<tr>
-								<td>{p.name}</td>
-								<td>{localDate(p.created_at)}</td>
-								<td
-									>{#if p.last_used_at}{localDate(p.last_used_at)}{:else}<NoValue
-											kind="none"
-										/>{/if}</td
-								>
-								<td class="actions">
-									<button
-										type="button"
-										class="link danger"
-										onclick={() => removePasskey(u, p)}
-										disabled={busy}>Delete</button
-									>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-				<p class="muted hint">A passkey is deleted at once.</p>
-			{:else}
-				<p class="muted hint">No passkey yet: invite them.</p>
-			{/if}
 		{/if}
 		{#snippet actions()}
 			{#if u}
@@ -311,13 +303,55 @@
 	</RowForm>
 {/snippet}
 
+{#snippet passkeyFields(p: Passkey)}
+	<RowForm
+		label={`Edit ${p.name}`}
+		{busy}
+		{failure}
+		onsave={() => show(null)}
+		oncancel={() => show(null)}
+	>
+		{#snippet actions()}
+			<button type="button" class="quiet danger" onclick={() => removePasskey(p)} disabled={busy}
+				>Delete</button
+			>
+		{/snippet}
+		{#snippet facts()}
+			<span>ID {p.id}</span>
+		{/snippet}
+	</RowForm>
+{/snippet}
+
+{#snippet sessionFields(s: Session)}
+	<RowForm
+		label={`Edit session of ${nameOf(s.user_id) ?? 'nobody'}`}
+		{busy}
+		{failure}
+		onsave={() => show(null)}
+		oncancel={() => show(null)}
+	>
+		{#snippet actions()}
+			<button type="button" class="quiet danger" onclick={() => endSession(s)} disabled={busy}
+				>Sign out</button
+			>
+		{/snippet}
+		{#snippet facts()}
+			<span>{KINDS[s.kind]}</span>
+			<span
+				>IP {#if s.ip}{s.ip}{:else}<NoValue kind="unknown" />{/if}</span
+			>
+			<span>ID {s.id}</span>
+		{/snippet}
+	</RowForm>
+{/snippet}
+
 {#snippet tokenFields(f: TokenForm, t?: Token)}
 	<RowForm
 		label={t ? `Edit ${t.name}` : 'Add token'}
 		{busy}
 		{failure}
 		onsave={saveToken}
-		oncancel={() => openToken(null)}
+		oncancel={() => show(null)}
 	>
 		<div class="fields">
 			<label class="field grow">
@@ -348,9 +382,6 @@
 		{/snippet}
 		{#snippet facts()}
 			{#if t}
-				<span>{KINDS[t.kind]} of {owner(t) ?? 'nobody'}</span>
-				<span>Created {localDate(t.created_at)}</span>
-				<span>Expires {localDate(t.expires_at)}</span>
 				{#if t.revoked_at}<span>Revoked {localDate(t.revoked_at)}</span>{/if}
 				<span>ID {t.id}</span>
 			{/if}
@@ -360,19 +391,16 @@
 
 <h1>Security</h1>
 
-{#if users && tokens}
+{#if users && sessions && tokens}
 	<div class="heading">
 		<h2>Users</h2>
 		<button
 			type="button"
 			disabled={userForm?.id === null}
-			onclick={() => openUser({ id: null, etag: '', name: '', replace: false, invite: null })}
+			onclick={() => show({ what: 'user', form: { id: null, etag: '', name: '', invite: null } })}
 			>Add user</button
 		>
 	</div>
-	<p class="muted intro">
-		Each signs in with a passkey; an invite link, once, for 3 hours, adds one.
-	</p>
 	<div class="card">
 		<table class="list">
 			<thead><tr><th>Name</th><th>Passkeys</th><th>Added</th><th></th></tr></thead>
@@ -383,7 +411,7 @@
 				{#each users as u (u.id)}
 					<tr>
 						<td
-							>{u.name}{#if u.id === me}<span class="muted"> (you)</span>{/if}</td
+							>{u.name}{#if u.id === me}<span class="muted aside">(you)</span>{/if}</td
 						>
 						<td>{u.passkeys.length}</td>
 						<td>{localDate(u.created_at)}</td>
@@ -401,15 +429,91 @@
 		</table>
 	</div>
 
+	<h2>Passkeys</h2>
+	<div class="card">
+		<table class="list">
+			<thead>
+				<tr><th>Passkey</th><th>User</th><th>Added</th><th>Last used</th><th></th></tr>
+			</thead>
+			<tbody>
+				{#each passkeys as p (p.id)}
+					<tr>
+						<td>{p.name}</td>
+						<td>{p.user.name}</td>
+						<td>{localDate(p.created_at)}</td>
+						<td>{@render dateOrNone(p.last_used_at)}</td>
+						<td class="actions">
+							<button
+								class="link"
+								aria-expanded={open?.what === 'passkey' && open.id === p.id}
+								onclick={() => toggle('passkey', p.id)}>Edit</button
+							>
+						</td>
+					</tr>
+					{#if open?.what === 'passkey' && open.id === p.id}
+						<tr class="open"><td colspan="5">{@render passkeyFields(p)}</td></tr>
+					{/if}
+				{:else}
+					<tr><td colspan="5"><NoValue kind="none" /></td></tr>
+				{/each}
+			</tbody>
+		</table>
+	</div>
+
+	<h2>Sessions</h2>
+	<div class="card">
+		<table class="list wide">
+			<thead>
+				<tr>
+					<th>User</th><th>Signed in with</th><th>Started</th><th>Last used</th>
+					<th>Last used from</th><th>Expires</th><th></th>
+				</tr>
+			</thead>
+			<tbody>
+				{#each sessions as s (s.id)}
+					<tr>
+						<td
+							>{nameOf(s.user_id)}{#if s.id === mine}<span class="muted aside">(this browser)</span
+								>{/if}</td
+						>
+						<td>
+							{#if s.signed_in_with}{s.signed_in_with}{:else}<NoValue kind="unknown" />{/if}
+						</td>
+						<td>{localDate(s.started_at)}</td>
+						<td>{localDate(s.last_used_at)}</td>
+						<td>
+							{#if s.client || s.host}
+								{[s.client, s.host].filter(Boolean).join(' · ')}
+							{:else}
+								<NoValue kind="unknown" />
+							{/if}
+						</td>
+						<td>{localDate(s.expires_at)}</td>
+						<td class="actions">
+							<button
+								class="link"
+								aria-expanded={open?.what === 'session' && open.id === s.id}
+								onclick={() => toggle('session', s.id)}>Edit</button
+							>
+						</td>
+					</tr>
+					{#if open?.what === 'session' && open.id === s.id}
+						<tr class="open"><td colspan="7">{@render sessionFields(s)}</td></tr>
+					{/if}
+				{/each}
+			</tbody>
+		</table>
+	</div>
+
 	<div class="heading">
 		<h2>Tokens</h2>
 		<button
 			type="button"
 			disabled={tokenForm?.id === null}
-			onclick={() => openToken({ id: null, name: '', days: 90, secret: null })}>Add token</button
+			onclick={() => show({ what: 'token', form: { id: null, name: '', days: 90, secret: null } })}
+			>Add token</button
 		>
 	</div>
-	<p class="muted intro">Sessions, CLIs and scripts. Each expires; a revoked one stops at once.</p>
 	<label class="toggle"
 		><input type="checkbox" bind:checked={everything} /> Show revoked and expired</label
 	>
@@ -417,29 +521,21 @@
 		<table class="list">
 			<thead>
 				<tr>
-					<th>Token</th><th>User</th><th>Kind</th><th>Created</th><th>Last used</th><th>Expires</th
-					><th></th>
+					<th>Token</th><th>User</th><th>Created</th><th>Last used</th><th>Expires</th><th></th>
 				</tr>
 			</thead>
 			<tbody>
 				{#if tokenForm && tokenForm.id === null}
-					<tr class="open"><td colspan="7">{@render tokenFields(tokenForm)}</td></tr>
+					<tr class="open"><td colspan="6">{@render tokenFields(tokenForm)}</td></tr>
 				{/if}
 				{#each shown as t (t.id)}
 					<tr class:muted={!working(t)}>
-						<td
-							>{t.name}{#if t.id === mine}<span class="muted"> (this browser)</span>{/if}</td
-						>
-						<td
-							>{#if owner(t)}{owner(t)}{:else}<NoValue kind="none" />{/if}</td
-						>
-						<td>{KINDS[t.kind]}</td>
+						<td>{t.name}</td>
+						<td>
+							{#if nameOf(t.user_id)}{nameOf(t.user_id)}{:else}<NoValue kind="none" />{/if}
+						</td>
 						<td>{localDate(t.created_at)}</td>
-						<td
-							>{#if t.last_used_at}{localDate(t.last_used_at)}{:else}<NoValue
-									kind="none"
-								/>{/if}</td
-						>
+						<td>{@render dateOrNone(t.last_used_at)}</td>
 						<td>{t.revoked_at ? 'revoked' : localDate(t.expires_at)}</td>
 						<td class="actions">
 							<button
@@ -450,20 +546,21 @@
 						</td>
 					</tr>
 					{#if tokenForm && tokenForm.id === t.id}
-						<tr class="open"><td colspan="7">{@render tokenFields(tokenForm, t)}</td></tr>
+						<tr class="open"><td colspan="6">{@render tokenFields(tokenForm, t)}</td></tr>
 					{/if}
+				{:else}
+					{#if !tokenForm}<tr><td colspan="6"><NoValue kind="none" /></td></tr>{/if}
 				{/each}
 			</tbody>
 		</table>
 	</div>
 
-	<div class="heading">
-		<h2>Every token</h2>
-		<button type="button" class="kill" onclick={revokeAll} disabled={busy}>Revoke all tokens</button
+	<p class="kill-switch">
+		<button type="button" class="kill" onclick={revokeAll} disabled={busy}
+			>Sign everyone out and revoke all tokens</button
 		>
-	</div>
-	<p class="muted intro">If one leaked: everyone is signed out; passkeys still sign in.</p>
-	{#if failure && !userForm && !tokenForm}<Failure error={failure} />{/if}
+	</p>
+	{#if failure && !open}<Failure error={failure} />{/if}
 {:else if loadFailure}
 	<Failure error={loadFailure} />
 {:else}
@@ -471,6 +568,9 @@
 {/if}
 
 <style>
+	h2 {
+		margin-top: var(--space-5);
+	}
 	.heading {
 		display: flex;
 		align-items: baseline;
@@ -478,8 +578,8 @@
 		gap: var(--space-4);
 		margin-top: var(--space-5);
 	}
-	.intro {
-		margin-bottom: var(--space-3);
+	.heading h2 {
+		margin-top: 0;
 	}
 	.card {
 		margin-bottom: var(--space-4);
@@ -492,6 +592,9 @@
 	.list {
 		min-width: 36rem;
 	}
+	.list.wide {
+		min-width: 48rem;
+	}
 	.open td {
 		border-top: none;
 		padding-top: 0;
@@ -499,6 +602,10 @@
 	.actions {
 		text-align: right;
 		white-space: nowrap;
+	}
+	/* "(you)", "(this browser)": apart from the name before it. */
+	.aside {
+		margin-left: 0.3em;
 	}
 	.toggle {
 		display: block;
@@ -508,11 +615,8 @@
 	.secret {
 		overflow-wrap: anywhere;
 	}
-	.passkeys {
-		margin-bottom: var(--space-2);
-	}
-	.hint {
-		font-size: var(--text-sm);
+	.kill-switch {
+		margin-top: var(--space-5);
 	}
 	.kill {
 		border-color: var(--color-negative);

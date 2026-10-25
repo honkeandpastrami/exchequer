@@ -6,8 +6,9 @@ import datetime
 import socket
 import webbrowser
 from collections.abc import Callable
+from importlib.metadata import version
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -21,6 +22,14 @@ from exchequer_sdk.models import RefreshRequest, RuleScript
 from exchequer_sdk.types import UNSET
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
+
+# What the server's sessions show this CLI as (`exchequer sessions list`);
+# the SDK adds the host.
+AGENT = {"User-Agent": f"exchequer-cli/{version('exchequer-cli')}"}
+
+
+def _client(cfg: config.Config, **more: Any) -> AuthenticatedClient:
+    return AuthenticatedClient(base_url=cfg.url, token=cfg.token(), headers=AGENT, **more)
 
 
 class TerminalUi:
@@ -58,14 +67,14 @@ def main_callback() -> None:
 def login(
     name: Annotated[
         str | None,
-        typer.Option(help="What to call this CLI's token; default `cli on <host>`."),
+        typer.Option(help="What the approver sees; default `cli on <host>`."),
     ] = None,
     days: Annotated[int, typer.Option(help="How many days the token works, 1-365.")] = 90,
 ) -> None:
     """Sign in through the web app: approve a code, and the token file is written."""
     try:
         cfg = config.load()
-        with Client(base_url=cfg.url) as client:
+        with Client(base_url=cfg.url, headers=AGENT) as client:
             code = sign_in(
                 client,
                 cfg.url,
@@ -95,7 +104,7 @@ def import_(
     """Upload bank files (OFX, QFX, QBO, CSV), review them, and commit."""
     try:
         cfg = config.load()
-        client = AuthenticatedClient(base_url=cfg.url, token=cfg.token(), timeout=None)
+        client = _client(cfg, timeout=None)
         with client:
             code = Importer(client, TerminalUi(), yes=yes).run(files, account)
     except (config.ConfigError, ApiError) as e:
@@ -115,7 +124,7 @@ Note = Annotated[str | None, typer.Option("--note", "-m", help="Why, like a comm
 def _rules(run: Callable[[Rules], int]) -> None:
     try:
         cfg = config.load()
-        client = AuthenticatedClient(base_url=cfg.url, token=cfg.token(), timeout=None)
+        client = _client(cfg, timeout=None)
         with client:
             code = run(Rules(client, typer.echo))
     except (config.ConfigError, ApiError) as e:
@@ -237,7 +246,7 @@ def prices_refresh_(
     """Fetch every commodity's prices again, from the configured sources in order."""
     try:
         cfg = config.load()
-        client = AuthenticatedClient(base_url=cfg.url, token=cfg.token(), timeout=None)
+        client = _client(cfg, timeout=None)
         body = RefreshRequest(
             value_in=value_in,
             from_=datetime.date.fromisoformat(start) if start else UNSET,
@@ -257,15 +266,20 @@ def prices_refresh_(
 
 tokens_app = typer.Typer(
     no_args_is_help=True,
-    help="The server's tokens: sessions, CLIs' and scripts' (design §10).",
+    help="Scripts' tokens (design §10). Browsers and CLIs are sessions.",
 )
 app.add_typer(tokens_app, name="tokens")
+sessions_app = typer.Typer(
+    no_args_is_help=True,
+    help="Sessions: browsers, CLIs and scripts using tokens (design §10).",
+)
+app.add_typer(sessions_app, name="sessions")
 
 
 def _tokens(run: Callable[[AuthenticatedClient], int]) -> None:
     try:
         cfg = config.load()
-        with AuthenticatedClient(base_url=cfg.url, token=cfg.token()) as client:
+        with _client(cfg) as client:
             code = run(client)
     except (config.ConfigError, ApiError) as e:
         typer.echo(f"error: {e}", err=True)
@@ -279,7 +293,7 @@ def tokens_list(
         bool, typer.Option("--all", help="Revoked and expired ones too.")
     ] = False,
 ) -> None:
-    """List the tokens still working: whose, created, last used, expires."""
+    """List scripts' tokens still working: whose, created, last used, expires."""
     _tokens(lambda c: _print(tokens.table(c, everything=everything)))
 
 
@@ -303,7 +317,7 @@ def tokens_create(
 def tokens_revoke(
     token: Annotated[str, typer.Argument(help="Its name (or ID).")],
 ) -> None:
-    """Revoke a token: it stops working at once."""
+    """Revoke a script's token: it stops working at once, and its sessions end."""
 
     def run(c: AuthenticatedClient) -> int:
         typer.echo(f"Revoked {tokens.revoke(c, token).name}.")
@@ -312,14 +326,41 @@ def tokens_revoke(
     _tokens(run)
 
 
-@tokens_app.command("revoke-all")
-def tokens_revoke_all(
+@sessions_app.command("list")
+def sessions_list() -> None:
+    """List sessions: whose, signed in with what, when, and from where."""
+    _tokens(lambda c: _print(tokens.sessions(c)))
+
+
+@sessions_app.command("sign-out")
+def sessions_sign_out(
+    session: Annotated[str, typer.Argument(help="Its ID, as `sessions list` shows it.")],
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Don't ask.")] = False,
 ) -> None:
-    """The kill switch: revoke every token, everyone's, this CLI's too."""
+    """Sign a session out: its token is revoked."""
+
+    def run(c: AuthenticatedClient) -> int:
+        s = tokens.find_session(c, session)
+        others = tokens.others_on_token(c, s)
+        if others and not yes:
+            also = ", ".join(tokens.short(o) for o in others)
+            if not typer.confirm(f"Its token is shared: {also} sign out too. Go on?"):
+                return 1
+        tokens.sign_out(c, s)
+        typer.echo(f"Signed out {tokens.short(s)}.")
+        return 0
+
+    _tokens(run)
+
+
+@app.command("revoke-all")
+def revoke_all(
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Don't ask.")] = False,
+) -> None:
+    """The kill switch: sign everyone out and revoke all tokens, this CLI's too."""
     if not yes and not typer.confirm(
-        "Revoke every token? Everyone is signed out (passkeys still sign in), "
-        "and every CLI and script stops working, this one too."
+        "Sign everyone out and revoke all tokens? Every browser, CLI and script "
+        "stops working, this one too; passkeys still sign in."
     ):
         raise typer.Exit(1)
 

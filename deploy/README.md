@@ -99,8 +99,8 @@ Run these as the (non-root) user that will own the service, from a clone of this
    Everything else is done signed in, in Setup → Security: invite other people, add your
    other devices, make a script's token. The CLI signs in with `exchequer login`.
 
-   Lost every passkey? Run the same command with `--replace`: using the new link removes
-   your old passkeys and revokes your tokens (design §10).
+   Lost every passkey? Run the same command for a new one, then delete the lost one and
+   sign out its sessions in Setup → Security.
 
 The API applies schema migrations at startup. `GET /healthz` and `GET /version` need no
 token.

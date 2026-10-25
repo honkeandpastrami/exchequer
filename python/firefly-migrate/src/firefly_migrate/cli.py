@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import date
+from importlib.metadata import version
 from pathlib import Path
 
 from exchequer_sdk import AuthenticatedClient
@@ -41,7 +42,9 @@ def _reader(m: mapping.Mapping) -> FireflyReader:
 
 def _exchequer(m: mapping.Mapping) -> AuthenticatedClient:
     token = mapping.read_token(m.exchequer_token_file)
-    return AuthenticatedClient(base_url=m.exchequer_url, token=token, timeout=None)
+    # What the server's sessions show it as; the SDK adds the host.
+    agent = {"User-Agent": f"firefly-migrate/{version('firefly-migrate')}"}
+    return AuthenticatedClient(base_url=m.exchequer_url, token=token, headers=agent, timeout=None)
 
 
 def _plan(m: mapping.Mapping, ff: FireflyReader) -> tuple[transform.Plan, list[dict]]:
