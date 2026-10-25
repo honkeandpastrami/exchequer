@@ -11,8 +11,9 @@ npm run gen      # regenerate src/lib/api/schema.d.ts from ../api/openapi.json
 just web-check   # from the repo root: what CI runs
 ```
 
-Sign in by pasting an API token (`POST /api/v1/tokens`); it's kept in the browser's
-localStorage until you sign out.
+Sign in with a passkey: run the API with `EXCHEQUER_ORIGIN=http://localhost:5173`, and
+invite yourself with `cargo run -p server -- invite NAME` (design §10). Or paste a token.
+Either is kept in the browser's localStorage until you sign out.
 
 ## Layout
 

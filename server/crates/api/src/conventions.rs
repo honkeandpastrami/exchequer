@@ -124,8 +124,7 @@ pub async fn idempotency(
         .get("idempotency-key")
         .map(|v| v.to_str().map(str::to_owned));
     let principal = req.extensions().get::<Principal>().copied();
-    let (Some(key), Method::POST, Some(Principal::Token(token))) =
-        (key, req.method().clone(), principal)
+    let (Some(key), Method::POST, Some(Principal(token))) = (key, req.method().clone(), principal)
     else {
         return Ok(next.run(req).await);
     };

@@ -1,5 +1,5 @@
 //! `exchequer-server`: runs the API, prints its OpenAPI document or schema
-//! version, or checks a running server's health.
+//! version, checks a running server's health, or invites someone.
 
 use std::io::IsTerminal;
 use std::process::ExitCode;
@@ -33,6 +33,18 @@ enum Command {
     /// (up, and reaching its database); 1 otherwise. The container's health
     /// check: the image has no shell or curl.
     Healthcheck,
+    /// Invite someone: print a one-time link, good for 3 hours, that
+    /// registers a passkey. Adds the user if there's no such user. The way in
+    /// for the first user, and back in for anyone who lost their passkeys:
+    /// `podman exec exchequer-server /exchequer-server invite Alex`.
+    Invite {
+        /// Who it's for, e.g. `Alex`.
+        name: String,
+        /// For lost passkeys: using the link removes their other passkeys and
+        /// revokes their tokens.
+        #[arg(long)]
+        replace: bool,
+    },
 }
 
 #[tokio::main]
@@ -62,6 +74,13 @@ async fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Command::Invite { name, replace } => match invite(&name, replace).await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("error: {err}");
+                ExitCode::FAILURE
+            }
+        },
         Command::Serve => {
             tracing_subscriber::fmt()
                 .with_env_filter(
@@ -79,6 +98,49 @@ async fn main() -> ExitCode {
             }
         }
     }
+}
+
+async fn invite(name: &str, replace: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config::from_env()?;
+    let origin = config
+        .origin
+        .clone()
+        .ok_or("EXCHEQUER_ORIGIN isn't set: passkeys need it (design §10)")?;
+    let pool = PgPoolOptions::new()
+        .acquire_timeout(Duration::from_secs(10))
+        .connect_with(config.db.connect_options())
+        .await?;
+    let problem = |p: api::problem::Problem| p.detail.unwrap_or(p.title);
+    let mut tx = pool.begin().await?;
+    let invited = api::invite(&mut tx, None, name, replace)
+        .await
+        .map_err(problem)?;
+    tx.commit().await?;
+
+    let user = &invited.user;
+    if invited.added {
+        println!("Added {}.", user.name);
+    }
+    let (passkeys, tokens) = (user.passkeys.len(), invited.tokens);
+    if replace && (passkeys > 0 || tokens > 0) {
+        println!(
+            "Registering a passkey with this link removes {}'s {passkeys} passkeys and revokes their {tokens} tokens.",
+            user.name
+        );
+    }
+    let until = jiff::Timestamp::from_second(invited.invite.expires_at.unix_timestamp())?
+        .to_zoned(config.zone)
+        .strftime("%Y-%m-%d %H:%M %Z");
+    println!(
+        "Open this on {}'s device, before {until}, and create a passkey:",
+        user.name
+    );
+    println!(
+        "{}/#/invite/{}",
+        origin.trim_end_matches('/'),
+        invited.invite.code
+    );
+    Ok(())
 }
 
 async fn serve() -> Result<(), Box<dyn std::error::Error>> {
@@ -155,9 +217,14 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             None
         }
     };
+    if std::env::var_os("BOOTSTRAP_TOKEN_FILE").is_some() {
+        tracing::warn!(
+            "BOOTSTRAP_TOKEN_FILE is no longer used: remove it and its secret; \
+             `exchequer-server invite` makes invites"
+        );
+    }
     let state = api::AppState {
         pool,
-        bootstrap_token: config.bootstrap_token.map(|s| s.expose().into()),
         passkeys,
         zone: config.zone,
         suggestions: api::Suggestions::new(config.local_ai.as_deref().and_then(heuristics::method))

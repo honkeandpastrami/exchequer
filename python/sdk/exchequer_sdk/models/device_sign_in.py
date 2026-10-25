@@ -17,10 +17,12 @@ class DeviceSignIn:
     Attributes:
         client (str): What the CLI called itself, e.g. `cli on laptop`.
         expires_at (datetime.datetime):
+        ttl_days (int): How many days its token will work.
     """
 
     client: str
     expires_at: datetime.datetime
+    ttl_days: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -28,12 +30,15 @@ class DeviceSignIn:
 
         expires_at = self.expires_at.isoformat()
 
+        ttl_days = self.ttl_days
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "client": client,
                 "expires_at": expires_at,
+                "ttl_days": ttl_days,
             }
         )
 
@@ -46,9 +51,12 @@ class DeviceSignIn:
 
         expires_at = datetime.datetime.fromisoformat(d.pop("expires_at"))
 
+        ttl_days = d.pop("ttl_days")
+
         device_sign_in = cls(
             client=client,
             expires_at=expires_at,
+            ttl_days=ttl_days,
         )
 
         device_sign_in.additional_properties = d

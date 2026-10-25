@@ -125,6 +125,8 @@ pub struct Session {
 pub struct StartDevice {
     /// What the CLI calls itself, shown to the approver: `cli on laptop`.
     client: String,
+    /// How many days its token works, 1-365; shown to the approver.
+    ttl_days: u32,
 }
 
 /// Show `user_code` to the user; poll with `device_code` until approved.
@@ -200,7 +202,15 @@ async fn session(
 ) -> Result<Session, Problem> {
     let expires_at = OffsetDateTime::now_utc() + SESSION_LIFE;
     let name = format!("{} · web · {}", user.name, auth::hex(&auth::random::<3>()?));
-    let (_, token) = tokens::issue(tx, None, &name, Some(user.id), Some(expires_at)).await?;
+    let (_, token) = tokens::issue(
+        tx,
+        None,
+        &name,
+        store::tokens::Kind::Session,
+        user.id,
+        expires_at,
+    )
+    .await?;
     let passkeys = store::users::passkeys(&mut *tx).await?;
     Ok(Session {
         token,
@@ -328,14 +338,13 @@ async fn finish_register(
         .map_err(|_| rejected())?;
 
     let mut tx = state.pool.begin().await?;
-    let user_id = store::users::open_invite(&mut *tx, invite)
+    let open = store::users::open_invite(&mut *tx, invite)
         .await?
-        .ok_or_else(rejected)?
-        .user_id;
+        .ok_or_else(rejected)?;
     if !store::users::use_invite(&mut *tx, invite).await? {
         return Err(rejected());
     }
-    let user = store::users::find(&mut *tx, user_id)
+    let user = store::users::find(&mut *tx, open.user_id)
         .await?
         .ok_or_else(rejected)?;
     let name = match req.name.as_deref().map(str::trim) {
@@ -358,8 +367,53 @@ async fn finish_register(
             e.into()
         }
     })?;
+    // Replacing lost passkeys: the others go, and whatever was signed in
+    // with them, before this passkey's session starts.
+    let (removed, revoked) = if open.replace {
+        (
+            store::users::delete_passkeys_of(&mut *tx, user.id, Some(passkey.id)).await?,
+            store::tokens::revoke_all_of(&mut *tx, user.id).await?,
+        )
+    } else {
+        (Vec::new(), Vec::new())
+    };
     let session = session(&mut tx, user).await?;
     let token = auth::id_of(auth::Kind::Token, &session.token).map(domain::TokenId::from_uuid);
+    for p in removed {
+        audit::record(
+            &mut *tx,
+            audit::Entry {
+                actor: token,
+                action: Action::Delete,
+                entity: "passkey",
+                entity_id: *p.id.as_uuid(),
+                before: Some(serde_json::json!({
+                    "user_id": p.user_id.as_uuid(),
+                    "name": p.name,
+                })),
+                after: None,
+            },
+        )
+        .await?;
+    }
+    for after in revoked {
+        let before = store::tokens::TokenRow {
+            revoked_at: None,
+            ..after.clone()
+        };
+        audit::record(
+            &mut *tx,
+            audit::Entry {
+                actor: token,
+                action: Action::Update,
+                entity: "token",
+                entity_id: *after.id.as_uuid(),
+                before: Some(tokens::audit_json(before)?),
+                after: Some(tokens::audit_json(after)?),
+            },
+        )
+        .await?;
+    }
     audit::record(
         &mut *tx,
         audit::Entry {
@@ -491,6 +545,8 @@ async fn start_device(
     Json(req): Json<StartDevice>,
 ) -> Result<axum::Json<DeviceCode>, Problem> {
     let client = valid_name(&req.client)?;
+    tokens::ttl(req.ttl_days)?;
+    let ttl_days = i32::try_from(req.ttl_days).map_err(|_| Problem::internal())?;
     let mut tx = state.pool.begin().await?;
     store::sign_in::prune(&mut tx).await?;
     let secret = auth::generate(auth::Kind::Device)?;
@@ -502,6 +558,7 @@ async fn start_device(
         &secret.hash,
         &user_code,
         client,
+        ttl_days,
         expires_at,
     )
     .await
@@ -563,7 +620,17 @@ async fn device_token(
         device.client,
         auth::hex(&auth::random::<3>()?)
     );
-    let (_, token) = tokens::issue(&mut tx, None, &name, Some(user.id), None).await?;
+    let days = u32::try_from(device.ttl_days).map_err(|_| Problem::internal())?;
+    let expires_at = OffsetDateTime::now_utc() + tokens::ttl(days)?;
+    let (_, token) = tokens::issue(
+        &mut tx,
+        None,
+        &name,
+        store::tokens::Kind::Cli,
+        user.id,
+        expires_at,
+    )
+    .await?;
     tx.commit().await?;
     Ok(axum::Json(DeviceToken { token: Some(token) }))
 }

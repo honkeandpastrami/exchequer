@@ -12,6 +12,8 @@ pub struct UserRow {
     pub name: String,
     pub created_at: OffsetDateTime,
     pub removed_at: Option<OffsetDateTime>,
+    /// Bumped on each rename: the ETag.
+    pub version: i64,
 }
 
 struct RawUser {
@@ -19,6 +21,7 @@ struct RawUser {
     name: String,
     created_at: OffsetDateTime,
     removed_at: Option<OffsetDateTime>,
+    version: i64,
 }
 
 impl From<RawUser> for UserRow {
@@ -28,11 +31,12 @@ impl From<RawUser> for UserRow {
             name: r.name,
             created_at: r.created_at,
             removed_at: r.removed_at,
+            version: r.version,
         }
     }
 }
 
-/// Fails with a unique violation if the name is taken, by a removed user too.
+/// Fails with a unique violation if a user there is has the name.
 pub async fn insert(
     db: impl PgExecutor<'_>,
     id: UserId,
@@ -41,7 +45,7 @@ pub async fn insert(
     sqlx::query_as!(
         RawUser,
         "INSERT INTO app_user (id, name) VALUES ($1, $2)
-         RETURNING id, name, created_at, removed_at",
+         RETURNING id, name, created_at, removed_at, version",
         id.as_uuid(),
         name,
     )
@@ -54,8 +58,24 @@ pub async fn insert(
 pub async fn find(db: impl PgExecutor<'_>, id: UserId) -> Result<Option<UserRow>, sqlx::Error> {
     sqlx::query_as!(
         RawUser,
-        "SELECT id, name, created_at, removed_at FROM app_user WHERE id = $1",
+        "SELECT id, name, created_at, removed_at, version FROM app_user WHERE id = $1",
         id.as_uuid(),
+    )
+    .fetch_optional(db)
+    .await
+    .map(|r| r.map(UserRow::from))
+}
+
+/// The user there is by this name (not a removed one).
+pub async fn find_by_name(
+    db: impl PgExecutor<'_>,
+    name: &str,
+) -> Result<Option<UserRow>, sqlx::Error> {
+    sqlx::query_as!(
+        RawUser,
+        "SELECT id, name, created_at, removed_at, version FROM app_user
+         WHERE name = $1 AND removed_at IS NULL",
+        name,
     )
     .fetch_optional(db)
     .await
@@ -66,12 +86,32 @@ pub async fn find(db: impl PgExecutor<'_>, id: UserId) -> Result<Option<UserRow>
 pub async fn list(db: impl PgExecutor<'_>) -> Result<Vec<UserRow>, sqlx::Error> {
     let rows = sqlx::query_as!(
         RawUser,
-        "SELECT id, name, created_at, removed_at FROM app_user
+        "SELECT id, name, created_at, removed_at, version FROM app_user
          WHERE removed_at IS NULL ORDER BY name"
     )
     .fetch_all(db)
     .await?;
     Ok(rows.into_iter().map(UserRow::from).collect())
+}
+
+/// Renames a user who hasn't been removed; `None` if there's no such user.
+/// Fails with a unique violation if another user has the name.
+pub async fn rename(
+    db: impl PgExecutor<'_>,
+    id: UserId,
+    name: &str,
+) -> Result<Option<UserRow>, sqlx::Error> {
+    sqlx::query_as!(
+        RawUser,
+        "UPDATE app_user SET name = $2, version = version + 1
+         WHERE id = $1 AND removed_at IS NULL
+         RETURNING id, name, created_at, removed_at, version",
+        id.as_uuid(),
+        name,
+    )
+    .fetch_optional(db)
+    .await
+    .map(|r| r.map(UserRow::from))
 }
 
 /// Marks the user removed. Returns the row as it was, or `None` if there's no
@@ -81,7 +121,7 @@ pub async fn remove(db: impl PgExecutor<'_>, id: UserId) -> Result<Option<UserRo
         RawUser,
         r#"UPDATE app_user new SET removed_at = now()
            FROM app_user old WHERE new.id = old.id AND new.id = $1 AND new.removed_at IS NULL
-           RETURNING old.id, old.name, old.created_at, old.removed_at"#,
+           RETURNING old.id, old.name, old.created_at, old.removed_at, old.version"#,
         id.as_uuid(),
     )
     .fetch_optional(db)
@@ -224,11 +264,22 @@ pub async fn delete_passkey(
     .map(|r| r.map(PasskeyRow::from))
 }
 
-pub async fn delete_passkeys_of(db: impl PgExecutor<'_>, user: UserId) -> Result<(), sqlx::Error> {
-    sqlx::query!("DELETE FROM passkey WHERE user_id = $1", user.as_uuid())
-        .execute(db)
-        .await?;
-    Ok(())
+/// Deletes the user's passkeys, but `keep`; returns the deleted ones.
+pub async fn delete_passkeys_of(
+    db: impl PgExecutor<'_>,
+    user: UserId,
+    keep: Option<PasskeyId>,
+) -> Result<Vec<PasskeyRow>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        RawPasskey,
+        "DELETE FROM passkey WHERE user_id = $1 AND id IS DISTINCT FROM $2
+         RETURNING id, user_id, name, credential, created_at, last_used_at",
+        user.as_uuid(),
+        keep.map(|k| *k.as_uuid()),
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(PasskeyRow::from).collect())
 }
 
 #[derive(Debug, Clone)]
@@ -237,6 +288,8 @@ pub struct InviteRow {
     pub user_id: UserId,
     pub secret_hash: String,
     pub expires_at: OffsetDateTime,
+    /// Using it removes the user's other passkeys and revokes their tokens.
+    pub replace: bool,
 }
 
 pub async fn insert_invite(
@@ -245,13 +298,16 @@ pub async fn insert_invite(
     user: UserId,
     secret_hash: &str,
     expires_at: OffsetDateTime,
+    replace: bool,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "INSERT INTO invite (id, user_id, secret_hash, expires_at) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO invite (id, user_id, secret_hash, expires_at, replace)
+         VALUES ($1, $2, $3, $4, $5)",
         id,
         user.as_uuid(),
         secret_hash,
         expires_at,
+        replace,
     )
     .execute(db)
     .await?;
@@ -264,7 +320,7 @@ pub async fn open_invite(
     id: Uuid,
 ) -> Result<Option<InviteRow>, sqlx::Error> {
     sqlx::query!(
-        "SELECT i.id, i.user_id, i.secret_hash, i.expires_at
+        "SELECT i.id, i.user_id, i.secret_hash, i.expires_at, i.replace
          FROM invite i JOIN app_user u ON u.id = i.user_id
          WHERE i.id = $1 AND i.used_at IS NULL AND i.expires_at > now()
            AND u.removed_at IS NULL",
@@ -278,6 +334,7 @@ pub async fn open_invite(
             user_id: UserId::from_uuid(r.user_id),
             secret_hash: r.secret_hash,
             expires_at: r.expires_at,
+            replace: r.replace,
         })
     })
 }

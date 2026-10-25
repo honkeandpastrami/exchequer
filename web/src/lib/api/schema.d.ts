@@ -624,6 +624,27 @@ export interface paths {
 		patch: operations['imports_set_statement'];
 		trace?: never;
 	};
+	'/api/v1/invites': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Invite someone: a one-time link, for 3 hours, that registers a passkey.
+		 *     It adds them if there's no such user; for a user already there it adds a
+		 *     passkey on another device, or, with `replace`, replaces lost ones.
+		 */
+		post: operations['users_create_invite'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/me': {
 		parameters: {
 			query?: never;
@@ -1131,12 +1152,20 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List every token, revoked ones included. */
+		/** List every token, revoked and expired ones included. */
 		get: operations['tokens_list'];
 		put?: never;
-		/** Create a token for one client. A signed-in user's token belongs to them. */
+		/**
+		 * Make a token for a script: it belongs to the user signed in (in a browser
+		 *     or the CLI), and works for `ttl_days` unless revoked.
+		 */
 		post: operations['tokens_create'];
-		delete?: never;
+		/**
+		 * The kill switch: revoke every token, everyone's, this request's too.
+		 *     Everyone is signed out, and the CLI and scripts stop working; passkeys
+		 *     still sign in, and `exchequer login` makes the CLI a new token.
+		 */
+		delete: operations['tokens_revoke_all'];
 		options?: never;
 		head?: never;
 		patch?: never;
@@ -1226,8 +1255,7 @@ export interface paths {
 		/** The users who can sign in, with their passkeys. */
 		get: operations['users_list'];
 		put?: never;
-		/** Add a user, with an invite for their first passkey. */
-		post: operations['users_create'];
+		post?: never;
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -1241,34 +1269,16 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		get?: never;
+		/** A user, with their ETag. */
+		get: operations['users_get'];
 		put?: never;
 		post?: never;
 		/** Remove a user: their passkeys are deleted and their tokens revoked. */
 		delete: operations['users_remove'];
 		options?: never;
 		head?: never;
-		patch?: never;
-		trace?: never;
-	};
-	'/api/v1/users/{id}/invites': {
-		parameters: {
-			query?: never;
-			header?: never;
-			path?: never;
-			cookie?: never;
-		};
-		get?: never;
-		put?: never;
-		/**
-		 * A new invite for a user: to add a passkey on another device, or replace
-		 *     lost ones. It works once, for 24 hours.
-		 */
-		post: operations['users_invite'];
-		delete?: never;
-		options?: never;
-		head?: never;
-		patch?: never;
+		/** Rename a user. */
+		patch: operations['users_update'];
 		trace?: never;
 	};
 	'/healthz': {
@@ -1624,11 +1634,6 @@ export interface components {
 			/** @description The full token. Shown only in this response; store it now. */
 			token: string;
 		};
-		CreatedUser: {
-			/** @description Their first invite: opening it registers their first passkey. */
-			invite: components['schemas']['Invite'];
-			user: components['schemas']['User'];
-		};
 		/**
 		 * @description A credit card's limit: display metadata, never part of the balance. Only
 		 *     a `credit_card` account has one (422 otherwise); changing a card to
@@ -1684,6 +1689,11 @@ export interface components {
 			client: string;
 			/** Format: date-time */
 			expires_at: string;
+			/**
+			 * Format: int32
+			 * @description How many days its token will work.
+			 */
+			ttl_days: number;
 		};
 		/** @description The CLI's token once approved; none while waiting. */
 		DeviceToken: {
@@ -1967,8 +1977,23 @@ export interface components {
 			code: string;
 			/** Format: date-time */
 			expires_at: string;
+			/** @description Using it removes the user's other passkeys and revokes their tokens. */
+			replace: boolean;
 			/** Format: uuid */
 			user_id: string;
+		};
+		/** @description An invite made: send `invite.code`'s link to `user`. */
+		Invited: {
+			/** @description Whether the user was added just now. */
+			added: boolean;
+			invite: components['schemas']['Invite'];
+			/**
+			 * Format: int64
+			 * @description How many of their tokens still work: a `replace` invite revokes them
+			 *     when it's used.
+			 */
+			tokens: number;
+			user: components['schemas']['User'];
 		};
 		/**
 		 * @description Derived from who is on each side; never stored or entered.
@@ -2150,6 +2175,15 @@ export interface components {
 			/** @description 1-1000 items, each (account, fingerprint) at most once. */
 			items: components['schemas']['ImportFingerprint'][];
 		};
+		NewInvite: {
+			/** @description Who it's for, e.g. `Alex`: added if there's no such user yet. */
+			name: string;
+			/**
+			 * @description Using it removes their other passkeys and revokes their tokens: for
+			 *     a lost device.
+			 */
+			replace?: boolean;
+		};
 		NewNumber: {
 			/**
 			 * @description The full number, as a bank file shows it: letters and digits, up to
@@ -2197,8 +2231,13 @@ export interface components {
 			name: string;
 		};
 		NewToken: {
-			/** @description Which client uses the token, e.g. `alex-laptop-cli`. Unique. */
+			/** @description What uses the token, e.g. `backup script`. Unique. */
 			name: string;
+			/**
+			 * Format: int32
+			 * @description How many days it works, 1-365. It can be revoked sooner.
+			 */
+			ttl_days: number;
 		};
 		NewTransaction: {
 			/** Format: date */
@@ -2217,10 +2256,6 @@ export interface components {
 			splits: components['schemas']['NewSplit'][];
 			/** @description Tag names; unknown ones are created. */
 			tags?: string[];
-		};
-		NewUser: {
-			/** @description What they're called, e.g. `Alex`. Unique. */
-			name: string;
 		};
 		/** @description An account number, shown only by its last four characters. */
 		Number: {
@@ -2757,6 +2792,11 @@ export interface components {
 			/** @description Prices stored or replaced. */
 			stored: number;
 		};
+		/** @description What `DELETE /tokens` did. */
+		RevokedAll: {
+			/** @description How many tokens were still working. */
+			revoked: number;
+		};
 		/**
 		 * @description One row. A grouped field is present (`null` for "none", e.g. no
 		 *     category); a field not grouped by is absent.
@@ -3099,6 +3139,11 @@ export interface components {
 		StartDevice: {
 			/** @description What the CLI calls itself, shown to the approver: `cli on laptop`. */
 			client: string;
+			/**
+			 * Format: int32
+			 * @description How many days its token works, 1-365; shown to the approver.
+			 */
+			ttl_days: number;
 		};
 		StartRegistration: {
 			/** @description The invite's code. */
@@ -3172,20 +3217,31 @@ export interface components {
 			created_at: string;
 			/**
 			 * Format: date-time
-			 * @description When a session stops working; other tokens last until revoked.
+			 * @description When it stops working, unless revoked first.
 			 */
-			expires_at?: string | null;
+			expires_at: string;
 			/** Format: uuid */
 			id: string;
+			kind: components['schemas']['TokenKind'];
+			/**
+			 * Format: date-time
+			 * @description To the minute.
+			 */
+			last_used_at?: string | null;
 			name: string;
 			/** Format: date-time */
 			revoked_at?: string | null;
 			/**
 			 * Format: uuid
-			 * @description The user it belongs to; none for a script's token.
+			 * @description The user it belongs to; none only for old tokens, all revoked.
 			 */
 			user_id?: string | null;
 		};
+		/**
+		 * @description How a token came to be.
+		 * @enum {string}
+		 */
+		TokenKind: 'session' | 'cli' | 'script';
 		Transaction: {
 			/** Format: date */
 			date: string;
@@ -3234,6 +3290,10 @@ export interface components {
 			id: string;
 			name: string;
 			passkeys: components['schemas']['Passkey'][];
+		};
+		UserUpdate: {
+			/** @description Unique among the users there are. */
+			name: string;
 		};
 		/** @description What one commodity was worth in another, and which prices say so. */
 		ValuationOut: {
@@ -4690,7 +4750,7 @@ export interface operations {
 					'application/problem+json': components['schemas']['Problem'];
 				};
 			};
-			/** @description Not signed in as a user */
+			/** @description Not a session or the CLI's token */
 			403: {
 				headers: {
 					[name: string]: unknown;
@@ -5316,6 +5376,57 @@ export interface operations {
 			};
 			/** @description Precondition Failed */
 			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	users_create_invite: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['NewInvite'];
+			};
+		};
+		responses: {
+			/** @description Created */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Invited'];
+				};
+			};
+			/** @description Unauthorized */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description The name was a removed user's */
+			409: {
 				headers: {
 					[name: string]: unknown;
 				};
@@ -6881,6 +6992,15 @@ export interface operations {
 					'application/problem+json': components['schemas']['Problem'];
 				};
 			};
+			/** @description Not a session or the CLI's token */
+			403: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
 			/** @description Name already used */
 			409: {
 				headers: {
@@ -6892,6 +7012,35 @@ export interface operations {
 			};
 			/** @description Unprocessable Entity */
 			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	tokens_revoke_all: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['RevokedAll'];
+				};
+			};
+			/** @description Unauthorized */
+			401: {
 				headers: {
 					[name: string]: unknown;
 				};
@@ -7249,26 +7398,26 @@ export interface operations {
 			};
 		};
 	};
-	users_create: {
+	users_get: {
 		parameters: {
 			query?: never;
 			header?: never;
-			path?: never;
+			path: {
+				/** @description User ID */
+				id: string;
+			};
 			cookie?: never;
 		};
-		requestBody: {
-			content: {
-				'application/json': components['schemas']['NewUser'];
-			};
-		};
+		requestBody?: never;
 		responses: {
-			/** @description Created */
-			201: {
+			/** @description OK */
+			200: {
 				headers: {
+					ETag?: string;
 					[name: string]: unknown;
 				};
 				content: {
-					'application/json': components['schemas']['CreatedUser'];
+					'application/json': components['schemas']['User'];
 				};
 			};
 			/** @description Unauthorized */
@@ -7280,17 +7429,8 @@ export interface operations {
 					'application/problem+json': components['schemas']['Problem'];
 				};
 			};
-			/** @description Name already used */
-			409: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/problem+json': components['schemas']['Problem'];
-				};
-			};
-			/** @description Unprocessable Entity */
-			422: {
+			/** @description Not Found */
+			404: {
 				headers: {
 					[name: string]: unknown;
 				};
@@ -7339,25 +7479,33 @@ export interface operations {
 			};
 		};
 	};
-	users_invite: {
+	users_update: {
 		parameters: {
 			query?: never;
-			header?: never;
+			header: {
+				/** @description ETag from your last read */
+				'If-Match': string;
+			};
 			path: {
 				/** @description User ID */
 				id: string;
 			};
 			cookie?: never;
 		};
-		requestBody?: never;
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['UserUpdate'];
+			};
+		};
 		responses: {
-			/** @description Created */
-			201: {
+			/** @description OK */
+			200: {
 				headers: {
+					ETag?: string;
 					[name: string]: unknown;
 				};
 				content: {
-					'application/json': components['schemas']['Invite'];
+					'application/json': components['schemas']['User'];
 				};
 			};
 			/** @description Unauthorized */
@@ -7371,6 +7519,42 @@ export interface operations {
 			};
 			/** @description Not Found */
 			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Another user has the name */
+			409: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Precondition Failed */
+			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Precondition Required */
+			428: {
 				headers: {
 					[name: string]: unknown;
 				};

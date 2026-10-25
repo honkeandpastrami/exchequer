@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, created_at, removed_at FROM app_user WHERE id = $1",
+  "query": "UPDATE app_user new SET removed_at = now()\n           FROM app_user old WHERE new.id = old.id AND new.id = $1 AND new.removed_at IS NULL\n           RETURNING old.id, old.name, old.created_at, old.removed_at, old.version",
   "describe": {
     "columns": [
       {
@@ -46,6 +46,17 @@
             "name": "removed_at"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "app_user",
+            "name": "version"
+          }
+        }
       }
     ],
     "parameters": {
@@ -57,8 +68,9 @@
       false,
       false,
       false,
-      true
+      true,
+      false
     ]
   },
-  "hash": "4850c41cda29ffb9e7e36eb0bf4e56838f014172b0e322c8feaa95f3a6a18fd6"
+  "hash": "a4debc711d5f7d19cc518246eb9415bf324233972720b8a257fbd7c30835642e"
 }

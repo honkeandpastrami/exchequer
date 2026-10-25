@@ -15,6 +15,7 @@ use sqlx::PgPool;
 pub use suggestions::Suggestions;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
+pub use users::{Invited, invite};
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 
@@ -53,8 +54,6 @@ mod web;
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
-    /// Accepted only for managing users and tokens (design §10).
-    pub bootstrap_token: Option<Arc<str>>,
     /// Passkey sign-in, bound to the server's origin; `None`, tokens only.
     pub passkeys: Option<Arc<webauthn_rs::Webauthn>>,
     /// The server's time zone: what "today" and a bank file's dates mean.

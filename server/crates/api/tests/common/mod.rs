@@ -7,11 +7,10 @@ pub mod household;
 use axum::body::Body;
 use axum::http::{HeaderMap, Request, StatusCode, header};
 use http_body_util::BodyExt;
-use serde_json::{Value, json};
+use serde_json::Value;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
-pub const BOOTSTRAP: &str = "bootstrap-token-for-tests-0123456789abcdef";
 /// Where the web app is served, for passkeys.
 pub const ORIGIN: &str = "https://books.example.org";
 
@@ -106,7 +105,6 @@ impl Call<'_> {
     pub async fn send(self) -> Response {
         let app = api::app(api::AppState {
             pool: self.pool.clone(),
-            bootstrap_token: Some(BOOTSTRAP.into()),
             passkeys: (!self.passkeys_off).then(|| api::passkeys(ORIGIN).unwrap()),
             zone: jiff::tz::TimeZone::get("America/New_York").unwrap(),
             suggestions: self.suggestions.unwrap_or_default(),
@@ -143,13 +141,41 @@ impl Call<'_> {
     }
 }
 
-/// Creates a token with the bootstrap token; returns `(id, token)`.
+/// The user tests' tokens belong to, added on first use.
+pub const TESTER: &str = "Tester";
+
+/// A token for `TESTER`, as if they signed the CLI in; returns `(id, token)`.
 pub async fn new_token(pool: &PgPool, name: &str) -> (String, String) {
-    let r = call(pool, "POST", "/api/v1/tokens")
-        .token(BOOTSTRAP)
-        .json(json!({ "name": name }))
-        .send()
-        .await;
-    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
-    (r.id(), r.body["token"].as_str().unwrap().to_owned())
+    token_of_kind(pool, name, store::tokens::Kind::Cli).await
+}
+
+/// A script's token for `TESTER`; returns `(id, token)`.
+pub async fn script_token(pool: &PgPool, name: &str) -> (String, String) {
+    token_of_kind(pool, name, store::tokens::Kind::Script).await
+}
+
+async fn token_of_kind(pool: &PgPool, name: &str, kind: store::tokens::Kind) -> (String, String) {
+    let (user,): (uuid::Uuid,) = sqlx::query_as(
+        "INSERT INTO app_user (id, name) VALUES ($1, $2)
+         ON CONFLICT (name) WHERE removed_at IS NULL DO UPDATE SET name = excluded.name
+         RETURNING id",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(TESTER)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let secret = api::auth::generate(api::auth::Kind::Token).unwrap();
+    store::tokens::insert(
+        pool,
+        domain::TokenId::from_uuid(secret.id),
+        name,
+        kind,
+        &secret.hash,
+        domain::UserId::from_uuid(user),
+        time::OffsetDateTime::now_utc() + time::Duration::days(30),
+    )
+    .await
+    .unwrap();
+    (secret.id.to_string(), secret.text)
 }

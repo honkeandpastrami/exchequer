@@ -1,34 +1,38 @@
 from http import HTTPStatus
 from typing import Any
-from urllib.parse import quote
-from uuid import UUID
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.invite import Invite
+from ...models.invited import Invited
+from ...models.new_invite import NewInvite
 from ...models.problem import Problem
 from ...types import Response
 
 
 def _get_kwargs(
-    id: UUID,
+    *,
+    body: NewInvite,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
-        "url": "/api/v1/users/{id}/invites".format(
-            id=quote(str(id), safe=""),
-        ),
+        "url": "/api/v1/invites",
     }
 
+    _kwargs["json"] = body.to_dict()
+
+    headers["Content-Type"] = "application/json"
+
+    _kwargs["headers"] = headers
     return _kwargs
 
 
-def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Invite | Problem | None:
+def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Invited | Problem | None:
     if response.status_code == 201:
-        response_201 = Invite.from_dict(response.json())
+        response_201 = Invited.from_dict(response.json())
 
         return response_201
 
@@ -37,10 +41,15 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 
         return response_401
 
-    if response.status_code == 404:
-        response_404 = Problem.from_dict(response.json())
+    if response.status_code == 409:
+        response_409 = Problem.from_dict(response.json())
 
-        return response_404
+        return response_409
+
+    if response.status_code == 422:
+        response_422 = Problem.from_dict(response.json())
+
+        return response_422
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -48,7 +57,7 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Res
         return None
 
 
-def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Response[Invite | Problem]:
+def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Response[Invited | Problem]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -58,26 +67,27 @@ def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 
 
 def sync_detailed(
-    id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[Invite | Problem]:
-    """A new invite for a user: to add a passkey on another device, or replace
-    lost ones. It works once, for 24 hours.
+    body: NewInvite,
+) -> Response[Invited | Problem]:
+    """Invite someone: a one-time link, for 3 hours, that registers a passkey.
+    It adds them if there's no such user; for a user already there it adds a
+    passkey on another device, or, with `replace`, replaces lost ones.
 
     Args:
-        id (UUID):
+        body (NewInvite):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Invite | Problem]
+        Response[Invited | Problem]
     """
 
     kwargs = _get_kwargs(
-        id=id,
+        body=body,
     )
 
     response = client.get_httpx_client().request(
@@ -88,51 +98,53 @@ def sync_detailed(
 
 
 def sync(
-    id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Invite | Problem | None:
-    """A new invite for a user: to add a passkey on another device, or replace
-    lost ones. It works once, for 24 hours.
+    body: NewInvite,
+) -> Invited | Problem | None:
+    """Invite someone: a one-time link, for 3 hours, that registers a passkey.
+    It adds them if there's no such user; for a user already there it adds a
+    passkey on another device, or, with `replace`, replaces lost ones.
 
     Args:
-        id (UUID):
+        body (NewInvite):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Invite | Problem
+        Invited | Problem
     """
 
     return sync_detailed(
-        id=id,
         client=client,
+        body=body,
     ).parsed
 
 
 async def asyncio_detailed(
-    id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[Invite | Problem]:
-    """A new invite for a user: to add a passkey on another device, or replace
-    lost ones. It works once, for 24 hours.
+    body: NewInvite,
+) -> Response[Invited | Problem]:
+    """Invite someone: a one-time link, for 3 hours, that registers a passkey.
+    It adds them if there's no such user; for a user already there it adds a
+    passkey on another device, or, with `replace`, replaces lost ones.
 
     Args:
-        id (UUID):
+        body (NewInvite):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Invite | Problem]
+        Response[Invited | Problem]
     """
 
     kwargs = _get_kwargs(
-        id=id,
+        body=body,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -141,27 +153,28 @@ async def asyncio_detailed(
 
 
 async def asyncio(
-    id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Invite | Problem | None:
-    """A new invite for a user: to add a passkey on another device, or replace
-    lost ones. It works once, for 24 hours.
+    body: NewInvite,
+) -> Invited | Problem | None:
+    """Invite someone: a one-time link, for 3 hours, that registers a passkey.
+    It adds them if there's no such user; for a user already there it adds a
+    passkey on another device, or, with `replace`, replaces lost ones.
 
     Args:
-        id (UUID):
+        body (NewInvite):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Invite | Problem
+        Invited | Problem
     """
 
     return (
         await asyncio_detailed(
-            id=id,
             client=client,
+            body=body,
         )
     ).parsed
