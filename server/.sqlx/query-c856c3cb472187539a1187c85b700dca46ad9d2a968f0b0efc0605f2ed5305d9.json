@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, created_at, removed_at FROM app_user WHERE id = $1",
+  "query": "UPDATE app_user SET name = $2, version = version + 1\n         WHERE id = $1 AND removed_at IS NULL\n         RETURNING id, name, created_at, removed_at, version",
   "describe": {
     "columns": [
       {
@@ -46,19 +46,32 @@
             "name": "removed_at"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "app_user",
+            "name": "version"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
       false,
-      true
+      true,
+      false
     ]
   },
-  "hash": "4850c41cda29ffb9e7e36eb0bf4e56838f014172b0e322c8feaa95f3a6a18fd6"
+  "hash": "c856c3cb472187539a1187c85b700dca46ad9d2a968f0b0efc0605f2ed5305d9"
 }

@@ -15,7 +15,13 @@
 	type Token = Schemas['Token'];
 	type Invite = Schemas['Invite'];
 	/** A user's form: a new user (`id` null) or one's, with the invite just made. */
-	type UserForm = { id: string | null; name: string; replace: boolean; invite: Invite | null };
+	type UserForm = {
+		id: string | null;
+		etag: string;
+		name: string;
+		replace: boolean;
+		invite: Invite | null;
+	};
 	/** A token's form: a new token (`id` null) or one's, with its secret if just made. */
 	type TokenForm = { id: string | null; name: string; days: number; secret: string | null };
 
@@ -81,10 +87,21 @@
 		tokenForm = f;
 	}
 
-	const editUser = (u: User) =>
-		openUser(
-			userForm?.id === u.id ? null : { id: u.id, name: u.name, replace: false, invite: null }
-		);
+	/** The user as stored now, and the ETag to rename them with. */
+	async function readUser(id: string) {
+		const r = await api.GET('/api/v1/users/{id}', { params: { path: { id } } });
+		return { user: ok(r), etag: r.response.headers.get('etag') ?? '' };
+	}
+
+	async function editUser(u: User, again = false) {
+		if (!again && userForm?.id === u.id) return openUser(null);
+		try {
+			const { user, etag } = await readUser(u.id);
+			openUser({ id: u.id, etag, name: user.name, replace: false, invite: null });
+		} catch (e) {
+			failure = e;
+		}
+	}
 
 	const editToken = (t: Token) =>
 		openToken(tokenForm?.id === t.id ? null : { id: t.id, name: t.name, days: 0, secret: null });
@@ -93,17 +110,34 @@
 		return ok(await api.POST('/api/v1/invites', { body: { name, replace } }));
 	}
 
-	/** Adds the user, with their first invite; their form stays open, showing it. */
+	/** Renames the user; or adds one, and their form stays open showing their
+	 * first invite. */
 	const saveUser = () =>
 		run(async () => {
 			const f = userForm;
 			if (!f) return;
+			const name = f.name.trim();
 			if (f.id) {
+				if (name !== users?.find((u) => u.id === f.id)?.name) {
+					ok(
+						await api.PATCH('/api/v1/users/{id}', {
+							params: { path: { id: f.id }, header: { 'If-Match': f.etag } },
+							body: { name }
+						})
+					);
+				}
 				userForm = null;
 				return;
 			}
-			const made = await invite(f.name.trim(), false);
-			userForm = { id: made.user.id, name: made.user.name, replace: false, invite: made.invite };
+			const made = await invite(name, false);
+			const { etag } = await readUser(made.user.id);
+			userForm = {
+				id: made.user.id,
+				etag,
+				name: made.user.name,
+				replace: false,
+				invite: made.invite
+			};
 		});
 
 	function inviteUser(u: User, f: UserForm) {
@@ -200,13 +234,13 @@
 		{failure}
 		onsave={saveUser}
 		oncancel={() => openUser(null)}
+		onreload={u ? () => editUser(u, true) : undefined}
 	>
 		<div class="fields">
 			<label class="field grow">
 				<span>Name</span>
-				<!-- A user's name is set when they're added. -->
 				<!-- svelte-ignore a11y_autofocus -->
-				<input bind:value={f.name} maxlength="64" required disabled={!!u} autofocus={!u} />
+				<input bind:value={f.name} maxlength="64" required autofocus={!u} />
 			</label>
 			{#if u}
 				<label class="check"
@@ -216,7 +250,9 @@
 		</div>
 		{#if f.invite}
 			<p class="secret">
-				Open once on {f.name}’s device, before {new Date(f.invite.expires_at).toLocaleString()}:
+				Open once on {u?.name ?? f.name}’s device, before {new Date(
+					f.invite.expires_at
+				).toLocaleString()}:
 				<code>{link(f.invite)}</code>
 				<button type="button" class="link" onclick={() => f.invite && copy(link(f.invite))}
 					>Copy</button
@@ -330,7 +366,7 @@
 		<button
 			type="button"
 			disabled={userForm?.id === null}
-			onclick={() => openUser({ id: null, name: '', replace: false, invite: null })}
+			onclick={() => openUser({ id: null, etag: '', name: '', replace: false, invite: null })}
 			>Add user</button
 		>
 	</div>

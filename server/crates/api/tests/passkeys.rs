@@ -231,13 +231,54 @@ async fn removing_a_user_ends_their_access(pool: PgPool) {
     assert_eq!(r.body.as_array().unwrap().len(), 1);
     assert_eq!(r.body[0]["id"], sam.as_str());
 
-    // Their name stays taken: the audit log still refers to them.
+    // Their name is free again: inviting it adds someone new.
     let r = call(&pool, "POST", "/api/v1/invites")
         .token(&sams)
         .json(json!({ "name": "Alex" }))
         .send()
         .await;
-    assert_eq!(r.status, StatusCode::CONFLICT);
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    assert_eq!(r.body["added"], true);
+    assert_ne!(r.body["user"]["id"], alex.as_str());
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn a_user_is_renamed(pool: PgPool) {
+    let (alex, _) = add_user(&pool, "Alex").await;
+    add_user(&pool, "Sam").await;
+    let (_, session) = new_token(&pool, "session").await;
+    let path = format!("/api/v1/users/{alex}");
+    let r = call(&pool, "GET", &path).token(&session).send().await;
+    assert_eq!(r.status, StatusCode::OK);
+    let tag = r.etag();
+    let rename = |name: &str, tag: Option<&str>| {
+        let mut c = call(&pool, "PATCH", &path)
+            .token(&session)
+            .json(json!({ "name": name }));
+        if let Some(t) = tag {
+            c = c.header("If-Match", t);
+        }
+        c.send()
+    };
+    assert_eq!(
+        rename("Alexandra", None).await.status,
+        StatusCode::PRECONDITION_REQUIRED
+    );
+    assert_eq!(
+        rename("Sam", Some(&tag)).await.status,
+        StatusCode::CONFLICT,
+        "unique"
+    );
+    let r = rename(" Alexandra ", Some(&tag)).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(r.body["name"], "Alexandra");
+    assert_eq!(
+        rename("Al", Some(&tag)).await.status,
+        StatusCode::PRECONDITION_FAILED,
+        "stale"
+    );
+    // The old name is free.
+    assert!(invited(&pool, "Alex", false).await.added);
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
@@ -357,7 +398,7 @@ async fn one_invite_adds_or_finds_the_user(pool: PgPool) {
     assert_eq!(r.body["added"], false);
     assert_eq!(r.body["user"]["id"], sam);
 
-    // A removed user's name stays taken.
+    // A removed user's name is free again.
     let r = call(
         &pool,
         "DELETE",
@@ -367,10 +408,9 @@ async fn one_invite_adds_or_finds_the_user(pool: PgPool) {
     .send()
     .await;
     assert_eq!(r.status, StatusCode::NO_CONTENT);
-    assert_eq!(
-        post(json!({ "name": "Sam" })).await.status,
-        StatusCode::CONFLICT
-    );
+    let r = post(json!({ "name": "Sam" })).await;
+    assert_eq!(r.body["added"], true);
+    assert_ne!(r.body["user"]["id"], sam);
     assert_eq!(
         post(json!({ "name": "" })).await.status,
         StatusCode::UNPROCESSABLE_ENTITY

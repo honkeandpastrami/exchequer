@@ -157,7 +157,8 @@ pub async fn script_token(pool: &PgPool, name: &str) -> (String, String) {
 async fn token_of_kind(pool: &PgPool, name: &str, kind: store::tokens::Kind) -> (String, String) {
     let (user,): (uuid::Uuid,) = sqlx::query_as(
         "INSERT INTO app_user (id, name) VALUES ($1, $2)
-         ON CONFLICT (name) DO UPDATE SET name = excluded.name RETURNING id",
+         ON CONFLICT (name) WHERE removed_at IS NULL DO UPDATE SET name = excluded.name
+         RETURNING id",
     )
     .bind(uuid::Uuid::now_v7())
     .bind(TESTER)

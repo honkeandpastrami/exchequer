@@ -714,8 +714,9 @@ A pluggable middleware layer: every request resolves to a principal or is reject
   a passkey for them. Nobody registers without one. A user already there gets another
   passkey, on another device; an invite that **replaces** (for lost passkeys) also, when
   its link is used, removes their other passkeys and revokes their tokens. Until then
-  nothing changes. Removing a user deletes their passkeys and revokes their tokens. A
-  removed user's name stays taken: the audit log refers to them.
+  nothing changes. Removing a user deletes their passkeys and revokes their tokens.
+- **A user's name** is unique among the users there are, and can be changed; a removed
+  user's name is free again. The audit log refers to users by ID.
 - **Invites are made two ways, by the same code:** signed in, in Setup → Security
   (`POST /invites`); or on the server, `exchequer-server invite NAME [--replace]`, run
   with `podman exec`. The server command is the bootstrap: it invites the first user, and

@@ -12,6 +12,8 @@ pub struct UserRow {
     pub name: String,
     pub created_at: OffsetDateTime,
     pub removed_at: Option<OffsetDateTime>,
+    /// Bumped on each rename: the ETag.
+    pub version: i64,
 }
 
 struct RawUser {
@@ -19,6 +21,7 @@ struct RawUser {
     name: String,
     created_at: OffsetDateTime,
     removed_at: Option<OffsetDateTime>,
+    version: i64,
 }
 
 impl From<RawUser> for UserRow {
@@ -28,11 +31,12 @@ impl From<RawUser> for UserRow {
             name: r.name,
             created_at: r.created_at,
             removed_at: r.removed_at,
+            version: r.version,
         }
     }
 }
 
-/// Fails with a unique violation if the name is taken, by a removed user too.
+/// Fails with a unique violation if a user there is has the name.
 pub async fn insert(
     db: impl PgExecutor<'_>,
     id: UserId,
@@ -41,7 +45,7 @@ pub async fn insert(
     sqlx::query_as!(
         RawUser,
         "INSERT INTO app_user (id, name) VALUES ($1, $2)
-         RETURNING id, name, created_at, removed_at",
+         RETURNING id, name, created_at, removed_at, version",
         id.as_uuid(),
         name,
     )
@@ -54,7 +58,7 @@ pub async fn insert(
 pub async fn find(db: impl PgExecutor<'_>, id: UserId) -> Result<Option<UserRow>, sqlx::Error> {
     sqlx::query_as!(
         RawUser,
-        "SELECT id, name, created_at, removed_at FROM app_user WHERE id = $1",
+        "SELECT id, name, created_at, removed_at, version FROM app_user WHERE id = $1",
         id.as_uuid(),
     )
     .fetch_optional(db)
@@ -62,14 +66,15 @@ pub async fn find(db: impl PgExecutor<'_>, id: UserId) -> Result<Option<UserRow>
     .map(|r| r.map(UserRow::from))
 }
 
-/// By name, removed users included: their names stay taken.
+/// The user there is by this name (not a removed one).
 pub async fn find_by_name(
     db: impl PgExecutor<'_>,
     name: &str,
 ) -> Result<Option<UserRow>, sqlx::Error> {
     sqlx::query_as!(
         RawUser,
-        "SELECT id, name, created_at, removed_at FROM app_user WHERE name = $1",
+        "SELECT id, name, created_at, removed_at, version FROM app_user
+         WHERE name = $1 AND removed_at IS NULL",
         name,
     )
     .fetch_optional(db)
@@ -81,12 +86,32 @@ pub async fn find_by_name(
 pub async fn list(db: impl PgExecutor<'_>) -> Result<Vec<UserRow>, sqlx::Error> {
     let rows = sqlx::query_as!(
         RawUser,
-        "SELECT id, name, created_at, removed_at FROM app_user
+        "SELECT id, name, created_at, removed_at, version FROM app_user
          WHERE removed_at IS NULL ORDER BY name"
     )
     .fetch_all(db)
     .await?;
     Ok(rows.into_iter().map(UserRow::from).collect())
+}
+
+/// Renames a user who hasn't been removed; `None` if there's no such user.
+/// Fails with a unique violation if another user has the name.
+pub async fn rename(
+    db: impl PgExecutor<'_>,
+    id: UserId,
+    name: &str,
+) -> Result<Option<UserRow>, sqlx::Error> {
+    sqlx::query_as!(
+        RawUser,
+        "UPDATE app_user SET name = $2, version = version + 1
+         WHERE id = $1 AND removed_at IS NULL
+         RETURNING id, name, created_at, removed_at, version",
+        id.as_uuid(),
+        name,
+    )
+    .fetch_optional(db)
+    .await
+    .map(|r| r.map(UserRow::from))
 }
 
 /// Marks the user removed. Returns the row as it was, or `None` if there's no
@@ -96,7 +121,7 @@ pub async fn remove(db: impl PgExecutor<'_>, id: UserId) -> Result<Option<UserRo
         RawUser,
         r#"UPDATE app_user new SET removed_at = now()
            FROM app_user old WHERE new.id = old.id AND new.id = $1 AND new.removed_at IS NULL
-           RETURNING old.id, old.name, old.created_at, old.removed_at"#,
+           RETURNING old.id, old.name, old.created_at, old.removed_at, old.version"#,
         id.as_uuid(),
     )
     .fetch_optional(db)

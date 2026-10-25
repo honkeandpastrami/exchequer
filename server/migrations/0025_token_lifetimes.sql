@@ -39,3 +39,11 @@ ALTER TABLE device_sign_in
 -- An invite that replaces: using it removes its user's other passkeys and
 -- revokes their tokens (a lost device).
 ALTER TABLE invite ADD COLUMN replace boolean NOT NULL DEFAULT false;
+
+-- Users can be renamed (with an ETag, like everything editable), and a name
+-- is unique among the users there are: a removed user's is free again. The
+-- audit log refers to users by ID.
+ALTER TABLE app_user
+    ADD COLUMN version bigint NOT NULL DEFAULT 1,
+    DROP CONSTRAINT app_user_name_key;
+CREATE UNIQUE INDEX app_user_name ON app_user (name) WHERE removed_at IS NULL;

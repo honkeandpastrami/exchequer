@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO app_user (id, name) VALUES ($1, $2)\n         RETURNING id, name, created_at, removed_at",
+  "query": "SELECT id, name, created_at, removed_at, version FROM app_user\n         WHERE name = $1 AND removed_at IS NULL",
   "describe": {
     "columns": [
       {
@@ -46,11 +46,21 @@
             "name": "removed_at"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "app_user",
+            "name": "version"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
         "Text"
       ]
     },
@@ -58,8 +68,9 @@
       false,
       false,
       false,
-      true
+      true,
+      false
     ]
   },
-  "hash": "7d43c9516edecd86dc7c102e5c7cb771049527647c41941de30c93912d72ff3d"
+  "hash": "8ee0069a741b35e4589230ded1bf9a794b5e4a0263ee70f1e8ff18296641728c"
 }

@@ -6,6 +6,7 @@
 use axum::Extension;
 use axum::extract::State;
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use domain::{PasskeyId, TokenId, UserId};
 use serde::{Deserialize, Serialize};
 use store::audit::{self, Action};
@@ -18,6 +19,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth::{self, Principal};
+use crate::conventions::{IfMatch, etag};
 use crate::problem::{Json, Path, Problem, is_unique_violation};
 use crate::tokens::{Token, person_of};
 
@@ -27,7 +29,7 @@ const INVITE_LIFE: Duration = Duration::hours(3);
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(list))
-        .routes(routes!(remove))
+        .routes(routes!(get, update, remove))
         .routes(routes!(create_invite))
         .routes(routes!(remove_passkey))
         .routes(routes!(me))
@@ -44,6 +46,8 @@ pub struct User {
     #[serde(with = "time::serde::rfc3339")]
     created_at: OffsetDateTime,
     pub passkeys: Vec<Passkey>,
+    #[serde(skip)]
+    version: i64,
 }
 
 impl User {
@@ -52,6 +56,7 @@ impl User {
             id: *row.id.as_uuid(),
             name: row.name,
             created_at: row.created_at,
+            version: row.version,
             passkeys: passkeys
                 .iter()
                 .filter(|p| p.user_id == row.id)
@@ -93,6 +98,13 @@ pub struct Invite {
     pub expires_at: OffsetDateTime,
     /// Using it removes the user's other passkeys and revokes their tokens.
     replace: bool,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UserUpdate {
+    /// Unique among the users there are.
+    name: String,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -164,11 +176,6 @@ pub async fn invite(
 ) -> Result<Invited, Problem> {
     let name = valid_name(name)?;
     let (row, added) = match store::users::find_by_name(&mut *tx, name).await? {
-        Some(u) if u.removed_at.is_some() => {
-            return Err(Problem::conflict(format!(
-                "{name:?} was removed, and the name stays taken; choose another"
-            )));
-        }
         Some(u) => (u, false),
         None => {
             let row = store::users::insert(&mut *tx, UserId::new(), name)
@@ -283,6 +290,95 @@ async fn create_invite(
     let invited = invite(&mut tx, principal.actor(), &req.name, req.replace).await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, axum::Json(invited)))
+}
+
+/// A user, with their ETag.
+#[utoipa::path(
+    get,
+    path = "/users/{id}",
+    tag = "users",
+    security(("bearer" = [])),
+    params(("id" = Uuid, Path, description = "User ID")),
+    responses(
+        (status = OK, body = User, headers(("ETag" = String))),
+        (status = UNAUTHORIZED, body = Problem, content_type = "application/problem+json"),
+        (status = NOT_FOUND, body = Problem, content_type = "application/problem+json"),
+    ),
+)]
+async fn get(State(state): State<AppState>, Path(id): Path<Uuid>) -> Result<Response, Problem> {
+    let row = store::users::find(&state.pool, UserId::from_uuid(id))
+        .await?
+        .filter(|u| u.removed_at.is_none())
+        .ok_or_else(Problem::not_found)?;
+    let passkeys = store::users::passkeys(&state.pool).await?;
+    let user = User::new(row, &passkeys);
+    Ok((etag(user.version), axum::Json(user)).into_response())
+}
+
+/// Rename a user.
+#[utoipa::path(
+    patch,
+    path = "/users/{id}",
+    tag = "users",
+    security(("bearer" = [])),
+    params(
+        ("id" = Uuid, Path, description = "User ID"),
+        ("If-Match" = String, Header, description = "ETag from your last read"),
+    ),
+    request_body = UserUpdate,
+    responses(
+        (status = OK, body = User, headers(("ETag" = String))),
+        (status = UNAUTHORIZED, body = Problem, content_type = "application/problem+json"),
+        (status = NOT_FOUND, body = Problem, content_type = "application/problem+json"),
+        (status = CONFLICT, description = "Another user has the name", body = Problem, content_type = "application/problem+json"),
+        (status = PRECONDITION_FAILED, body = Problem, content_type = "application/problem+json"),
+        (status = PRECONDITION_REQUIRED, body = Problem, content_type = "application/problem+json"),
+        (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json"),
+    ),
+)]
+async fn update(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    IfMatch(version): IfMatch,
+    Json(req): Json<UserUpdate>,
+) -> Result<Response, Problem> {
+    let id = UserId::from_uuid(id);
+    let name = valid_name(&req.name)?;
+    let mut tx = state.pool.begin().await?;
+    let passkeys = store::users::passkeys(&mut *tx).await?;
+    let before = store::users::find(&mut *tx, id)
+        .await?
+        .filter(|u| u.removed_at.is_none())
+        .ok_or_else(Problem::not_found)?;
+    if before.version != version {
+        return Err(Problem::stale());
+    }
+    let row = store::users::rename(&mut *tx, id, name)
+        .await
+        .map_err(|e| {
+            if is_unique_violation(&e) {
+                Problem::conflict(format!("another user is called {name:?}"))
+            } else {
+                e.into()
+            }
+        })?
+        .ok_or_else(Problem::not_found)?;
+    let (before, after) = (User::new(before, &passkeys), User::new(row, &passkeys));
+    audit::record(
+        &mut *tx,
+        audit::Entry {
+            actor: principal.actor(),
+            action: Action::Update,
+            entity: "user",
+            entity_id: after.id,
+            before: Some(json(&before)?),
+            after: Some(json(&after)?),
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    Ok((etag(after.version), axum::Json(after)).into_response())
 }
 
 /// Remove a user: their passkeys are deleted and their tokens revoked.
