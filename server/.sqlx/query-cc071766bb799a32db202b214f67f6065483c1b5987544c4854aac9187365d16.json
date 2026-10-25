@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, secret_hash, user_code, client, ttl_days, expires_at, approved_by\n         FROM device_sign_in\n         WHERE user_code = $1 AND expires_at > now() AND approved_by IS NULL",
+  "query": "SELECT id, secret_hash, user_code, client, ttl_days, expires_at, approved_by,\n                passkey_id\n         FROM device_sign_in\n         WHERE user_code = $1 AND expires_at > now() AND approved_by IS NULL",
   "describe": {
     "columns": [
       {
@@ -79,6 +79,17 @@
             "name": "approved_by"
           }
         }
+      },
+      {
+        "ordinal": 7,
+        "name": "passkey_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "device_sign_in",
+            "name": "passkey_id"
+          }
+        }
       }
     ],
     "parameters": {
@@ -93,8 +104,9 @@
       false,
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "e738ad998a3a5dc1314aa4a473a16056bc7195c41d7db50196886038f46e42d6"
+  "hash": "cc071766bb799a32db202b214f67f6065483c1b5987544c4854aac9187365d16"
 }

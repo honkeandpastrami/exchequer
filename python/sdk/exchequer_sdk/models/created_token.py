@@ -8,7 +8,6 @@ from uuid import UUID
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..models.token_kind import TokenKind
 from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="CreatedToken")
@@ -21,7 +20,6 @@ class CreatedToken:
         created_at (datetime.datetime):
         expires_at (datetime.datetime): When it stops working, unless revoked first.
         id (UUID):
-        kind (TokenKind): How a token came to be.
         name (str):
         token (str): The full token. Shown only in this response; store it now.
         last_used_at (datetime.datetime | None | Unset): To the minute.
@@ -32,7 +30,6 @@ class CreatedToken:
     created_at: datetime.datetime
     expires_at: datetime.datetime
     id: UUID
-    kind: TokenKind
     name: str
     token: str
     last_used_at: datetime.datetime | None | Unset = UNSET
@@ -46,8 +43,6 @@ class CreatedToken:
         expires_at = self.expires_at.isoformat()
 
         id = str(self.id)
-
-        kind = self.kind.value
 
         name = self.name
 
@@ -84,7 +79,6 @@ class CreatedToken:
                 "created_at": created_at,
                 "expires_at": expires_at,
                 "id": id,
-                "kind": kind,
                 "name": name,
                 "token": token,
             }
@@ -106,8 +100,6 @@ class CreatedToken:
         expires_at = datetime.datetime.fromisoformat(d.pop("expires_at"))
 
         id = UUID(d.pop("id"))
-
-        kind = TokenKind(d.pop("kind"))
 
         name = d.pop("name")
 
@@ -168,7 +160,6 @@ class CreatedToken:
             created_at=created_at,
             expires_at=expires_at,
             id=id,
-            kind=kind,
             name=name,
             token=token,
             last_used_at=last_used_at,

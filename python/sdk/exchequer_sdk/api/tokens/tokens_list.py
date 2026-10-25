@@ -57,7 +57,8 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Problem | list[Token]]:
-    """List every token, revoked and expired ones included.
+    """Every script's token, revoked and expired ones included. (Browsers and
+    the CLI are signed in with tokens too: see `/sessions`.)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -80,7 +81,8 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Problem | list[Token] | None:
-    """List every token, revoked and expired ones included.
+    """Every script's token, revoked and expired ones included. (Browsers and
+    the CLI are signed in with tokens too: see `/sessions`.)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -99,7 +101,8 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Problem | list[Token]]:
-    """List every token, revoked and expired ones included.
+    """Every script's token, revoked and expired ones included. (Browsers and
+    the CLI are signed in with tokens too: see `/sessions`.)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -120,7 +123,8 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Problem | list[Token] | None:
-    """List every token, revoked and expired ones included.
+    """Every script's token, revoked and expired ones included. (Browsers and
+    the CLI are signed in with tokens too: see `/sessions`.)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

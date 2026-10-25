@@ -1,0 +1,138 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.id, s.token_id, t.kind, t.user_id,\n                  CASE WHEN t.kind = 'script' THEN t.name ELSE p.name END AS signed_in_with,\n                  CASE WHEN t.kind = 'script' THEN s.started_at ELSE t.created_at END\n                      AS \"started_at!\",\n                  s.last_used_at, t.expires_at, s.agent, s.host, s.ip\n           FROM token_session s\n           JOIN api_token t ON t.id = s.token_id\n           LEFT JOIN passkey p ON p.id = t.passkey_id\n           WHERE s.id = $1 AND t.revoked_at IS NULL AND t.expires_at > now()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "token_session",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "token_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "token_session",
+            "name": "token_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "signed_in_with",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "started_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_used_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "token_session",
+            "name": "last_used_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "expires_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "agent",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "token_session",
+            "name": "agent"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "host",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "token_session",
+            "name": "host"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "ip",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "token_session",
+            "name": "ip"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      null,
+      null,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "65b468acc271f253bf2ba695b8050bcd688716f25c55db68cdfa66811d21720b"
+}

@@ -710,7 +710,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Session"
+                  "$ref": "#/components/schemas/SignedIn"
                 }
               }
             }
@@ -814,7 +814,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Session"
+                  "$ref": "#/components/schemas/SignedIn"
                 }
               }
             }
@@ -3210,7 +3210,7 @@
         "tags": [
           "users"
         ],
-        "summary": "Invite someone: a one-time link, for 3 hours, that registers a passkey.\nIt adds them if there's no such user; for a user already there it adds a\npasskey on another device, or, with `replace`, replaces lost ones.",
+        "summary": "Invite someone: a one-time link, for 3 hours, that registers a passkey.\nIt adds them if there's no such user; for a user already there it adds a\npasskey, on another device or in place of a lost one.",
         "operationId": "users_create_invite",
         "requestBody": {
           "content": {
@@ -3276,7 +3276,7 @@
         "tags": [
           "users"
         ],
-        "summary": "The signed-in user and their token.",
+        "summary": "The signed-in user and this request's session.",
         "operationId": "users_me",
         "responses": {
           "200": {
@@ -3312,7 +3312,7 @@
         "tags": [
           "users"
         ],
-        "summary": "Sign out: revokes the request's token if it's a session. Other tokens are\nleft alone (revoke those through `/tokens`).",
+        "summary": "Sign out: revokes the request's token if it's a browser's. Other\nsessions are left alone (sign those out through `/sessions`).",
         "operationId": "users_sign_out",
         "responses": {
           "204": {
@@ -4456,6 +4456,42 @@
         ]
       }
     },
+    "/api/v1/revoke-all": {
+      "post": {
+        "tags": [
+          "tokens"
+        ],
+        "summary": "The kill switch: sign everyone out and revoke every token, this\nrequest's too. Browsers, the CLI and scripts all stop working; passkeys\nstill sign in, and `exchequer login` signs the CLI in again.",
+        "operationId": "tokens_revoke_all",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokedAll"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/rules": {
       "get": {
         "tags": [
@@ -4708,6 +4744,96 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/sessions": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "The sessions whose tokens still work, last used first.",
+        "operationId": "sessions_list",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Session"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/sessions/{id}": {
+      "delete": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Sign a session out: its token is revoked, so every session using that\ntoken ends (only a script's token has more than one).",
+        "operationId": "sessions_sign_out",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Session ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such session, or it ended",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -5573,7 +5699,7 @@
         "tags": [
           "tokens"
         ],
-        "summary": "List every token, revoked and expired ones included.",
+        "summary": "Every script's token, revoked and expired ones included. (Browsers and\nthe CLI are signed in with tokens too: see `/sessions`.)",
         "operationId": "tokens_list",
         "responses": {
           "200": {
@@ -5644,7 +5770,7 @@
             }
           },
           "403": {
-            "description": "Not a session or the CLI's token",
+            "description": "Not a browser's or the CLI's token",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -5679,40 +5805,6 @@
             "bearer": []
           }
         ]
-      },
-      "delete": {
-        "tags": [
-          "tokens"
-        ],
-        "summary": "The kill switch: revoke every token, everyone's, this request's too.\nEveryone is signed out, and the CLI and scripts stop working; passkeys\nstill sign in, and `exchequer login` makes the CLI a new token.",
-        "operationId": "tokens_revoke_all",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RevokedAll"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
       }
     },
     "/api/v1/tokens/{id}": {
@@ -5720,8 +5812,8 @@
         "tags": [
           "tokens"
         ],
-        "summary": "Revoke a token. It stops working immediately; revoking twice is harmless.",
-        "operationId": "tokens_revoke",
+        "summary": "Revoke a script's token. It stops working immediately, and its sessions\nend; revoking twice is harmless.",
+        "operationId": "tokens_remove",
         "parameters": [
           {
             "name": "id",
@@ -6366,7 +6458,7 @@
         "tags": [
           "users"
         ],
-        "summary": "Remove a user: their passkeys are deleted and their tokens revoked.",
+        "summary": "Remove a user: their passkeys are deleted and their tokens revoked, so\ntheir sessions end.",
         "operationId": "users_remove",
         "parameters": [
           {
@@ -8110,8 +8202,7 @@
         "required": [
           "user_id",
           "code",
-          "expires_at",
-          "replace"
+          "expires_at"
         ],
         "properties": {
           "code": {
@@ -8121,10 +8212,6 @@
           "expires_at": {
             "type": "string",
             "format": "date-time"
-          },
-          "replace": {
-            "type": "boolean",
-            "description": "Using it removes the user's other passkeys and revokes their tokens."
           },
           "user_id": {
             "type": "string",
@@ -8138,8 +8225,7 @@
         "required": [
           "user",
           "invite",
-          "added",
-          "tokens"
+          "added"
         ],
         "properties": {
           "added": {
@@ -8148,11 +8234,6 @@
           },
           "invite": {
             "$ref": "#/components/schemas/Invite"
-          },
-          "tokens": {
-            "type": "integer",
-            "format": "int64",
-            "description": "How many of their tokens still work: a `replace` invite revokes them\nwhen it's used."
           },
           "user": {
             "$ref": "#/components/schemas/User"
@@ -8355,12 +8436,12 @@
       },
       "Me": {
         "type": "object",
-        "description": "Who the request's token belongs to.",
+        "description": "Who is signed in, and the session making the request.",
         "properties": {
-          "token": {
+          "session": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Token"
+                "$ref": "#/components/schemas/Session"
               },
               {
                 "type": "null"
@@ -8627,10 +8708,6 @@
           "name": {
             "type": "string",
             "description": "Who it's for, e.g. `Alex`: added if there's no such user yet."
-          },
-          "replace": {
-            "type": "boolean",
-            "description": "Using it removes their other passkeys and revokes their tokens: for\na lost device."
           }
         },
         "additionalProperties": false
@@ -10282,7 +10359,7 @@
       },
       "RevokedAll": {
         "type": "object",
-        "description": "What `DELETE /tokens` did.",
+        "description": "What `POST /revoke-all` did.",
         "required": [
           "revoked"
         ],
@@ -10558,7 +10635,7 @@
               "string",
               "null"
             ],
-            "description": "The name of the token that uploaded it."
+            "description": "Who uploaded it: the name of the user whose token did."
           },
           "created_at": {
             "type": [
@@ -10700,25 +10777,87 @@
       },
       "Session": {
         "type": "object",
-        "description": "A browser signed in: send `token` as the bearer token until it expires.",
+        "description": "A client using a token that still works.",
         "required": [
-          "token",
-          "expires_at",
-          "user"
+          "id",
+          "token_id",
+          "kind",
+          "started_at",
+          "last_used_at",
+          "expires_at"
         ],
         "properties": {
+          "client": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What it last used: `Safari on iPhone`, `exchequer-cli 1.4.0`. As the\nclient reports it (`User-Agent`)."
+          },
           "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When its token stops working, unless revoked first."
+          },
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The host it last used it from, as the client reports it\n(`Exchequer-Host`)."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ip": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The address its last request came from, as the reverse proxy reports\nit (`X-Forwarded-For`)."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SessionKind"
+          },
+          "last_used_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "To the minute."
+          },
+          "signed_in_with": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The passkey's name, or the script's token's; none if the passkey was\ndeleted, or for a session older than this record."
+          },
+          "started_at": {
             "type": "string",
             "format": "date-time"
           },
-          "token": {
+          "token_id": {
             "type": "string",
-            "description": "Shown only in this response."
+            "format": "uuid",
+            "description": "The token it uses: signing out revokes it, ending every session\nusing it."
           },
-          "user": {
-            "$ref": "#/components/schemas/User"
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         }
+      },
+      "SessionKind": {
+        "type": "string",
+        "description": "What signed a session in.",
+        "enum": [
+          "browser",
+          "cli",
+          "script"
+        ]
       },
       "Settlement": {
         "type": "object",
@@ -10783,6 +10922,28 @@
           }
         },
         "additionalProperties": false
+      },
+      "SignedIn": {
+        "type": "object",
+        "description": "A browser signed in: send `token` as the bearer token until it expires.",
+        "required": [
+          "token",
+          "expires_at",
+          "user"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "token": {
+            "type": "string",
+            "description": "Shown only in this response."
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        }
       },
       "SkippedLine": {
         "type": "object",
@@ -11307,11 +11468,10 @@
       },
       "Token": {
         "type": "object",
-        "description": "A token, without its secret.",
+        "description": "A script's token, without its secret.",
         "required": [
           "id",
           "name",
-          "kind",
           "created_at",
           "expires_at"
         ],
@@ -11328,9 +11488,6 @@
           "id": {
             "type": "string",
             "format": "uuid"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/TokenKind"
           },
           "last_used_at": {
             "type": [
@@ -11359,15 +11516,6 @@
             "description": "The user it belongs to; none only for old tokens, all revoked."
           }
         }
-      },
-      "TokenKind": {
-        "type": "string",
-        "description": "How a token came to be.",
-        "enum": [
-          "session",
-          "cli",
-          "script"
-        ]
       },
       "Transaction": {
         "type": "object",

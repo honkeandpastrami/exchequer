@@ -10,7 +10,7 @@ use sqlx::PgPool;
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn crud_with_etags(pool: PgPool) {
-    let (_, t) = new_token(&pool, "cli").await;
+    let (_, t) = new_token(&pool).await;
 
     let r = call(&pool, "POST", "/api/v1/parties")
         .token(&t)
@@ -84,7 +84,7 @@ async fn crud_with_etags(pool: PgPool) {
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn validation(pool: PgPool) {
-    let (_, t) = new_token(&pool, "cli").await;
+    let (_, t) = new_token(&pool).await;
     let post = |body| call(&pool, "POST", "/api/v1/parties").token(&t).json(body);
 
     assert_eq!(
@@ -119,7 +119,7 @@ async fn validation(pool: PgPool) {
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn pagination(pool: PgPool) {
-    let (_, t) = new_token(&pool, "cli").await;
+    let (_, t) = new_token(&pool).await;
     for i in 0..5 {
         call(&pool, "POST", "/api/v1/parties")
             .token(&t)
@@ -158,8 +158,8 @@ async fn pagination(pool: PgPool) {
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn idempotency_keys(pool: PgPool) {
-    let (_, t) = new_token(&pool, "cli").await;
-    let (_, other) = new_token(&pool, "web").await;
+    let (_, t) = new_token(&pool).await;
+    let (_, other) = new_token(&pool).await;
     let post = |token: &str, body| {
         call(&pool, "POST", "/api/v1/parties")
             .token(token)

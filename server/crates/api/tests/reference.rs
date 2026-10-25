@@ -14,7 +14,7 @@ async fn post(pool: &PgPool, t: &str, path: &str, body: Value) -> Response {
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn commodities(pool: PgPool) {
-    let (_, t) = new_token(&pool, "cli").await;
+    let (_, t) = new_token(&pool).await;
     let r = post(
         &pool,
         &t,
@@ -67,7 +67,7 @@ async fn commodities(pool: PgPool) {
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn accounts(pool: PgPool) {
-    let (_, t) = new_token(&pool, "cli").await;
+    let (_, t) = new_token(&pool).await;
     let alex = post(
         &pool,
         &t,
@@ -249,7 +249,7 @@ async fn accounts(pool: PgPool) {
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn counterparties(pool: PgPool) {
-    let (_, t) = new_token(&pool, "cli").await;
+    let (_, t) = new_token(&pool).await;
     let r = call(&pool, "GET", "/api/v1/counterparties")
         .token(&t)
         .send()
@@ -304,7 +304,7 @@ async fn counterparties(pool: PgPool) {
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn categories_and_tags(pool: PgPool) {
-    let (_, t) = new_token(&pool, "cli").await;
+    let (_, t) = new_token(&pool).await;
     for resource in ["categories", "tags"] {
         let list = format!("/api/v1/{resource}");
         let r = post(&pool, &t, &list, json!({ "name": "Groceries" })).await;

@@ -2,6 +2,8 @@
 //! sign in (design §10). Everyone signed in manages everyone, like the rest
 //! of the ledger. An invite is the one way in: it adds the user if need be,
 //! and registers a passkey; `exchequer-server invite` makes one on the server.
+//! It does nothing else: a user who lost a passkey signs in with the new one
+//! and deletes the old one, and signs out what it signed in.
 
 use axum::Extension;
 use axum::extract::State;
@@ -21,7 +23,8 @@ use crate::AppState;
 use crate::auth::{self, Principal};
 use crate::conventions::{IfMatch, etag};
 use crate::problem::{Json, Path, Problem, is_unique_violation};
-use crate::tokens::{Token, person_of};
+use crate::sessions::{self, Session};
+use crate::tokens::person_of;
 
 /// How long an invite link works.
 const INVITE_LIFE: Duration = Duration::hours(3);
@@ -96,8 +99,6 @@ pub struct Invite {
     pub code: String,
     #[serde(with = "time::serde::rfc3339")]
     pub expires_at: OffsetDateTime,
-    /// Using it removes the user's other passkeys and revokes their tokens.
-    replace: bool,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -112,10 +113,6 @@ pub struct UserUpdate {
 pub struct NewInvite {
     /// Who it's for, e.g. `Alex`: added if there's no such user yet.
     name: String,
-    /// Using it removes their other passkeys and revokes their tokens: for
-    /// a lost device.
-    #[serde(default)]
-    replace: bool,
 }
 
 /// An invite made: send `invite.code`'s link to `user`.
@@ -125,16 +122,13 @@ pub struct Invited {
     pub invite: Invite,
     /// Whether the user was added just now.
     pub added: bool,
-    /// How many of their tokens still work: a `replace` invite revokes them
-    /// when it's used.
-    pub tokens: i64,
 }
 
-/// Who the request's token belongs to.
+/// Who is signed in, and the session making the request.
 #[derive(Serialize, ToSchema)]
 pub struct Me {
     user: Option<User>,
-    token: Option<Token>,
+    session: Option<Session>,
 }
 
 /// The CLI waiting to sign in, as the approver sees it.
@@ -172,7 +166,6 @@ pub async fn invite(
     tx: &mut sqlx::PgConnection,
     actor: Option<TokenId>,
     name: &str,
-    replace: bool,
 ) -> Result<Invited, Problem> {
     let name = valid_name(name)?;
     let (row, added) = match store::users::find_by_name(&mut *tx, name).await? {
@@ -204,20 +197,11 @@ pub async fn invite(
     };
     let secret = auth::generate(auth::Kind::Invite)?;
     let expires_at = OffsetDateTime::now_utc() + INVITE_LIFE;
-    store::users::insert_invite(
-        &mut *tx,
-        secret.id,
-        row.id,
-        &secret.hash,
-        expires_at,
-        replace,
-    )
-    .await?;
+    store::users::insert_invite(&mut *tx, secret.id, row.id, &secret.hash, expires_at).await?;
     let invite = Invite {
         user_id: *row.id.as_uuid(),
         code: secret.text,
         expires_at,
-        replace,
     };
     audit::record(
         &mut *tx,
@@ -231,18 +215,15 @@ pub async fn invite(
             after: Some(serde_json::json!({
                 "user_id": invite.user_id,
                 "expires_at": json(&Expiry(expires_at))?,
-                "replace": replace,
             })),
         },
     )
     .await?;
     let passkeys = store::users::passkeys(&mut *tx).await?;
-    let tokens = store::tokens::working_of(&mut *tx, row.id).await?;
     Ok(Invited {
         user: User::new(row, &passkeys),
         invite,
         added,
-        tokens,
     })
 }
 
@@ -267,7 +248,7 @@ async fn list(State(state): State<AppState>) -> Result<axum::Json<Vec<User>>, Pr
 
 /// Invite someone: a one-time link, for 3 hours, that registers a passkey.
 /// It adds them if there's no such user; for a user already there it adds a
-/// passkey on another device, or, with `replace`, replaces lost ones.
+/// passkey, on another device or in place of a lost one.
 #[utoipa::path(
     post,
     path = "/invites",
@@ -287,7 +268,7 @@ async fn create_invite(
     Json(req): Json<NewInvite>,
 ) -> Result<(StatusCode, axum::Json<Invited>), Problem> {
     let mut tx = state.pool.begin().await?;
-    let invited = invite(&mut tx, principal.actor(), &req.name, req.replace).await?;
+    let invited = invite(&mut tx, principal.actor(), &req.name).await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, axum::Json(invited)))
 }
@@ -381,7 +362,8 @@ async fn update(
     Ok((etag(after.version), axum::Json(after)).into_response())
 }
 
-/// Remove a user: their passkeys are deleted and their tokens revoked.
+/// Remove a user: their passkeys are deleted and their tokens revoked, so
+/// their sessions end.
 #[utoipa::path(
     delete,
     path = "/users/{id}",
@@ -405,7 +387,7 @@ async fn remove(
     let before = store::users::remove(&mut *tx, id)
         .await?
         .ok_or_else(Problem::not_found)?;
-    store::users::delete_passkeys_of(&mut *tx, id, None).await?;
+    store::users::delete_passkeys_of(&mut *tx, id).await?;
     store::tokens::revoke_all_of(&mut *tx, id).await?;
     audit::record(
         &mut *tx,
@@ -464,7 +446,7 @@ async fn remove_passkey(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// The signed-in user and their token.
+/// The signed-in user and this request's session.
 #[utoipa::path(
     get,
     path = "/me",
@@ -479,11 +461,8 @@ async fn me(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
 ) -> Result<axum::Json<Me>, Problem> {
-    let token = match principal.actor() {
-        Some(id) => store::tokens::find(&state.pool, id).await?,
-        None => None,
-    };
-    let user = match token.as_ref().and_then(|t| t.user_id) {
+    let token = store::tokens::find(&state.pool, principal.token).await?;
+    let user = match token.and_then(|t| t.user_id) {
         Some(id) => {
             let passkeys = store::users::passkeys(&state.pool).await?;
             store::users::find(&state.pool, id)
@@ -494,12 +473,12 @@ async fn me(
     };
     Ok(axum::Json(Me {
         user,
-        token: token.map(Token::from),
+        session: sessions::current(&state.pool, principal).await?,
     }))
 }
 
-/// Sign out: revokes the request's token if it's a session. Other tokens are
-/// left alone (revoke those through `/tokens`).
+/// Sign out: revokes the request's token if it's a browser's. Other
+/// sessions are left alone (sign those out through `/sessions`).
 #[utoipa::path(
     delete,
     path = "/me/session",
@@ -514,30 +493,11 @@ async fn sign_out(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
 ) -> Result<StatusCode, Problem> {
-    let Some(id) = principal.actor() else {
-        return Ok(StatusCode::NO_CONTENT);
-    };
     let mut tx = state.pool.begin().await?;
-    if let Some(before) = store::tokens::find(&mut *tx, id).await?
-        && before.kind == store::tokens::Kind::Session
-        && before.revoked_at.is_none()
+    if let Some(token) = store::tokens::find(&mut *tx, principal.token).await?
+        && token.kind == store::tokens::Kind::Browser
     {
-        store::tokens::revoke(&mut *tx, id).await?;
-        let after = store::tokens::find(&mut *tx, id)
-            .await?
-            .ok_or_else(Problem::internal)?;
-        audit::record(
-            &mut *tx,
-            audit::Entry {
-                actor: Some(id),
-                action: Action::Update,
-                entity: "token",
-                entity_id: *id.as_uuid(),
-                before: Some(json(&Token::from(before))?),
-                after: Some(json(&Token::from(after))?),
-            },
-        )
-        .await?;
+        crate::tokens::revoke(&mut tx, principal, token.id).await?;
     }
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
@@ -591,8 +551,8 @@ async fn approve_device(
     Path(code): Path<String>,
 ) -> Result<StatusCode, Problem> {
     let code = crate::sign_in::user_code(&code).ok_or_else(Problem::not_found)?;
-    let user = person_of(&state.pool, principal).await?;
-    if !store::sign_in::approve_device(&state.pool, &code, user).await? {
+    let (user, passkey) = person_of(&state.pool, principal).await?;
+    if !store::sign_in::approve_device(&state.pool, &code, user, passkey).await? {
         return Err(Problem::not_found());
     }
     Ok(StatusCode::NO_CONTENT)

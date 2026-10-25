@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM passkey WHERE user_id = $1 AND id IS DISTINCT FROM $2\n         RETURNING id, user_id, name, credential, created_at, last_used_at",
+  "query": "DELETE FROM passkey WHERE user_id = $1\n         RETURNING id, user_id, name, credential, created_at, last_used_at",
   "describe": {
     "columns": [
       {
@@ -72,7 +72,6 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
         "Uuid"
       ]
     },
@@ -85,5 +84,5 @@
       true
     ]
   },
-  "hash": "4426594752c7c52d20ae105651fe4262dca7695cca194337f65aeaa1d05d8df7"
+  "hash": "48461795a6de551fc1bba0b417d33f586158b101f785560bf7da516049d6a07d"
 }

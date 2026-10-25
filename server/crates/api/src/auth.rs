@@ -15,7 +15,9 @@
 //! Every token comes from a signed-in user; the first user signs in with an
 //! invite made on the server (`exchequer-server invite`).
 
-use axum::extract::{Request, State};
+use std::net::SocketAddr;
+
+use axum::extract::{ConnectInfo, Request, State};
 use axum::http::header;
 use axum::middleware::Next;
 use axum::response::Response;
@@ -28,16 +30,19 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::problem::Problem;
 
-/// Who is making the request: their token. Available to handlers as an
-/// extension.
+/// Who is making the request: their token, and the session using it.
+/// Available to handlers as an extension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Principal(pub TokenId);
+pub struct Principal {
+    pub token: TokenId,
+    pub session: Uuid,
+}
 
 impl Principal {
     /// The token recorded in the audit log.
     #[must_use]
     pub const fn actor(self) -> Option<TokenId> {
-        Some(self.0)
+        Some(self.token)
     }
 }
 
@@ -147,7 +152,16 @@ pub async fn require(
         return Err(Problem::unauthorized());
     }
     store::tokens::used(&state.pool, row.id).await?;
-    let principal = Principal(row.id);
+    let peer = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|c| c.0);
+    let client = crate::sessions::client(req.headers(), peer);
+    let session = store::tokens::session_used(&state.pool, row.id, row.kind, &client).await?;
+    let principal = Principal {
+        token: row.id,
+        session,
+    };
 
     req.extensions_mut().insert(principal);
     Ok(next.run(req).await)

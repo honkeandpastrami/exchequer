@@ -10,7 +10,7 @@ pub struct RuleScriptRow {
     pub source: String,
     pub note: Option<String>,
     pub token_id: Option<Uuid>,
-    /// The token's name.
+    /// The name of the user whose token uploaded it.
     pub author: Option<String>,
     pub created_at: OffsetDateTime,
 }
@@ -19,8 +19,9 @@ pub struct RuleScriptRow {
 pub async fn active(db: impl PgExecutor<'_>) -> Result<Option<RuleScriptRow>, sqlx::Error> {
     sqlx::query_as!(
         RuleScriptRow,
-        r#"SELECT r.version, r.source, r.note, r.token_id, t.name AS "author?", r.created_at
+        r#"SELECT r.version, r.source, r.note, r.token_id, u.name AS "author?", r.created_at
            FROM rule_script r LEFT JOIN api_token t ON t.id = r.token_id
+           LEFT JOIN app_user u ON u.id = t.user_id
            ORDER BY r.version DESC LIMIT 1"#
     )
     .fetch_optional(db)
@@ -33,8 +34,9 @@ pub async fn get(
 ) -> Result<Option<RuleScriptRow>, sqlx::Error> {
     sqlx::query_as!(
         RuleScriptRow,
-        r#"SELECT r.version, r.source, r.note, r.token_id, t.name AS "author?", r.created_at
+        r#"SELECT r.version, r.source, r.note, r.token_id, u.name AS "author?", r.created_at
            FROM rule_script r LEFT JOIN api_token t ON t.id = r.token_id
+           LEFT JOIN app_user u ON u.id = t.user_id
            WHERE r.version = $1"#,
         version
     )
@@ -50,8 +52,9 @@ pub async fn list(
 ) -> Result<Vec<RuleScriptRow>, sqlx::Error> {
     sqlx::query_as!(
         RuleScriptRow,
-        r#"SELECT r.version, r.source, r.note, r.token_id, t.name AS "author?", r.created_at
+        r#"SELECT r.version, r.source, r.note, r.token_id, u.name AS "author?", r.created_at
            FROM rule_script r LEFT JOIN api_token t ON t.id = r.token_id
+           LEFT JOIN app_user u ON u.id = t.user_id
            WHERE $1::int4 IS NULL OR r.version < $1
            ORDER BY r.version DESC LIMIT $2"#,
         before,

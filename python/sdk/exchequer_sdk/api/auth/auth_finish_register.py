@@ -9,7 +9,7 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.finish_registration import FinishRegistration
 from ...models.problem import Problem
-from ...models.session import Session
+from ...models.signed_in import SignedIn
 from ...types import Response
 
 
@@ -35,9 +35,9 @@ def _get_kwargs(
     return _kwargs
 
 
-def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Problem | Session | None:
+def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Problem | SignedIn | None:
     if response.status_code == 200:
-        response_200 = Session.from_dict(response.json())
+        response_200 = SignedIn.from_dict(response.json())
 
         return response_200
 
@@ -62,7 +62,7 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Res
         return None
 
 
-def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Response[Problem | Session]:
+def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Response[Problem | SignedIn]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -76,7 +76,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: FinishRegistration,
-) -> Response[Problem | Session]:
+) -> Response[Problem | SignedIn]:
     """Finish registering: the passkey is kept, the invite used up, and the
     browser signed in as its user.
 
@@ -89,7 +89,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Problem | Session]
+        Response[Problem | SignedIn]
     """
 
     kwargs = _get_kwargs(
@@ -109,7 +109,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: FinishRegistration,
-) -> Problem | Session | None:
+) -> Problem | SignedIn | None:
     """Finish registering: the passkey is kept, the invite used up, and the
     browser signed in as its user.
 
@@ -122,7 +122,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Problem | Session
+        Problem | SignedIn
     """
 
     return sync_detailed(
@@ -137,7 +137,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: FinishRegistration,
-) -> Response[Problem | Session]:
+) -> Response[Problem | SignedIn]:
     """Finish registering: the passkey is kept, the invite used up, and the
     browser signed in as its user.
 
@@ -150,7 +150,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Problem | Session]
+        Response[Problem | SignedIn]
     """
 
     kwargs = _get_kwargs(
@@ -168,7 +168,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: FinishRegistration,
-) -> Problem | Session | None:
+) -> Problem | SignedIn | None:
     """Finish registering: the passkey is kept, the invite used up, and the
     browser signed in as its user.
 
@@ -181,7 +181,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Problem | Session
+        Problem | SignedIn
     """
 
     return (

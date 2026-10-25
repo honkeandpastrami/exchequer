@@ -711,20 +711,20 @@ A pluggable middleware layer: every request resolves to a principal or is reject
   log ties every change to one through its token.
 - **Invites are the one way in.** An invite names a person: it adds them as a user if
   there's none by that name, and gives a one-time link, valid for 3 hours, that registers
-  a passkey for them. Nobody registers without one. A user already there gets another
-  passkey, on another device; an invite that **replaces** (for lost passkeys) also, when
-  its link is used, removes their other passkeys and revokes their tokens. Until then
-  nothing changes. Removing a user deletes their passkeys and revokes their tokens.
+  a passkey for them. Nobody registers without one. An invite only adds a passkey: a user
+  already there gets another one, on another device or in place of a lost one. Signed in
+  with it, they delete the lost passkey and sign out the sessions it signed in. Removing a
+  user deletes their passkeys and revokes their tokens.
 - **A user's name** is unique among the users there are, and can be changed; a removed
   user's name is free again. The audit log refers to users by ID.
 - **Invites are made two ways, by the same code:** signed in, in Setup → Security
-  (`POST /invites`); or on the server, `exchequer-server invite NAME [--replace]`, run
+  (`POST /invites`); or on the server, `exchequer-server invite NAME`, run
   with `podman exec`. The server command is the bootstrap: it invites the first user, and
   anyone who lost every passkey. Shell access to the server is the authority, which can
   read the database and every secret anyway, so there's **no bootstrap token**: nothing
   that works over the network is left lying around.
 - **Sign-in** is usernameless: the browser offers the passkeys it holds for the server's
-  domain. Success creates a **session**, a token that belongs to the user and expires after
+  domain. Success signs the browser in: a token that belongs to the user and expires after
   30 days; signing out revokes it.
 - **The CLI signs in through the browser,** like OAuth's device flow: `exchequer login`
   shows a link with a short code, a signed-in user approves it, and the CLI receives a token
@@ -733,28 +733,38 @@ A pluggable middleware layer: every request resolves to a principal or is reject
   `https://books.example.org`, or `http://localhost:5173` in development; a path under it
   is fine). Moving to another domain means registering again. Without it, passkey sign-in
   is off, and so is every way in: only tokens made before keep working.
-- **Bearer tokens** underlie everything, of three kinds: **sessions** (a browser signed in),
-  **the CLI's** (`exchequer login`) and **scripts'** (made by hand, in Setup → Security or
-  with `exchequer tokens create`). Each **belongs to a user**: the one who signed in,
-  approved the CLI, or made it. Only a session or the CLI's token makes tokens or approves
-  the CLI: a leaked script's token can't outlive its expiry. They're stored **hashed**
-  (SHA-256: the secrets are 256 random bits, so a slow password hash adds cost without
-  adding safety), named, and shown once. Invite links and the CLI's device codes are stored hashed too; a ceremony's
-  challenge lives in the database for five minutes and is used once.
+- **Bearer tokens** underlie every request. A browser or the CLI signing in gets one of its
+  own; a **token**, as the word is used everywhere else, is one made by hand for a script,
+  with a name (in Setup → Security, or `exchequer tokens create`). Each **belongs to a
+  user**: the one who signed in, approved the CLI, or made it. Only a browser's or the
+  CLI's token makes tokens or approves the CLI: a leaked script's token can't outlive its
+  expiry. They're stored **hashed** (SHA-256: the secrets are 256 random bits, so a slow
+  password hash adds cost without adding safety) and shown once. Invite links and the
+  CLI's device codes are stored hashed too; a ceremony's challenge lives in the database
+  for five minutes and is used once.
+- **Sessions are the clients using tokens:** a browser or the CLI signed in, one session
+  each, and each tool on each host using a script's token. A session shows its user, what
+  signed it in (the passkey, the approver's passkey for the CLI, or the script's token),
+  when it started, when it was last used and from what, and when it expires. "From what"
+  is what the client reports: a browser's `User-Agent` (`Safari on iPhone`); our Python
+  clients send the program and its version, and the host (`Exchequer-Host`); and the
+  address the reverse proxy reports (`X-Forwarded-For`). It's for people to read, never a
+  check: a client that reports nothing works the same, and shows `unknown`.
 - **Every token expires.** Its time to live is chosen when it's made: 30 days for a
-  session; for the CLI's and scripts', what the person making it asks for, at most 365
+  browser; for the CLI's and scripts', what the person making it asks for, at most 365
   days (`exchequer login` asks 90 unless told otherwise, and the approver sees it). Each
   records when it was created and, to the minute, when it was last used.
-- **Revoking.** Any token can be revoked at any time, in Setup → Security, with
-  `exchequer tokens revoke`, or through `DELETE /tokens/{id}`: it stops working at once,
-  and nothing else does. Signing out revokes the browser's session. **The kill switch**
-  (`DELETE /tokens`, also in Setup → Security and `exchequer tokens revoke-all`) revokes
-  every token at once, everyone's, the caller's too: everyone is signed out and every CLI
-  and script stops; passkeys still sign in, and the CLI signs in again with
-  `exchequer login`.
+- **Signing out and revoking.** A session is signed out at any time, in Setup → Security,
+  with `exchequer sessions sign-out`, or through `DELETE /sessions/{id}`; a token is
+  revoked with `exchequer tokens revoke`, or `DELETE /tokens/{id}`. Either stops the token
+  at once, and so every session using it (only a script's token has more than one).
+  Signing out of the web app signs out that browser. **The kill switch**
+  (`POST /revoke-all`, also in Setup → Security and `exchequer revoke-all`) signs everyone
+  out and revokes every token, the caller's too: every browser, CLI and script stops;
+  passkeys still sign in, and the CLI signs in again with `exchequer login`.
 - **Bootstrap: the same for passkeys and tokens.** Every token comes from a signed-in
   user, so the first token follows the first passkey: `exchequer-server invite` invites
-  the first user, their passkey signs them in (a session), and from there they approve
+  the first user, their passkey signs them in, and from there they approve
   `exchequer login` and make scripts' tokens. The steps are in
   [`deploy/README.md`](../deploy/README.md#install), step 6.
 - **TLS** is terminated by the operator's existing reverse proxy. Passkeys require it.
@@ -858,9 +868,9 @@ Everything else (settlement, reports, balance checks, setup) is in the web app.
 - A static build (SvelteKit) served by the API container at `/`, the same origin as
   `/api/v1`, so no CORS. It works under a path when a reverse proxy strips it.
 - Sign-in is with a passkey (§10), or an API token; the session is kept in that browser
-  until signing out. Setup → Security holds all of sign-in: it adds people, makes invite
-  links, lists passkeys and tokens (created, last used, expiry), makes scripts' tokens,
-  revokes any, and has the kill switch.
+  until signing out. Setup → Security holds all of sign-in, in four lists: users (add,
+  rename, invite, delete), passkeys (last used; delete), sessions (sign out) and scripts'
+  tokens (make, revoke); and the kill switch.
 - Pages: **Accounts** (balances on a date, valued in USD, by owner and liquid,
   investment and loan, with a link to check each against the bank); **Transactions**
   (search, and editing with splits); **Imports** (upload, review and commit, §6);

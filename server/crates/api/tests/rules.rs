@@ -78,7 +78,7 @@ async fn versions_are_validated_and_kept(pool: PgPool) {
     assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
     assert_eq!(
         (&r.body["version"], &r.body["note"], &r.body["author"]),
-        (&json!(1), &json!("coffee"), &json!("cli"))
+        (&json!(1), &json!("coffee"), &json!(common::TESTER))
     );
     // Against a stale version: refused.
     let r = put(&pool, &h, &etag, "", None).await;

@@ -60,7 +60,8 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | Problem]:
-    """Remove a user: their passkeys are deleted and their tokens revoked.
+    """Remove a user: their passkeys are deleted and their tokens revoked, so
+    their sessions end.
 
     Args:
         id (UUID):
@@ -89,7 +90,8 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | Problem | None:
-    """Remove a user: their passkeys are deleted and their tokens revoked.
+    """Remove a user: their passkeys are deleted and their tokens revoked, so
+    their sessions end.
 
     Args:
         id (UUID):
@@ -113,7 +115,8 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | Problem]:
-    """Remove a user: their passkeys are deleted and their tokens revoked.
+    """Remove a user: their passkeys are deleted and their tokens revoked, so
+    their sessions end.
 
     Args:
         id (UUID):
@@ -140,7 +143,8 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | Problem | None:
-    """Remove a user: their passkeys are deleted and their tokens revoked.
+    """Remove a user: their passkeys are deleted and their tokens revoked, so
+    their sessions end.
 
     Args:
         id (UUID):

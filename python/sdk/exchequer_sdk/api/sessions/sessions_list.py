@@ -1,44 +1,42 @@
 from http import HTTPStatus
-from typing import Any, cast
-from urllib.parse import quote
-from uuid import UUID
+from typing import Any
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.problem import Problem
+from ...models.session import Session
 from ...types import Response
 
 
-def _get_kwargs(
-    id: UUID,
-) -> dict[str, Any]:
+def _get_kwargs() -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
-        "method": "delete",
-        "url": "/api/v1/tokens/{id}".format(
-            id=quote(str(id), safe=""),
-        ),
+        "method": "get",
+        "url": "/api/v1/sessions",
     }
 
     return _kwargs
 
 
-def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Any | Problem | None:
-    if response.status_code == 204:
-        response_204 = cast(Any, None)
-        return response_204
+def _parse_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> Problem | list[Session] | None:
+    if response.status_code == 200:
+        response_200 = []
+        _response_200 = response.json()
+        for response_200_item_data in _response_200:
+            response_200_item = Session.from_dict(response_200_item_data)
+
+            response_200.append(response_200_item)
+
+        return response_200
 
     if response.status_code == 401:
         response_401 = Problem.from_dict(response.json())
 
         return response_401
-
-    if response.status_code == 404:
-        response_404 = Problem.from_dict(response.json())
-
-        return response_404
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -46,7 +44,9 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Res
         return None
 
 
-def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Response[Any | Problem]:
+def _build_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> Response[Problem | list[Session]]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -56,26 +56,20 @@ def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 
 
 def sync_detailed(
-    id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[Any | Problem]:
-    """Revoke a token. It stops working immediately; revoking twice is harmless.
-
-    Args:
-        id (UUID):
+) -> Response[Problem | list[Session]]:
+    """The sessions whose tokens still work, last used first.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | Problem]
+        Response[Problem | list[Session]]
     """
 
-    kwargs = _get_kwargs(
-        id=id,
-    )
+    kwargs = _get_kwargs()
 
     response = client.get_httpx_client().request(
         **kwargs,
@@ -85,50 +79,39 @@ def sync_detailed(
 
 
 def sync(
-    id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Any | Problem | None:
-    """Revoke a token. It stops working immediately; revoking twice is harmless.
-
-    Args:
-        id (UUID):
+) -> Problem | list[Session] | None:
+    """The sessions whose tokens still work, last used first.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | Problem
+        Problem | list[Session]
     """
 
     return sync_detailed(
-        id=id,
         client=client,
     ).parsed
 
 
 async def asyncio_detailed(
-    id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[Any | Problem]:
-    """Revoke a token. It stops working immediately; revoking twice is harmless.
-
-    Args:
-        id (UUID):
+) -> Response[Problem | list[Session]]:
+    """The sessions whose tokens still work, last used first.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | Problem]
+        Response[Problem | list[Session]]
     """
 
-    kwargs = _get_kwargs(
-        id=id,
-    )
+    kwargs = _get_kwargs()
 
     response = await client.get_async_httpx_client().request(**kwargs)
 
@@ -136,26 +119,21 @@ async def asyncio_detailed(
 
 
 async def asyncio(
-    id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Any | Problem | None:
-    """Revoke a token. It stops working immediately; revoking twice is harmless.
-
-    Args:
-        id (UUID):
+) -> Problem | list[Session] | None:
+    """The sessions whose tokens still work, last used first.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | Problem
+        Problem | list[Session]
     """
 
     return (
         await asyncio_detailed(
-            id=id,
             client=client,
         )
     ).parsed

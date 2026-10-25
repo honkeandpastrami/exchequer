@@ -40,10 +40,6 @@ enum Command {
     Invite {
         /// Who it's for, e.g. `Alex`.
         name: String,
-        /// For lost passkeys: using the link removes their other passkeys and
-        /// revokes their tokens.
-        #[arg(long)]
-        replace: bool,
     },
 }
 
@@ -74,7 +70,7 @@ async fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        Command::Invite { name, replace } => match invite(&name, replace).await {
+        Command::Invite { name } => match invite(&name).await {
             Ok(()) => ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("error: {err}");
@@ -100,7 +96,7 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn invite(name: &str, replace: bool) -> Result<(), Box<dyn std::error::Error>> {
+async fn invite(name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
     let origin = config
         .origin
@@ -112,21 +108,12 @@ async fn invite(name: &str, replace: bool) -> Result<(), Box<dyn std::error::Err
         .await?;
     let problem = |p: api::problem::Problem| p.detail.unwrap_or(p.title);
     let mut tx = pool.begin().await?;
-    let invited = api::invite(&mut tx, None, name, replace)
-        .await
-        .map_err(problem)?;
+    let invited = api::invite(&mut tx, None, name).await.map_err(problem)?;
     tx.commit().await?;
 
     let user = &invited.user;
     if invited.added {
         println!("Added {}.", user.name);
-    }
-    let (passkeys, tokens) = (user.passkeys.len(), invited.tokens);
-    if replace && (passkeys > 0 || tokens > 0) {
-        println!(
-            "Registering a passkey with this link removes {}'s {passkeys} passkeys and revokes their {tokens} tokens.",
-            user.name
-        );
     }
     let until = jiff::Timestamp::from_second(invited.invite.expires_at.unix_timestamp())?
         .to_zoned(config.zone)
@@ -235,6 +222,8 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         Some(dir) => api::app_with_web(state, dir),
         None => api::app(state),
     };
+    // The peer's address is a session's when no reverse proxy forwards one.
+    let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown())
         .await?;

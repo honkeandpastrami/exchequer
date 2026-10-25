@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE api_token SET revoked_at = now()\n         WHERE revoked_at IS NULL AND expires_at > now()\n         RETURNING id, name, kind, secret_hash, created_at, revoked_at, user_id, expires_at,\n                   last_used_at",
+  "query": "UPDATE api_token SET revoked_at = now()\n         WHERE revoked_at IS NULL AND expires_at > now()\n         RETURNING id, name, kind, secret_hash, created_at, revoked_at, user_id, expires_at,\n                   last_used_at, passkey_id",
   "describe": {
     "columns": [
       {
@@ -101,6 +101,17 @@
             "name": "last_used_at"
           }
         }
+      },
+      {
+        "ordinal": 9,
+        "name": "passkey_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "api_token",
+            "name": "passkey_id"
+          }
+        }
       }
     ],
     "parameters": {
@@ -108,15 +119,16 @@
     },
     "nullable": [
       false,
-      false,
+      true,
       false,
       false,
       false,
       true,
       true,
       false,
+      true,
       true
     ]
   },
-  "hash": "859463ac9d053f4d39d5981ea1051c14383346d521ebd6c13ca3ac39d56f0d57"
+  "hash": "d77c8e7ad414e84fa81f90f5cf110b1e0367f09c671fa1a4f27c28fe0dab5616"
 }

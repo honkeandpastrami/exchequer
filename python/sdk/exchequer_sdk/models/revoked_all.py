@@ -11,7 +11,7 @@ T = TypeVar("T", bound="RevokedAll")
 
 @_attrs_define
 class RevokedAll:
-    """What `DELETE /tokens` did.
+    """What `POST /revoke-all` did.
 
     Attributes:
         revoked (int): How many tokens were still working.

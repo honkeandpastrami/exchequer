@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO invite (id, user_id, secret_hash, expires_at)\n         VALUES ($1, $2, $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "34504460eae13a5f4f8812d0621d19e33ae2acfcfc4d69cc85c3c75c5161d44f"
+}

@@ -73,7 +73,7 @@ def sync_detailed(
 ) -> Response[Invited | Problem]:
     """Invite someone: a one-time link, for 3 hours, that registers a passkey.
     It adds them if there's no such user; for a user already there it adds a
-    passkey on another device, or, with `replace`, replaces lost ones.
+    passkey, on another device or in place of a lost one.
 
     Args:
         body (NewInvite):
@@ -104,7 +104,7 @@ def sync(
 ) -> Invited | Problem | None:
     """Invite someone: a one-time link, for 3 hours, that registers a passkey.
     It adds them if there's no such user; for a user already there it adds a
-    passkey on another device, or, with `replace`, replaces lost ones.
+    passkey, on another device or in place of a lost one.
 
     Args:
         body (NewInvite):
@@ -130,7 +130,7 @@ async def asyncio_detailed(
 ) -> Response[Invited | Problem]:
     """Invite someone: a one-time link, for 3 hours, that registers a passkey.
     It adds them if there's no such user; for a user already there it adds a
-    passkey on another device, or, with `replace`, replaces lost ones.
+    passkey, on another device or in place of a lost one.
 
     Args:
         body (NewInvite):
@@ -159,7 +159,7 @@ async def asyncio(
 ) -> Invited | Problem | None:
     """Invite someone: a one-time link, for 3 hours, that registers a passkey.
     It adds them if there's no such user; for a user already there it adds a
-    passkey on another device, or, with `replace`, replaces lost ones.
+    passkey, on another device or in place of a lost one.
 
     Args:
         body (NewInvite):

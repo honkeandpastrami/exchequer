@@ -1,7 +1,7 @@
 //! Sign-ins in progress (design §10): passkey ceremonies, and the CLI's
 //! device sign-ins. Both are short-lived and used once.
 
-use domain::UserId;
+use domain::{PasskeyId, UserId};
 use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -82,6 +82,8 @@ pub struct DeviceRow {
     pub ttl_days: i32,
     pub expires_at: OffsetDateTime,
     pub approved_by: Option<UserId>,
+    /// The passkey the approver signed in with.
+    pub passkey_id: Option<PasskeyId>,
 }
 
 struct RawDevice {
@@ -92,6 +94,7 @@ struct RawDevice {
     ttl_days: i32,
     expires_at: OffsetDateTime,
     approved_by: Option<Uuid>,
+    passkey_id: Option<Uuid>,
 }
 
 impl From<RawDevice> for DeviceRow {
@@ -104,6 +107,7 @@ impl From<RawDevice> for DeviceRow {
             ttl_days: r.ttl_days,
             expires_at: r.expires_at,
             approved_by: r.approved_by.map(UserId::from_uuid),
+            passkey_id: r.passkey_id.map(PasskeyId::from_uuid),
         }
     }
 }
@@ -137,7 +141,8 @@ pub async fn start_device(
 pub async fn device(db: impl PgExecutor<'_>, id: Uuid) -> Result<Option<DeviceRow>, sqlx::Error> {
     sqlx::query_as!(
         RawDevice,
-        "SELECT id, secret_hash, user_code, client, ttl_days, expires_at, approved_by
+        "SELECT id, secret_hash, user_code, client, ttl_days, expires_at, approved_by,
+                passkey_id
          FROM device_sign_in WHERE id = $1 AND expires_at > now()",
         id,
     )
@@ -153,7 +158,8 @@ pub async fn pending_device(
 ) -> Result<Option<DeviceRow>, sqlx::Error> {
     sqlx::query_as!(
         RawDevice,
-        "SELECT id, secret_hash, user_code, client, ttl_days, expires_at, approved_by
+        "SELECT id, secret_hash, user_code, client, ttl_days, expires_at, approved_by,
+                passkey_id
          FROM device_sign_in
          WHERE user_code = $1 AND expires_at > now() AND approved_by IS NULL",
         user_code,
@@ -168,12 +174,14 @@ pub async fn approve_device(
     db: impl PgExecutor<'_>,
     user_code: &str,
     user: UserId,
+    passkey: Option<PasskeyId>,
 ) -> Result<bool, sqlx::Error> {
     let done = sqlx::query!(
-        "UPDATE device_sign_in SET approved_by = $2
+        "UPDATE device_sign_in SET approved_by = $2, passkey_id = $3
          WHERE user_code = $1 AND expires_at > now() AND approved_by IS NULL",
         user_code,
         user.as_uuid(),
+        passkey.map(|p| *p.as_uuid()),
     )
     .execute(db)
     .await?;

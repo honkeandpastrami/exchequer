@@ -143,8 +143,10 @@ from .rule_upload import RuleUpload
 from .rule_version import RuleVersion
 from .score import Score
 from .session import Session
+from .session_kind import SessionKind
 from .settlement import Settlement
 from .settlement_params import SettlementParams
+from .signed_in import SignedIn
 from .skipped_line import SkippedLine
 from .split import Split
 from .split_pointer import SplitPointer
@@ -162,7 +164,6 @@ from .suggester_details import SuggesterDetails
 from .suggester_kind import SuggesterKind
 from .tag import Tag
 from .token import Token
-from .token_kind import TokenKind
 from .transaction import Transaction
 from .transfer_match import TransferMatch
 from .unpriced import Unpriced
@@ -316,8 +317,10 @@ __all__ = (
     "RuleVersion",
     "Score",
     "Session",
+    "SessionKind",
     "Settlement",
     "SettlementParams",
+    "SignedIn",
     "SkippedLine",
     "Split",
     "SplitPointer",
@@ -335,7 +338,6 @@ __all__ = (
     "SuggesterKind",
     "Tag",
     "Token",
-    "TokenKind",
     "Transaction",
     "TransferMatch",
     "Unpriced",

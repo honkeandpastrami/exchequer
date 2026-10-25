@@ -13,8 +13,8 @@ from ...types import Response
 def _get_kwargs() -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
-        "method": "delete",
-        "url": "/api/v1/tokens",
+        "method": "post",
+        "url": "/api/v1/revoke-all",
     }
 
     return _kwargs
@@ -52,9 +52,9 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Problem | RevokedAll]:
-    """The kill switch: revoke every token, everyone's, this request's too.
-    Everyone is signed out, and the CLI and scripts stop working; passkeys
-    still sign in, and `exchequer login` makes the CLI a new token.
+    """The kill switch: sign everyone out and revoke every token, this
+    request's too. Browsers, the CLI and scripts all stop working; passkeys
+    still sign in, and `exchequer login` signs the CLI in again.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -77,9 +77,9 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Problem | RevokedAll | None:
-    """The kill switch: revoke every token, everyone's, this request's too.
-    Everyone is signed out, and the CLI and scripts stop working; passkeys
-    still sign in, and `exchequer login` makes the CLI a new token.
+    """The kill switch: sign everyone out and revoke every token, this
+    request's too. Browsers, the CLI and scripts all stop working; passkeys
+    still sign in, and `exchequer login` signs the CLI in again.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -98,9 +98,9 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Problem | RevokedAll]:
-    """The kill switch: revoke every token, everyone's, this request's too.
-    Everyone is signed out, and the CLI and scripts stop working; passkeys
-    still sign in, and `exchequer login` makes the CLI a new token.
+    """The kill switch: sign everyone out and revoke every token, this
+    request's too. Browsers, the CLI and scripts all stop working; passkeys
+    still sign in, and `exchequer login` signs the CLI in again.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -121,9 +121,9 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Problem | RevokedAll | None:
-    """The kill switch: revoke every token, everyone's, this request's too.
-    Everyone is signed out, and the CLI and scripts stop working; passkeys
-    still sign in, and `exchequer login` makes the CLI a new token.
+    """The kill switch: sign everyone out and revoke every token, this
+    request's too. Browsers, the CLI and scripts all stop working; passkeys
+    still sign in, and `exchequer login` signs the CLI in again.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

@@ -26,6 +26,7 @@ use webauthn_rs::prelude::{
 use crate::AppState;
 use crate::auth;
 use crate::problem::{Json, Path, Problem, is_unique_violation};
+use crate::sessions::ClientOf;
 use crate::tokens;
 use crate::users::{User, valid_name};
 
@@ -112,7 +113,7 @@ pub struct FinishSignIn {
 
 /// A browser signed in: send `token` as the bearer token until it expires.
 #[derive(Serialize, ToSchema)]
-pub struct Session {
+pub struct SignedIn {
     /// Shown only in this response.
     token: String,
     #[serde(with = "time::serde::rfc3339")]
@@ -195,24 +196,26 @@ fn new_user_code() -> Result<String, Problem> {
     Ok(format!("{}-{}", &letters[..4], &letters[4..]))
 }
 
-/// Starts a session for the user: a token that expires.
+/// Signs the browser in as the user, with the passkey: a token that
+/// expires, and its session.
 async fn session(
     tx: &mut sqlx::PgConnection,
     user: store::users::UserRow,
-) -> Result<Session, Problem> {
+    passkey: domain::PasskeyId,
+    client: &store::tokens::Client,
+) -> Result<SignedIn, Problem> {
     let expires_at = OffsetDateTime::now_utc() + SESSION_LIFE;
-    let name = format!("{} · web · {}", user.name, auth::hex(&auth::random::<3>()?));
     let (_, token) = tokens::issue(
         tx,
         None,
-        &name,
-        store::tokens::Kind::Session,
+        store::tokens::NewToken::Browser(Some(passkey)),
         user.id,
         expires_at,
+        client,
     )
     .await?;
     let passkeys = store::users::passkeys(&mut *tx).await?;
-    Ok(Session {
+    Ok(SignedIn {
         token,
         expires_at,
         user: User::new(user, &passkeys),
@@ -307,7 +310,7 @@ async fn start_register(
     params(("id" = Uuid, Path, description = "Ceremony ID")),
     request_body = FinishRegistration,
     responses(
-        (status = OK, body = Session),
+        (status = OK, body = SignedIn),
         (status = UNAUTHORIZED, description = "The passkey wasn't accepted, or the ceremony expired", body = Problem, content_type = "application/problem+json"),
         (status = CONFLICT, description = "That passkey is registered already", body = Problem, content_type = "application/problem+json"),
         (status = SERVICE_UNAVAILABLE, description = "Passkey sign-in is off", body = Problem, content_type = "application/problem+json"),
@@ -315,9 +318,10 @@ async fn start_register(
 )]
 async fn finish_register(
     State(state): State<AppState>,
+    ClientOf(client): ClientOf,
     Path(id): Path<Uuid>,
     Json(req): Json<FinishRegistration>,
-) -> Result<axum::Json<Session>, Problem> {
+) -> Result<axum::Json<SignedIn>, Problem> {
     let webauthn = webauthn(&state)?;
     let mut tx = state.pool.begin().await?;
     let (Some(invite), registration) = store::sign_in::take(&mut *tx, id, Kind::Register)
@@ -367,53 +371,8 @@ async fn finish_register(
             e.into()
         }
     })?;
-    // Replacing lost passkeys: the others go, and whatever was signed in
-    // with them, before this passkey's session starts.
-    let (removed, revoked) = if open.replace {
-        (
-            store::users::delete_passkeys_of(&mut *tx, user.id, Some(passkey.id)).await?,
-            store::tokens::revoke_all_of(&mut *tx, user.id).await?,
-        )
-    } else {
-        (Vec::new(), Vec::new())
-    };
-    let session = session(&mut tx, user).await?;
+    let session = session(&mut tx, user, passkey.id, &client).await?;
     let token = auth::id_of(auth::Kind::Token, &session.token).map(domain::TokenId::from_uuid);
-    for p in removed {
-        audit::record(
-            &mut *tx,
-            audit::Entry {
-                actor: token,
-                action: Action::Delete,
-                entity: "passkey",
-                entity_id: *p.id.as_uuid(),
-                before: Some(serde_json::json!({
-                    "user_id": p.user_id.as_uuid(),
-                    "name": p.name,
-                })),
-                after: None,
-            },
-        )
-        .await?;
-    }
-    for after in revoked {
-        let before = store::tokens::TokenRow {
-            revoked_at: None,
-            ..after.clone()
-        };
-        audit::record(
-            &mut *tx,
-            audit::Entry {
-                actor: token,
-                action: Action::Update,
-                entity: "token",
-                entity_id: *after.id.as_uuid(),
-                before: Some(tokens::audit_json(before)?),
-                after: Some(tokens::audit_json(after)?),
-            },
-        )
-        .await?;
-    }
     audit::record(
         &mut *tx,
         audit::Entry {
@@ -479,16 +438,17 @@ async fn start_sign_in(State(state): State<AppState>) -> Result<axum::Json<Cerem
     params(("id" = Uuid, Path, description = "Ceremony ID")),
     request_body = FinishSignIn,
     responses(
-        (status = OK, body = Session),
+        (status = OK, body = SignedIn),
         (status = UNAUTHORIZED, description = "The passkey wasn't accepted, or the ceremony expired", body = Problem, content_type = "application/problem+json"),
         (status = SERVICE_UNAVAILABLE, description = "Passkey sign-in is off", body = Problem, content_type = "application/problem+json"),
     ),
 )]
 async fn finish_sign_in(
     State(state): State<AppState>,
+    ClientOf(client): ClientOf,
     Path(id): Path<Uuid>,
     Json(req): Json<FinishSignIn>,
-) -> Result<axum::Json<Session>, Problem> {
+) -> Result<axum::Json<SignedIn>, Problem> {
     let webauthn = webauthn(&state)?;
     let mut tx = state.pool.begin().await?;
     let (_, authentication) = store::sign_in::take(&mut *tx, id, Kind::SignIn)
@@ -524,7 +484,7 @@ async fn finish_sign_in(
         .await?
         .filter(|u| u.removed_at.is_none())
         .ok_or_else(rejected)?;
-    let session = session(&mut tx, user).await?;
+    let session = session(&mut tx, user, row.id, &client).await?;
     tx.commit().await?;
     Ok(axum::Json(session))
 }
@@ -591,6 +551,7 @@ async fn start_device(
 )]
 async fn device_token(
     State(state): State<AppState>,
+    ClientOf(client): ClientOf,
     Json(req): Json<PollDevice>,
 ) -> Result<axum::Json<DeviceToken>, Problem> {
     let gone = || Problem::not_found().detail("this sign-in expired; start again");
@@ -614,21 +575,15 @@ async fn device_token(
         .await?
         .filter(|u| u.removed_at.is_none())
         .ok_or_else(gone)?;
-    let name = format!(
-        "{} · {} · {}",
-        user.name,
-        device.client,
-        auth::hex(&auth::random::<3>()?)
-    );
     let days = u32::try_from(device.ttl_days).map_err(|_| Problem::internal())?;
     let expires_at = OffsetDateTime::now_utc() + tokens::ttl(days)?;
     let (_, token) = tokens::issue(
         &mut tx,
         None,
-        &name,
-        store::tokens::Kind::Cli,
+        store::tokens::NewToken::Cli(device.passkey_id),
         user.id,
         expires_at,
+        &client,
     )
     .await?;
     tx.commit().await?;
