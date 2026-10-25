@@ -2,12 +2,14 @@
 -- token: a browser or the CLI signed in with a passkey, or a script with a
 -- token made for it. Only scripts' tokens have names.
 
+-- The old rules go before the rows change, the new ones after.
+ALTER TABLE api_token
+    DROP CONSTRAINT api_token_kind_check,
+    ALTER COLUMN name DROP NOT NULL;
 UPDATE api_token SET kind = 'browser' WHERE kind = 'session';
 UPDATE api_token SET name = NULL WHERE kind <> 'script';
 ALTER TABLE api_token
-    DROP CONSTRAINT api_token_kind_check,
     ADD CHECK (kind IN ('browser', 'cli', 'script')),
-    ALTER COLUMN name DROP NOT NULL,
     ADD CHECK ((kind = 'script') = (name IS NOT NULL)),
     -- The passkey a browser signed in with, or the CLI's approver did.
     ADD COLUMN passkey_id uuid REFERENCES passkey ON DELETE SET NULL;
