@@ -5,23 +5,30 @@ mod common;
 
 use axum::http::StatusCode;
 use common::authenticator::Authenticator;
-use common::{BOOTSTRAP, Response, call, script_token};
+use common::{Response, call, new_token, script_token};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
-/// Adds a user with the bootstrap token; returns their ID and invite code.
+/// Invites a user as `exchequer-server invite` does (adding them if need
+/// be); returns their ID and the invite's code.
+async fn invite(pool: &PgPool, name: &str, replace: bool) -> (String, String) {
+    let invited = invited(pool, name, replace).await;
+    (invited.user.id.to_string(), invited.invite.code)
+}
+
+async fn invited(pool: &PgPool, name: &str, replace: bool) -> api::Invited {
+    let mut tx = pool.begin().await.unwrap();
+    let invited = api::invite(&mut tx, None, name, replace).await.unwrap();
+    tx.commit().await.unwrap();
+    invited
+}
+
+/// Adds a user; returns their ID and invite code.
 async fn add_user(pool: &PgPool, name: &str) -> (String, String) {
-    let r = call(pool, "POST", "/api/v1/users")
-        .token(BOOTSTRAP)
-        .json(json!({ "name": name }))
-        .send()
-        .await;
-    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
-    assert_eq!(r.body["user"]["passkeys"], json!([]));
-    (
-        r.body["user"]["id"].as_str().unwrap().to_owned(),
-        r.body["invite"]["code"].as_str().unwrap().to_owned(),
-    )
+    let invited = invited(pool, name, false).await;
+    assert!(invited.added);
+    assert!(invited.user.passkeys.is_empty());
+    (invited.user.id.to_string(), invited.invite.code)
 }
 
 /// Registers the authenticator's passkey with the invite.
@@ -146,16 +153,17 @@ async fn passkeys_from_elsewhere_are_refused(pool: PgPool) {
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn a_new_invite_adds_a_passkey(pool: PgPool) {
-    let (alex, invite) = add_user(&pool, "Alex").await;
+    let (_, invite) = add_user(&pool, "Alex").await;
     let session = token(&register(&pool, &mut Authenticator::new(1), &invite).await);
 
-    let r = call(&pool, "POST", format!("/api/v1/users/{alex}/invites"))
+    let r = call(&pool, "POST", "/api/v1/invites")
         .token(&session)
+        .json(json!({ "name": "Alex" }))
         .send()
         .await;
     assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
     let mut phone = Authenticator::new(2);
-    let invite = r.body["code"].as_str().unwrap();
+    let invite = r.body["invite"]["code"].as_str().unwrap();
     assert_eq!(
         register(&pool, &mut phone, invite).await.body["user"]["passkeys"]
             .as_array()
@@ -224,7 +232,7 @@ async fn removing_a_user_ends_their_access(pool: PgPool) {
     assert_eq!(r.body[0]["id"], sam.as_str());
 
     // Their name stays taken: the audit log still refers to them.
-    let r = call(&pool, "POST", "/api/v1/users")
+    let r = call(&pool, "POST", "/api/v1/invites")
         .token(&sams)
         .json(json!({ "name": "Alex" }))
         .send()
@@ -281,9 +289,9 @@ async fn the_cli_signs_in_when_a_user_approves(pool: PgPool) {
         "the approver sees how long it lasts"
     );
 
-    // Only a user can approve: not a script, not the bootstrap token.
+    // Only a person can approve: not a script.
     let (_, script) = script_token(&pool, "script").await;
-    for t in [script.as_str(), BOOTSTRAP] {
+    for t in [script.as_str()] {
         let r = call(
             &pool,
             "POST",
@@ -320,23 +328,96 @@ async fn the_cli_signs_in_when_a_user_approves(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
-async fn the_bootstrap_token_manages_users_and_nothing_else(pool: PgPool) {
-    add_user(&pool, "Alex").await;
+async fn one_invite_adds_or_finds_the_user(pool: PgPool) {
+    let (_, session) = new_token(&pool, "session").await;
+    let post = |body: Value| {
+        call(&pool, "POST", "/api/v1/invites")
+            .token(&session)
+            .json(body)
+            .send()
+    };
+    let r = post(json!({ "name": "Sam" })).await;
+    assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
+    assert_eq!(r.body["added"], true);
+    assert_eq!(r.body["invite"]["replace"], false);
+    let sam = r.body["user"]["id"].clone();
+    let left = time::OffsetDateTime::parse(
+        r.body["invite"]["expires_at"].as_str().unwrap(),
+        &time::format_description::well_known::Rfc3339,
+    )
+    .unwrap()
+        - time::OffsetDateTime::now_utc();
+    assert!(
+        left <= time::Duration::hours(3)
+            && left > time::Duration::hours(3) - time::Duration::minutes(1)
+    );
+
+    // The same name again: the same user, another link.
+    let r = post(json!({ "name": " Sam " })).await;
+    assert_eq!(r.body["added"], false);
+    assert_eq!(r.body["user"]["id"], sam);
+
+    // A removed user's name stays taken.
+    let r = call(
+        &pool,
+        "DELETE",
+        format!("/api/v1/users/{}", sam.as_str().unwrap()),
+    )
+    .token(&session)
+    .send()
+    .await;
+    assert_eq!(r.status, StatusCode::NO_CONTENT);
+    assert_eq!(
+        post(json!({ "name": "Sam" })).await.status,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        post(json!({ "name": "" })).await.status,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn a_replacing_invite_takes_over_once_used(pool: PgPool) {
+    let (alex, first) = add_user(&pool, "Alex").await;
+    let mut lost = Authenticator::new(1);
+    let old = token(&register(&pool, &mut lost, &first).await);
+
+    // Made, not used: nothing changes yet.
+    let (_, code) = invite(&pool, "Alex", true).await;
+    assert_eq!(me(&pool, &old).await.status, StatusCode::OK);
+    token(&sign_in(&pool, &mut lost).await);
+
+    let mut found = Authenticator::new(2);
+    let r = register(&pool, &mut found, &code).await;
+    let new = token(&r);
+    assert_eq!(r.body["user"]["passkeys"].as_array().unwrap().len(), 1);
+    assert_eq!(me(&pool, &new).await.body["user"]["id"], alex.as_str());
+    assert_eq!(
+        me(&pool, &old).await.status,
+        StatusCode::UNAUTHORIZED,
+        "tokens revoked"
+    );
+    assert_eq!(
+        sign_in(&pool, &mut lost).await.status,
+        StatusCode::UNAUTHORIZED,
+        "the lost passkey is gone"
+    );
+    token(&sign_in(&pool, &mut found).await);
+
+    // A plain invite only adds.
+    let (_, more) = invite(&pool, "Alex", false).await;
+    token(&register(&pool, &mut Authenticator::new(3), &more).await);
+    token(&sign_in(&pool, &mut found).await);
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn there_is_no_bootstrap_token(pool: PgPool) {
     let r = call(&pool, "GET", "/api/v1/users")
-        .token(BOOTSTRAP)
+        .token("bootstrap-token-for-tests-0123456789abcdef")
         .send()
         .await;
-    assert_eq!(r.status, StatusCode::OK);
-    let r = call(&pool, "GET", "/api/v1/parties")
-        .token(BOOTSTRAP)
-        .send()
-        .await;
-    assert_eq!(r.status, StatusCode::FORBIDDEN);
-    let r = call(&pool, "GET", "/api/v1/usersx")
-        .token(BOOTSTRAP)
-        .send()
-        .await;
-    assert_eq!(r.status, StatusCode::FORBIDDEN);
+    assert_eq!(r.status, StatusCode::UNAUTHORIZED);
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]

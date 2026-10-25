@@ -94,7 +94,8 @@ pub(crate) fn ttl(days: u32) -> Result<Duration, Problem> {
     Ok(Duration::days(days.into()))
 }
 
-fn json(r: TokenRow) -> Result<serde_json::Value, Problem> {
+/// A token as the audit log records it.
+pub(crate) fn audit_json(r: TokenRow) -> Result<serde_json::Value, Problem> {
     serde_json::to_value(Token::from(r)).map_err(|_| Problem::internal())
 }
 
@@ -276,8 +277,8 @@ async fn revoke(
                 action: Action::Update,
                 entity: "token",
                 entity_id: *id.as_uuid(),
-                before: Some(json(before)?),
-                after: Some(json(after)?),
+                before: Some(audit_json(before)?),
+                after: Some(audit_json(after)?),
             },
         )
         .await?;
@@ -317,8 +318,8 @@ async fn revoke_all(
                 action: Action::Update,
                 entity: "token",
                 entity_id: *after.id.as_uuid(),
-                before: Some(json(before)?),
-                after: Some(json(after.clone())?),
+                before: Some(audit_json(before)?),
+                after: Some(audit_json(after.clone())?),
             },
         )
         .await?;

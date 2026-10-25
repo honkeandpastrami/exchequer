@@ -29,11 +29,11 @@ Run these as the (non-root) user that will own the service, from a clone of this
    mkdir -p -m 700 /mnt/backup/exchequer
    ```
 
-2. Create the secrets once. They never appear in a unit file, an env file or this repo.
+2. Create the database password once. Secrets never appear in a unit file, an env file or
+   this repo.
 
    ```sh
    openssl rand -base64 32 | tr -d '\n' | podman secret create exchequer_db_password -
-   openssl rand -base64 32 | tr -d '\n' | podman secret create exchequer_bootstrap_token -
    ```
 
    Optionally, for remote AI ([`docs/ai.md`](../docs/ai.md#remote-ai)), the Azure AI
@@ -58,7 +58,12 @@ Run these as the (non-root) user that will own the service, from a clone of this
        ghcr.io/honkeandpastrami/exchequer-backup:latest
    ```
 
-4. Install the units. Podman reads the container, network and volume files from
+4. Set the address people will open the web app at: in
+   `deploy/examples/exchequer-server.container`, change `EXCHEQUER_ORIGIN` to your
+   reverse proxy's HTTPS address (see [Reverse proxy](#reverse-proxy)). Passkeys work only
+   there.
+
+   Then install the units. Podman reads the container, network and volume files from
    `containers/systemd`; the timer is a plain systemd unit and goes in `systemd/user`.
 
    ```sh
@@ -82,29 +87,20 @@ Run these as the (non-root) user that will own the service, from a clone of this
    curl -s http://127.0.0.1:7438/version
    ```
 
-6. Bootstrap: add yourself as the first user with the bootstrap token (design §10). It
-   goes through stdin, so it never shows up in `ps`:
+6. Invite yourself, on the server (use your name):
 
    ```sh
-   podman secret inspect --showsecret --format '{{.SecretData}}' exchequer_bootstrap_token |
-       sed 's/^/Authorization: Bearer /' |
-       curl -s -H @- -H 'Content-Type: application/json' -d '{"name": "Alex"}' \
-           http://127.0.0.1:7438/api/v1/users
+   podman exec exchequer-server /exchequer-server invite Alex
    ```
 
-   Open `<EXCHEQUER_ORIGIN>#/invite/<invite.code>` within 24 hours, on the device that will
-   hold your passkey, and create it: you're signed in. That is all the bootstrap token
-   does; every token comes from a signed-in user, each with its time to live:
+   It prints a link that works once, for 3 hours. Open it on the phone or laptop that will
+   hold your passkey, and create the passkey when the browser asks: you're signed in.
 
-   - **Other people:** Setup → Security → Add user, and send them the invite link.
-   - **The CLI:** `exchequer login` (90 days; `--days N` for another), approved in the web
-     app.
-   - **A script:** Setup → Security → New token for a script, or
-     `exchequer tokens create backup-script --days 365`. Keep the token: it's shown once.
+   Everything else is done signed in, in Setup → Security: invite other people, add your
+   other devices, make a script's token. The CLI signs in with `exchequer login`.
 
-   Revoke any of them there, or all at once with the kill switch (design §10). Lost every
-   passkey? Another user makes you an invite; alone, the bootstrap token does, with your
-   ID from `GET /api/v1/users`: `POST /api/v1/users/<id>/invites`.
+   Lost every passkey? Run the same command with `--replace`: using the new link removes
+   your old passkeys and revokes your tokens (design §10).
 
 The API applies schema migrations at startup. `GET /healthz` and `GET /version` need no
 token.
@@ -157,13 +153,7 @@ Before the database holds anything real, rehearse a backup and a restore once:
 1. Take a backup and look at it: `systemctl --user start exchequer-backup.service`, then
    `ls -l /mnt/backup/exchequer`.
 2. Follow [Restore](#restore) with that file.
-3. The user from step 6 is listed, so the data came back:
-
-   ```sh
-   podman secret inspect --showsecret --format '{{.SecretData}}' exchequer_bootstrap_token |
-       sed 's/^/Authorization: Bearer /' |
-       curl -s -H @- http://127.0.0.1:7438/api/v1/users
-   ```
+3. Sign in with your passkey from step 6: it works, so the data came back.
 
 ## Backups
 

@@ -21,8 +21,9 @@ impl Action {
     }
 }
 
-/// One change. `actor` is `None` for the bootstrap token. `before`/`after`
-/// are the API representations of the entity, never secrets.
+/// One change. `actor` is `None` for the server itself (`exchequer-server
+/// invite`). `before`/`after` are the API representations of the entity,
+/// never secrets.
 pub struct Entry<'a> {
     pub actor: Option<TokenId>,
     pub action: Action,

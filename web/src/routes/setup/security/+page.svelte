@@ -1,39 +1,42 @@
 <script lang="ts">
+	// Who can sign in, and every token (design §10). Rows and forms as in
+	// docs/ux.md §10: Add or Edit opens the row's form; what acts on a user or
+	// a token is in its form.
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { api, done, ok, type Schemas } from '#lib/api/client.ts';
 	import Failure from '#lib/components/Failure.svelte';
+	import NoValue from '#lib/components/NoValue.svelte';
+	import RowForm from '#lib/components/RowForm.svelte';
 	import { localDate } from '#lib/dates.ts';
 	import { signOut } from '#lib/session.svelte.ts';
 
-	type Invite = Schemas['Invite'];
+	type User = Schemas['User'];
 	type Token = Schemas['Token'];
+	type Invite = Schemas['Invite'];
+	/** A user's form: a new user (`id` null) or one's, with the invite just made. */
+	type UserForm = { id: string | null; name: string; replace: boolean; invite: Invite | null };
+	/** A token's form: a new token (`id` null) or one's, with its secret if just made. */
+	type TokenForm = { id: string | null; name: string; days: number; secret: string | null };
 
-	let users: Schemas['User'][] | null = $state(null);
+	const KINDS: Record<Token['kind'], string> = { session: 'Session', cli: 'CLI', script: 'Script' };
+
+	let users: User[] | null = $state(null);
 	let tokens: Token[] | null = $state(null);
 	let me: string | null = $state(null);
 	/** This browser's token. */
 	let mine: string | null = $state(null);
+	let loadFailure: unknown = $state(null);
+	let userForm: UserForm | null = $state(null);
+	let tokenForm: TokenForm | null = $state(null);
 	let failure: unknown = $state(null);
 	let busy = $state(false);
-	let adding: string | null = $state(null);
-	/** The newest invite link per user, shown until the page is left. */
-	let invites: Record<string, Invite> = $state({});
-	/** A new token being made: its name and time to live. */
-	let making: { name: string; days: number } | null = $state(null);
-	/** The token just made, shown once until the page is left. */
-	let made: Schemas['CreatedToken'] | null = $state(null);
 	let everything = $state(false);
-
-	const KINDS: Record<Token['kind'], string> = {
-		session: 'Browser',
-		cli: 'CLI',
-		script: 'Script'
-	};
 
 	const working = (t: Token) => !t.revoked_at && new Date(t.expires_at) > new Date();
 	const shown = $derived.by(() => tokens?.filter((t) => everything || working(t)) ?? []);
-	const owner = (t: Token) => users?.find((u) => u.id === t.user_id)?.name ?? '—';
+	const owner = (t: Token) => users?.find((u) => u.id === t.user_id)?.name ?? null;
+	const tokensOf = (u: User) => tokens?.filter((t) => t.user_id === u.id && working(t)) ?? [];
 
 	async function load() {
 		try {
@@ -46,8 +49,9 @@
 			me = who.user?.id ?? null;
 			mine = who.token?.id ?? null;
 			tokens = all;
+			loadFailure = null;
 		} catch (e) {
-			failure = e;
+			loadFailure = e;
 		}
 	}
 	load();
@@ -65,55 +69,96 @@
 		}
 	}
 
-	/** The full link to open on the invited person's device. */
-	const link = (i: Invite) =>
-		new URL(resolve('/invite/[code]', { code: i.code }), document.baseURI).href;
-
-	const add = () =>
-		run(async () => {
-			const created = ok(await api.POST('/api/v1/users', { body: { name: adding?.trim() ?? '' } }));
-			invites[created.user.id] = created.invite;
-			adding = null;
-		});
-
-	const newInvite = (u: Schemas['User']) =>
-		run(async () => {
-			invites[u.id] = ok(
-				await api.POST('/api/v1/users/{id}/invites', { params: { path: { id: u.id } } })
-			);
-		});
-
-	/** Registers another passkey for yourself, here. */
-	const addHere = (u: Schemas['User']) =>
-		run(async () => {
-			const i = ok(
-				await api.POST('/api/v1/users/{id}/invites', { params: { path: { id: u.id } } })
-			);
-			await goto(resolve('/invite/[code]', { code: i.code }));
-		});
-
-	function removeUser(u: Schemas['User']) {
-		const yourself = u.id === me ? ' This is you: you’ll be signed out.' : '';
-		if (!confirm(`Remove ${u.name}? Their passkeys and sessions stop working.${yourself}`)) return;
-		run(async () =>
-			done(await api.DELETE('/api/v1/users/{id}', { params: { path: { id: u.id } } }))
-		);
+	function openUser(f: UserForm | null) {
+		failure = null;
+		tokenForm = null;
+		userForm = f;
 	}
 
-	function removePasskey(u: Schemas['User'], p: Schemas['Passkey']) {
+	function openToken(f: TokenForm | null) {
+		failure = null;
+		userForm = null;
+		tokenForm = f;
+	}
+
+	const editUser = (u: User) =>
+		openUser(
+			userForm?.id === u.id ? null : { id: u.id, name: u.name, replace: false, invite: null }
+		);
+
+	const editToken = (t: Token) =>
+		openToken(tokenForm?.id === t.id ? null : { id: t.id, name: t.name, days: 0, secret: null });
+
+	async function invite(name: string, replace: boolean) {
+		return ok(await api.POST('/api/v1/invites', { body: { name, replace } }));
+	}
+
+	/** Adds the user, with their first invite; their form stays open, showing it. */
+	const saveUser = () =>
+		run(async () => {
+			const f = userForm;
+			if (!f) return;
+			if (f.id) {
+				userForm = null;
+				return;
+			}
+			const made = await invite(f.name.trim(), false);
+			userForm = { id: made.user.id, name: made.user.name, replace: false, invite: made.invite };
+		});
+
+	function inviteUser(u: User, f: UserForm) {
+		if (f.replace) {
+			const n = u.passkeys.length;
+			const t = tokensOf(u).length;
+			if (
+				!confirm(
+					`When the link is used, ${u.name}’s ${n} passkeys are deleted and their ${t} tokens revoked.`
+				)
+			)
+				return;
+		}
+		run(async () => {
+			f.invite = (await invite(u.name, f.replace)).invite;
+		});
+	}
+
+	/** Registers another passkey for yourself, here. */
+	const addHere = (u: User) =>
+		run(async () => {
+			const made = await invite(u.name, false);
+			await goto(resolve('/invite/[code]', { code: made.invite.code }));
+		});
+
+	function removeUser(u: User) {
+		const yourself = u.id === me ? ' This is you: you’ll be signed out.' : '';
+		if (!confirm(`Delete ${u.name}? Their passkeys and tokens stop working.${yourself}`)) return;
+		run(async () => {
+			done(await api.DELETE('/api/v1/users/{id}', { params: { path: { id: u.id } } }));
+			userForm = null;
+			if (u.id === me) signOut();
+		});
+	}
+
+	function removePasskey(u: User, p: Schemas['Passkey']) {
 		if (!confirm(`Delete ${u.name}’s passkey “${p.name}”? It stops working at once.`)) return;
 		run(async () =>
 			done(await api.DELETE('/api/v1/passkeys/{id}', { params: { path: { id: p.id } } }))
 		);
 	}
 
-	const makeToken = () =>
+	/** Makes the token; its form stays open, showing it once. */
+	const saveToken = () =>
 		run(async () => {
-			const t = making ?? { name: '', days: 0 };
-			made = ok(
-				await api.POST('/api/v1/tokens', { body: { name: t.name.trim(), ttl_days: t.days } })
+			const f = tokenForm;
+			if (!f) return;
+			if (f.id) {
+				tokenForm = null;
+				return;
+			}
+			const made = ok(
+				await api.POST('/api/v1/tokens', { body: { name: f.name.trim(), ttl_days: f.days } })
 			);
-			making = null;
+			tokenForm = { id: made.id, name: made.name, days: f.days, secret: made.token };
 		});
 
 	function revoke(t: Token) {
@@ -121,6 +166,7 @@
 		if (!confirm(`Revoke “${t.name}”? It stops working at once.${yours}`)) return;
 		run(async () => {
 			done(await api.DELETE('/api/v1/tokens/{id}', { params: { path: { id: t.id } } }));
+			tokenForm = null;
 			if (t.id === mine) signOut();
 		});
 	}
@@ -128,7 +174,7 @@
 	function revokeAll() {
 		if (
 			!confirm(
-				'Revoke every token? Everyone is signed out, you included, and every CLI and script stops working. Passkeys still sign in.'
+				'Revoke every token? Everyone is signed out, you included, and every CLI and script stops working.'
 			)
 		)
 			return;
@@ -138,197 +184,254 @@
 		});
 	}
 
+	/** The full link to open on the invited person's device. */
+	const link = (i: Invite) =>
+		new URL(resolve('/invite/[code]', { code: i.code }), document.baseURI).href;
+
 	async function copy(text: string) {
 		await navigator.clipboard?.writeText(text).catch(() => {});
 	}
 </script>
 
-<h1>Security</h1>
-<p class="muted intro">
-	Who can sign in, and every token that works for them. A token is how the server knows who is
-	asking: each browser signed in has one, so does each CLI after <code>exchequer login</code>, and
-	so does each script. Every token expires; revoking one stops it at once.
-</p>
-
-<div class="heading">
-	<h2>Users</h2>
-	<button type="button" disabled={!users || adding !== null} onclick={() => (adding = '')}
-		>Add user</button
+{#snippet userFields(f: UserForm, u?: User)}
+	<RowForm
+		label={u ? `Edit ${u.name}` : 'Add user'}
+		{busy}
+		{failure}
+		onsave={saveUser}
+		oncancel={() => openUser(null)}
 	>
-</div>
-<p class="muted intro">
-	Each person signs in with a passkey; an invite link adds one on a new device or replaces lost
-	ones. Links work once, for 24 hours.
-</p>
-
-{#if adding !== null}
-	<form
-		class="card add"
-		onsubmit={(e) => {
-			e.preventDefault();
-			add();
-		}}
-	>
-		<label class="field grow">
-			<span>Name</span>
-			<!-- svelte-ignore a11y_autofocus -->
-			<input bind:value={adding} maxlength="64" required autofocus />
-		</label>
-		<button type="submit" disabled={busy}>Add and make an invite</button>
-		<button type="button" class="quiet" onclick={() => (adding = null)}>Cancel</button>
-	</form>
-{/if}
-
-{#if failure}<Failure error={failure} />{/if}
-
-{#if users}
-	{#each users as u (u.id)}
-		<section class="card">
-			<div class="heading">
-				<h3>
-					{u.name}{#if u.id === me}<span class="muted"> (you)</span>{/if}
-				</h3>
-				<div class="actions">
-					{#if u.id === me}
-						<button class="link" onclick={() => addHere(u)} disabled={busy}
-							>Add a passkey here</button
-						>
-					{/if}
-					<button class="link" onclick={() => newInvite(u)} disabled={busy}>New invite link</button>
-					<button class="link danger" onclick={() => removeUser(u)} disabled={busy}>Remove</button>
-				</div>
-			</div>
-			{#if invites[u.id]}
-				{@const i = invites[u.id]}
-				<p class="invite">
-					Open on {u.name}’s device, before {new Date(i.expires_at).toLocaleString()}:
-					<code>{link(i)}</code>
-					<button class="link" onclick={() => copy(link(i))}>Copy</button>
-				</p>
+		<div class="fields">
+			<label class="field grow">
+				<span>Name</span>
+				<!-- A user's name is set when they're added. -->
+				<!-- svelte-ignore a11y_autofocus -->
+				<input bind:value={f.name} maxlength="64" required disabled={!!u} autofocus={!u} />
+			</label>
+			{#if u}
+				<label class="check"
+					><input type="checkbox" bind:checked={f.replace} /> Invite replaces their passkeys</label
+				>
 			{/if}
+		</div>
+		{#if f.invite}
+			<p class="secret">
+				Open once on {f.name}’s device, before {new Date(f.invite.expires_at).toLocaleString()}:
+				<code>{link(f.invite)}</code>
+				<button type="button" class="link" onclick={() => f.invite && copy(link(f.invite))}
+					>Copy</button
+				>
+			</p>
+		{/if}
+		{#if u}
 			{#if u.passkeys.length}
-				<table class="list">
+				<table class="passkeys">
 					<thead><tr><th>Passkey</th><th>Added</th><th>Last used</th><th></th></tr></thead>
 					<tbody>
 						{#each u.passkeys as p (p.id)}
 							<tr>
 								<td>{p.name}</td>
 								<td>{localDate(p.created_at)}</td>
-								<td>{p.last_used_at ? localDate(p.last_used_at) : '—'}</td>
+								<td
+									>{#if p.last_used_at}{localDate(p.last_used_at)}{:else}<NoValue
+											kind="none"
+										/>{/if}</td
+								>
 								<td class="actions">
-									<button class="link danger" onclick={() => removePasskey(u, p)} disabled={busy}
-										>Delete</button
+									<button
+										type="button"
+										class="link danger"
+										onclick={() => removePasskey(u, p)}
+										disabled={busy}>Delete</button
 									>
 								</td>
 							</tr>
 						{/each}
 					</tbody>
 				</table>
+				<p class="muted hint">A passkey is deleted at once.</p>
 			{:else}
-				<p class="muted">No passkey yet: send them an invite link.</p>
+				<p class="muted hint">No passkey yet: invite them.</p>
 			{/if}
-		</section>
-	{:else}
-		<p class="muted">Nobody signs in with a passkey yet.</p>
-	{/each}
-{:else if !failure}
-	<p class="muted">Loading…</p>
-{/if}
+		{/if}
+		{#snippet actions()}
+			{#if u}
+				{#if u.id === me}
+					<button type="button" class="quiet" onclick={() => addHere(u)} disabled={busy}
+						>Add a passkey here</button
+					>
+				{/if}
+				<button type="button" class="quiet" onclick={() => inviteUser(u, f)} disabled={busy}
+					>Invite</button
+				>
+				<button type="button" class="quiet danger" onclick={() => removeUser(u)} disabled={busy}
+					>Delete</button
+				>
+			{/if}
+		{/snippet}
+		{#snippet facts()}
+			{#if u}<span>Added {localDate(u.created_at)}</span><span>ID {u.id}</span>{/if}
+		{/snippet}
+	</RowForm>
+{/snippet}
 
-<div class="heading">
-	<h2>Tokens</h2>
-	<button
-		type="button"
-		disabled={!tokens || making !== null}
-		onclick={() => (making = { name: '', days: 90 })}>New token for a script</button
+{#snippet tokenFields(f: TokenForm, t?: Token)}
+	<RowForm
+		label={t ? `Edit ${t.name}` : 'Add token'}
+		{busy}
+		{failure}
+		onsave={saveToken}
+		oncancel={() => openToken(null)}
 	>
-</div>
-<p class="muted intro">
-	A token for a script is yours, and works for the days you choose, at most 365. The CLI makes its
-	own with <code>exchequer login</code>; a browser, when you sign in.
-</p>
+		<div class="fields">
+			<label class="field grow">
+				<span>Name</span>
+				<!-- A token's name and time to live are set when it's made. -->
+				<!-- svelte-ignore a11y_autofocus -->
+				<input bind:value={f.name} maxlength="64" required disabled={!!t} autofocus={!t} />
+			</label>
+			{#if !t}
+				<label class="field">
+					<span>Days it works</span>
+					<input type="number" bind:value={f.days} min="1" max="365" required />
+				</label>
+			{/if}
+		</div>
+		{#if f.secret}
+			<p class="secret">
+				Shown only now; copy it: <code>{f.secret}</code>
+				<button type="button" class="link" onclick={() => f.secret && copy(f.secret)}>Copy</button>
+			</p>
+		{/if}
+		{#snippet actions()}
+			{#if t && working(t)}
+				<button type="button" class="quiet danger" onclick={() => revoke(t)} disabled={busy}
+					>Revoke</button
+				>
+			{/if}
+		{/snippet}
+		{#snippet facts()}
+			{#if t}
+				<span>{KINDS[t.kind]} of {owner(t) ?? 'nobody'}</span>
+				<span>Created {localDate(t.created_at)}</span>
+				<span>Expires {localDate(t.expires_at)}</span>
+				{#if t.revoked_at}<span>Revoked {localDate(t.revoked_at)}</span>{/if}
+				<span>ID {t.id}</span>
+			{/if}
+		{/snippet}
+	</RowForm>
+{/snippet}
 
-{#if making !== null}
-	<form
-		class="card add"
-		onsubmit={(e) => {
-			e.preventDefault();
-			makeToken();
-		}}
-	>
-		<label class="field grow">
-			<span>What uses it</span>
-			<!-- svelte-ignore a11y_autofocus -->
-			<input bind:value={making.name} maxlength="64" required autofocus />
-		</label>
-		<label class="field">
-			<span>Days it works</span>
-			<input type="number" bind:value={making.days} min="1" max="365" required />
-		</label>
-		<button type="submit" disabled={busy}>Make it</button>
-		<button type="button" class="quiet" onclick={() => (making = null)}>Cancel</button>
-	</form>
-{/if}
+<h1>Security</h1>
 
-{#if made}
-	<p class="card invite">
-		<strong>{made.name}</strong>, until {new Date(made.expires_at).toLocaleString()}. Copy it now:
-		it’s shown only once.
-		<code>{made.token}</code>
-		<button class="link" onclick={() => made && copy(made.token)}>Copy</button>
+{#if users && tokens}
+	<div class="heading">
+		<h2>Users</h2>
+		<button
+			type="button"
+			disabled={userForm?.id === null}
+			onclick={() => openUser({ id: null, name: '', replace: false, invite: null })}
+			>Add user</button
+		>
+	</div>
+	<p class="muted intro">
+		Each signs in with a passkey; an invite link, once, for 3 hours, adds one.
 	</p>
-{/if}
+	<div class="card">
+		<table class="list">
+			<thead><tr><th>Name</th><th>Passkeys</th><th>Added</th><th></th></tr></thead>
+			<tbody>
+				{#if userForm && userForm.id === null}
+					<tr class="open"><td colspan="4">{@render userFields(userForm)}</td></tr>
+				{/if}
+				{#each users as u (u.id)}
+					<tr>
+						<td
+							>{u.name}{#if u.id === me}<span class="muted"> (you)</span>{/if}</td
+						>
+						<td>{u.passkeys.length}</td>
+						<td>{localDate(u.created_at)}</td>
+						<td class="actions">
+							<button class="link" aria-expanded={userForm?.id === u.id} onclick={() => editUser(u)}
+								>Edit</button
+							>
+						</td>
+					</tr>
+					{#if userForm && userForm.id === u.id}
+						<tr class="open"><td colspan="4">{@render userFields(userForm, u)}</td></tr>
+					{/if}
+				{/each}
+			</tbody>
+		</table>
+	</div>
 
-{#if tokens}
+	<div class="heading">
+		<h2>Tokens</h2>
+		<button
+			type="button"
+			disabled={tokenForm?.id === null}
+			onclick={() => openToken({ id: null, name: '', days: 90, secret: null })}>Add token</button
+		>
+	</div>
+	<p class="muted intro">Sessions, CLIs and scripts. Each expires; a revoked one stops at once.</p>
 	<label class="toggle"
 		><input type="checkbox" bind:checked={everything} /> Show revoked and expired</label
 	>
-	{#if shown.length}
+	<div class="card">
 		<table class="list">
 			<thead>
-				<tr
-					><th>Token</th><th>User</th><th>Kind</th><th>Created</th><th>Last used</th><th>Expires</th
-					><th></th></tr
-				>
+				<tr>
+					<th>Token</th><th>User</th><th>Kind</th><th>Created</th><th>Last used</th><th>Expires</th
+					><th></th>
+				</tr>
 			</thead>
 			<tbody>
+				{#if tokenForm && tokenForm.id === null}
+					<tr class="open"><td colspan="7">{@render tokenFields(tokenForm)}</td></tr>
+				{/if}
 				{#each shown as t (t.id)}
 					<tr class:muted={!working(t)}>
 						<td
 							>{t.name}{#if t.id === mine}<span class="muted"> (this browser)</span>{/if}</td
 						>
-						<td>{owner(t)}</td>
+						<td
+							>{#if owner(t)}{owner(t)}{:else}<NoValue kind="none" />{/if}</td
+						>
 						<td>{KINDS[t.kind]}</td>
 						<td>{localDate(t.created_at)}</td>
-						<td>{t.last_used_at ? localDate(t.last_used_at) : '—'}</td>
-						<td>{localDate(t.expires_at)}</td>
+						<td
+							>{#if t.last_used_at}{localDate(t.last_used_at)}{:else}<NoValue
+									kind="none"
+								/>{/if}</td
+						>
+						<td>{t.revoked_at ? 'revoked' : localDate(t.expires_at)}</td>
 						<td class="actions">
-							{#if t.revoked_at}
-								revoked {localDate(t.revoked_at)}
-							{:else if working(t)}
-								<button class="link danger" onclick={() => revoke(t)} disabled={busy}>Revoke</button
-								>
-							{:else}
-								expired
-							{/if}
+							<button
+								class="link"
+								aria-expanded={tokenForm?.id === t.id}
+								onclick={() => editToken(t)}>Edit</button
+							>
 						</td>
 					</tr>
+					{#if tokenForm && tokenForm.id === t.id}
+						<tr class="open"><td colspan="7">{@render tokenFields(tokenForm, t)}</td></tr>
+					{/if}
 				{/each}
 			</tbody>
 		</table>
-	{:else}
-		<p class="muted">No tokens.</p>
-	{/if}
+	</div>
 
-	<section class="card kill">
-		<h3>Revoke every token</h3>
-		<p class="muted">
-			If a token may have leaked. Everyone is signed out, you included, and every CLI and script
-			stops working. Passkeys still sign in; the CLI signs in again with
-			<code>exchequer login</code>, and scripts need new tokens.
-		</p>
-		<button onclick={revokeAll} disabled={busy}>Revoke all tokens</button>
-	</section>
+	<div class="heading">
+		<h2>Every token</h2>
+		<button type="button" class="kill" onclick={revokeAll} disabled={busy}>Revoke all tokens</button
+		>
+	</div>
+	<p class="muted intro">If one leaked: everyone is signed out; passkeys still sign in.</p>
+	{#if failure && !userForm && !tokenForm}<Failure error={failure} />{/if}
+{:else if loadFailure}
+	<Failure error={loadFailure} />
+{:else}
+	<p class="muted">Loading…</p>
 {/if}
 
 <style>
@@ -336,44 +439,46 @@
 		display: flex;
 		align-items: baseline;
 		justify-content: space-between;
-		flex-wrap: wrap;
-		gap: var(--space-2) var(--space-4);
+		gap: var(--space-4);
+		margin-top: var(--space-5);
 	}
 	.intro {
-		margin-bottom: var(--space-4);
+		margin-bottom: var(--space-3);
 	}
 	.card {
 		margin-bottom: var(--space-4);
+		background: var(--color-surface);
+		border: var(--border-width) solid var(--color-border);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-1);
+		overflow-x: auto;
 	}
-	.add {
-		display: flex;
-		align-items: end;
-		flex-wrap: wrap;
-		gap: var(--space-3);
+	.list {
+		min-width: 36rem;
+	}
+	.open td {
+		border-top: none;
+		padding-top: 0;
 	}
 	.actions {
-		display: flex;
-		gap: var(--space-3);
+		text-align: right;
 		white-space: nowrap;
-	}
-	td.actions {
-		justify-content: end;
-	}
-	.invite {
-		overflow-wrap: anywhere;
-	}
-	h2 {
-		margin-top: var(--space-6);
 	}
 	.toggle {
 		display: block;
 		margin-bottom: var(--space-2);
 		font-size: var(--text-sm);
 	}
-	.kill {
-		margin-top: var(--space-6);
+	.secret {
+		overflow-wrap: anywhere;
 	}
-	.kill button {
+	.passkeys {
+		margin-bottom: var(--space-2);
+	}
+	.hint {
+		font-size: var(--text-sm);
+	}
+	.kill {
 		border-color: var(--color-negative);
 		background: var(--color-negative);
 	}

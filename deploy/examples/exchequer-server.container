@@ -23,17 +23,15 @@ HealthStartPeriod=60s
 HealthOnFailure=kill
 Notify=healthy
 Secret=exchequer_db_password
-Secret=exchequer_bootstrap_token
 Environment=EXCHEQUER_BIND=0.0.0.0:7438
 # The household's time zone: what "today" and a bank file's dates mean. The
 # image has no time zone files; the server has the names built in.
 Environment=TZ=America/New_York
 Environment=DB_HOST=exchequer-db DB_USER=exchequer DB_NAME=exchequer
 Environment=DB_PASSWORD_FILE=/run/secrets/exchequer_db_password
-Environment=BOOTSTRAP_TOKEN_FILE=/run/secrets/exchequer_bootstrap_token
-# Where people open the web app, through the reverse proxy: passkeys are bound
-# to its host (design §10). Unset, passkey sign-in is off and only tokens work.
-#Environment=EXCHEQUER_ORIGIN=https://books.example.org/exchequer/
+# Set this: where people open the web app, through the reverse proxy (HTTPS).
+# Passkeys are bound to its host (design §10); unset, nobody can sign in.
+Environment=EXCHEQUER_ORIGIN=https://books.example.org/exchequer/
 # Optional: remote AI (docs/ai.md), a decision model on Azure AI Foundry. All
 # three or none; the key is a podman secret.
 #Secret=exchequer_remote_ai_key

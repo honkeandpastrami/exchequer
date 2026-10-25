@@ -11,10 +11,9 @@
 //! can't be guessed, so a fast hash is just as safe, and costs microseconds
 //! per request instead of milliseconds.
 //!
-//! Everything under `/auth` is how a token is obtained, so it needs none. The
-//! bootstrap token (a podman secret) is accepted only on `/users`: to add the
-//! first user, whose invite registers a passkey. Every token then comes from
-//! a signed-in user.
+//! Everything under `/auth` is how a token is obtained, so it needs none.
+//! Every token comes from a signed-in user; the first user signs in with an
+//! invite made on the server (`exchequer-server invite`).
 
 use axum::extract::{Request, State};
 use axum::http::header;
@@ -29,21 +28,16 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::problem::Problem;
 
-/// Who is making the request; available to handlers as an extension.
+/// Who is making the request: their token. Available to handlers as an
+/// extension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Principal {
-    Token(TokenId),
-    Bootstrap,
-}
+pub struct Principal(pub TokenId);
 
 impl Principal {
-    /// The token recorded in the audit log (`None` for bootstrap).
+    /// The token recorded in the audit log.
     #[must_use]
     pub const fn actor(self) -> Option<TokenId> {
-        match self {
-            Self::Token(id) => Some(id),
-            Self::Bootstrap => None,
-        }
+        Some(self.0)
     }
 }
 
@@ -144,29 +138,16 @@ pub async fn require(
         })
         .ok_or_else(Problem::unauthorized)?;
 
-    let principal = if let Some(boot) = &state.bootstrap_token
-        && bool::from(presented.as_bytes().ct_eq(boot.as_bytes()))
-    {
-        let path = req.uri().path();
-        let users = path == "/users" || path.starts_with("/users/");
-        if !users {
-            return Err(Problem::forbidden(
-                "the bootstrap token can only manage users; sign in with a passkey",
-            ));
-        }
-        Principal::Bootstrap
-    } else {
-        let id = id_of(Kind::Token, presented).ok_or_else(Problem::unauthorized)?;
-        let row = store::tokens::find(&state.pool, TokenId::from_uuid(id))
-            .await?
-            .filter(|t| t.active(OffsetDateTime::now_utc()))
-            .ok_or_else(Problem::unauthorized)?;
-        if !check(Kind::Token, presented, |_| Some(row.secret_hash)) {
-            return Err(Problem::unauthorized());
-        }
-        store::tokens::used(&state.pool, row.id).await?;
-        Principal::Token(row.id)
-    };
+    let id = id_of(Kind::Token, presented).ok_or_else(Problem::unauthorized)?;
+    let row = store::tokens::find(&state.pool, TokenId::from_uuid(id))
+        .await?
+        .filter(|t| t.active(OffsetDateTime::now_utc()))
+        .ok_or_else(Problem::unauthorized)?;
+    if !check(Kind::Token, presented, |_| Some(row.secret_hash)) {
+        return Err(Problem::unauthorized());
+    }
+    store::tokens::used(&state.pool, row.id).await?;
+    let principal = Principal(row.id);
 
     req.extensions_mut().insert(principal);
     Ok(next.run(req).await)

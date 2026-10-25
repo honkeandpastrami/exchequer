@@ -1,5 +1,6 @@
 -- Every token expires, belongs to a user, and records when it was last used
--- (design §10). The bootstrap token no longer makes tokens.
+-- (design §10). There's no bootstrap token: an invite made on the server
+-- (`exchequer-server invite`) is the way in, and the way back in.
 
 ALTER TABLE api_token
     ADD COLUMN kind         text,
@@ -34,3 +35,7 @@ ALTER TABLE api_token
 DELETE FROM device_sign_in;
 ALTER TABLE device_sign_in
     ADD COLUMN ttl_days integer NOT NULL CHECK (ttl_days > 0);
+
+-- An invite that replaces: using it removes its user's other passkeys and
+-- revokes their tokens (a lost device).
+ALTER TABLE invite ADD COLUMN replace boolean NOT NULL DEFAULT false;

@@ -14,8 +14,6 @@ use tower::ServiceExt;
 
 use common::{new_token as create_token, script_token};
 
-const BOOTSTRAP: &str = "bootstrap-token-for-tests-0123456789abcdef";
-
 struct Response {
     status: StatusCode,
     headers: axum::http::HeaderMap,
@@ -31,7 +29,6 @@ async fn call(
 ) -> Response {
     let app = api::app(api::AppState {
         pool: pool.clone(),
-        bootstrap_token: Some(BOOTSTRAP.into()),
         passkeys: None,
         zone: jiff::tz::TimeZone::get("America/New_York").unwrap(),
         suggestions: api::Suggestions::default(),
@@ -250,26 +247,6 @@ async fn a_script_cannot_make_tokens(pool: PgPool) {
     )
     .await;
     assert_eq!(r.status, StatusCode::FORBIDDEN, "{}", r.body);
-}
-
-#[sqlx::test(migrator = "store::MIGRATOR")]
-async fn bootstrap_token_only_manages_users(pool: PgPool) {
-    let r = call(&pool, "GET", "/api/v1/users", Some(BOOTSTRAP), None).await;
-    assert_eq!(r.status, StatusCode::OK);
-    for path in ["/api/v1/tokens", "/api/v1/no-such-thing"] {
-        let r = call(&pool, "GET", path, Some(BOOTSTRAP), None).await;
-        assert_eq!(r.status, StatusCode::FORBIDDEN, "{path}");
-        assert_eq!(r.body["type"], "urn:exchequer:problem:forbidden");
-    }
-    let r = call(
-        &pool,
-        "POST",
-        "/api/v1/tokens",
-        Some(BOOTSTRAP),
-        Some(json!({ "name": "script", "ttl_days": 30 })),
-    )
-    .await;
-    assert_eq!(r.status, StatusCode::FORBIDDEN);
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]

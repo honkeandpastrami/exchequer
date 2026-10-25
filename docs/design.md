@@ -709,10 +709,19 @@ A pluggable middleware layer: every request resolves to a principal or is reject
   server keeps its credential ID, public key and signature counter, nothing secret, so a
   leaked database lets no one sign in. A user is a household member with a name; the audit
   log ties every change to one through its token.
-- **Invites.** A user is added with a one-time invite link, valid for 24 hours: opening it
-  registers a passkey for that user. Nobody registers without one. The same kind of link
-  adds a passkey on another device, or replaces lost ones. Removing a user deletes their
-  passkeys and revokes their tokens.
+- **Invites are the one way in.** An invite names a person: it adds them as a user if
+  there's none by that name, and gives a one-time link, valid for 3 hours, that registers
+  a passkey for them. Nobody registers without one. A user already there gets another
+  passkey, on another device; an invite that **replaces** (for lost passkeys) also, when
+  its link is used, removes their other passkeys and revokes their tokens. Until then
+  nothing changes. Removing a user deletes their passkeys and revokes their tokens. A
+  removed user's name stays taken: the audit log refers to them.
+- **Invites are made two ways, by the same code:** signed in, in Setup → Security
+  (`POST /invites`); or on the server, `exchequer-server invite NAME [--replace]`, run
+  with `podman exec`. The server command is the bootstrap: it invites the first user, and
+  anyone who lost every passkey. Shell access to the server is the authority, which can
+  read the database and every secret anyway, so there's **no bootstrap token**: nothing
+  that works over the network is left lying around.
 - **Sign-in** is usernameless: the browser offers the passkeys it holds for the server's
   domain. Success creates a **session**, a token that belongs to the user and expires after
   30 days; signing out revokes it.
@@ -722,14 +731,14 @@ A pluggable middleware layer: every request resolves to a principal or is reject
 - **Passkeys are bound to the server's domain:** `EXCHEQUER_ORIGIN` (e.g.
   `https://books.example.org`, or `http://localhost:5173` in development; a path under it
   is fine). Moving to another domain means registering again. Without it, passkey sign-in
-  is off, and with it every way to get a new token: only tokens made before keep working.
+  is off, and so is every way in: only tokens made before keep working.
 - **Bearer tokens** underlie everything, of three kinds: **sessions** (a browser signed in),
   **the CLI's** (`exchequer login`) and **scripts'** (made by hand, in Setup → Security or
   with `exchequer tokens create`). Each **belongs to a user**: the one who signed in,
   approved the CLI, or made it. Only a session or the CLI's token makes tokens or approves
-  the CLI: a leaked script's token can't outlive its expiry. They're stored **hashed** (SHA-256: the secrets are 256
-  random bits, so a slow password hash adds cost without adding safety), named, and shown
-  once. Invite links and the CLI's device codes are stored hashed too; a ceremony's
+  the CLI: a leaked script's token can't outlive its expiry. They're stored **hashed**
+  (SHA-256: the secrets are 256 random bits, so a slow password hash adds cost without
+  adding safety), named, and shown once. Invite links and the CLI's device codes are stored hashed too; a ceremony's
   challenge lives in the database for five minutes and is used once.
 - **Every token expires.** Its time to live is chosen when it's made: 30 days for a
   session; for the CLI's and scripts', what the person making it asks for, at most 365
@@ -742,13 +751,11 @@ A pluggable middleware layer: every request resolves to a principal or is reject
   every token at once, everyone's, the caller's too: everyone is signed out and every CLI
   and script stops; passkeys still sign in, and the CLI signs in again with
   `exchequer login`.
-- **Bootstrap: one way in, for passkeys and tokens alike.** The bootstrap token from a
-  podman secret (§14.1) is accepted only for managing users: it adds the first user, whose
-  invite registers their passkey. Every token then comes from a signed-in user, so the
-  first token follows the first passkey: a session when they sign in, the CLI's when they
-  approve `exchequer login`, a script's when they make one. Someone who lost every
-  passkey gets a new invite from another user, or from the bootstrap token. The steps are
-  in [`deploy/README.md`](../deploy/README.md#install), step 6.
+- **Bootstrap: the same for passkeys and tokens.** Every token comes from a signed-in
+  user, so the first token follows the first passkey: `exchequer-server invite` invites
+  the first user, their passkey signs them in (a session), and from there they approve
+  `exchequer login` and make scripts' tokens. The steps are in
+  [`deploy/README.md`](../deploy/README.md#install), step 6.
 - **TLS** is terminated by the operator's existing reverse proxy. Passkeys require it.
 
 **One ledger, several people.** Everyone signed in sees and edits everything, users
@@ -885,13 +892,11 @@ secrets**, generated on the host once and handed to containers as files under
 | Secret | Consumers |
 |---|---|
 | `exchequer_db_password` | db (sets it), api (connects), backup (dumps) |
-| `exchequer_bootstrap_token` | api (the first user, §10) |
 | `exchequer_remote_ai_key` | api (optional: remote AI, §8) |
 | `exchequer_tiingo_api_key` | api (optional: the Tiingo price source, §3.4); each keyed price source has its own, `exchequer_<source>_api_key` |
 
 ```bash
 openssl rand -base64 32 | tr -d '\n' | podman secret create exchequer_db_password -
-openssl rand -base64 32 | tr -d '\n' | podman secret create exchequer_bootstrap_token -
 podman secret create exchequer_remote_ai_key -   # pasted once, reads stdin
 podman secret create exchequer_tiingo_api_key -
 ```
@@ -909,7 +914,6 @@ Network=exchequer.network
 # exchequer-server.container
 [Container]
 Secret=exchequer_db_password
-Secret=exchequer_bootstrap_token
 Environment=DB_HOST=exchequer-db DB_USER=exchequer DB_NAME=exchequer
 Environment=DB_PASSWORD_FILE=/run/secrets/exchequer_db_password
 Environment=TZ=America/New_York

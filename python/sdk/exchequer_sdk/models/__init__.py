@@ -29,7 +29,6 @@ from .commodity_kind import CommodityKind
 from .commodity_update import CommodityUpdate
 from .counterparty import Counterparty
 from .created_token import CreatedToken
-from .created_user import CreatedUser
 from .credit_limit import CreditLimit
 from .decision import Decision
 from .decision_suggestion import DecisionSuggestion
@@ -58,6 +57,7 @@ from .import_fingerprints_added import ImportFingerprintsAdded
 from .imported_row import ImportedRow
 from .imported_row_raw_type_0 import ImportedRowRawType0
 from .invite import Invite
+from .invited import Invited
 from .kind import Kind
 from .kind_name import KindName
 from .label import Label
@@ -77,6 +77,7 @@ from .new_commodity import NewCommodity
 from .new_counterparty import NewCounterparty
 from .new_import_batch import NewImportBatch
 from .new_import_fingerprints import NewImportFingerprints
+from .new_invite import NewInvite
 from .new_number import NewNumber
 from .new_party import NewParty
 from .new_price import NewPrice
@@ -84,7 +85,6 @@ from .new_split import NewSplit
 from .new_tag import NewTag
 from .new_token import NewToken
 from .new_transaction import NewTransaction
-from .new_user import NewUser
 from .number import Number
 from .page_account import PageAccount
 from .page_account_items_item import PageAccountItemsItem
@@ -201,7 +201,6 @@ __all__ = (
     "CommodityUpdate",
     "Counterparty",
     "CreatedToken",
-    "CreatedUser",
     "CreditLimit",
     "Decision",
     "DecisionSuggestion",
@@ -230,6 +229,7 @@ __all__ = (
     "ImportFingerprint",
     "ImportFingerprintsAdded",
     "Invite",
+    "Invited",
     "Kind",
     "KindName",
     "Label",
@@ -249,6 +249,7 @@ __all__ = (
     "NewCounterparty",
     "NewImportBatch",
     "NewImportFingerprints",
+    "NewInvite",
     "NewNumber",
     "NewParty",
     "NewPrice",
@@ -256,7 +257,6 @@ __all__ = (
     "NewTag",
     "NewToken",
     "NewTransaction",
-    "NewUser",
     "Number",
     "PageAccount",
     "PageAccountItemsItem",

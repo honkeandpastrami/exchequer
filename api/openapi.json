@@ -3205,6 +3205,72 @@
         ]
       }
     },
+    "/api/v1/invites": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Invite someone: a one-time link, for 3 hours, that registers a passkey.\nIt adds them if there's no such user; for a user already there it adds a\npasskey on another device, or, with `replace`, replaces lost ones.",
+        "operationId": "users_create_invite",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewInvite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invited"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The name was a removed user's",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/me": {
       "get": {
         "tags": [
@@ -6230,70 +6296,6 @@
             "bearer": []
           }
         ]
-      },
-      "post": {
-        "tags": [
-          "users"
-        ],
-        "summary": "Add a user, with an invite for their first passkey.",
-        "operationId": "users_create",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NewUser"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreatedUser"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Name already used",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Unprocessable Entity",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
       }
     },
     "/api/v1/users/{id}": {
@@ -6318,64 +6320,6 @@
         "responses": {
           "204": {
             "description": "No Content"
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/users/{id}/invites": {
-      "post": {
-        "tags": [
-          "users"
-        ],
-        "summary": "A new invite for a user: to add a passkey on another device, or replace\nlost ones. It works once, for 24 hours.",
-        "operationId": "users_invite",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "User ID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Invite"
-                }
-              }
-            }
           },
           "401": {
             "description": "Unauthorized",
@@ -7249,22 +7193,6 @@
           }
         ]
       },
-      "CreatedUser": {
-        "type": "object",
-        "required": [
-          "user",
-          "invite"
-        ],
-        "properties": {
-          "invite": {
-            "$ref": "#/components/schemas/Invite",
-            "description": "Their first invite: opening it registers their first passkey."
-          },
-          "user": {
-            "$ref": "#/components/schemas/User"
-          }
-        }
-      },
       "CreditLimit": {
         "type": "object",
         "description": "A credit card's limit: display metadata, never part of the balance. Only\na `credit_card` account has one (422 otherwise); changing a card to\nanother kind needs the limit cleared, in the same request or before.",
@@ -7997,7 +7925,8 @@
         "required": [
           "user_id",
           "code",
-          "expires_at"
+          "expires_at",
+          "replace"
         ],
         "properties": {
           "code": {
@@ -8008,9 +7937,40 @@
             "type": "string",
             "format": "date-time"
           },
+          "replace": {
+            "type": "boolean",
+            "description": "Using it removes the user's other passkeys and revokes their tokens."
+          },
           "user_id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "Invited": {
+        "type": "object",
+        "description": "An invite made: send `invite.code`'s link to `user`.",
+        "required": [
+          "user",
+          "invite",
+          "added",
+          "tokens"
+        ],
+        "properties": {
+          "added": {
+            "type": "boolean",
+            "description": "Whether the user was added just now."
+          },
+          "invite": {
+            "$ref": "#/components/schemas/Invite"
+          },
+          "tokens": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many of their tokens still work: a `replace` invite revokes them\nwhen it's used."
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
           }
         }
       },
@@ -8215,8 +8175,7 @@
           "token": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Token",
-                "description": "None for the bootstrap token."
+                "$ref": "#/components/schemas/Token"
               },
               {
                 "type": "null"
@@ -8226,8 +8185,7 @@
           "user": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/User",
-                "description": "None for a script's token or the bootstrap token."
+                "$ref": "#/components/schemas/User"
               },
               {
                 "type": "null"
@@ -8475,6 +8433,23 @@
         },
         "additionalProperties": false
       },
+      "NewInvite": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Who it's for, e.g. `Alex`: added if there's no such user yet."
+          },
+          "replace": {
+            "type": "boolean",
+            "description": "Using it removes their other passkeys and revokes their tokens: for\na lost device."
+          }
+        },
+        "additionalProperties": false
+      },
       "NewNumber": {
         "type": "object",
         "required": [
@@ -8658,19 +8633,6 @@
               "type": "string"
             },
             "description": "Tag names; unknown ones are created."
-          }
-        },
-        "additionalProperties": false
-      },
-      "NewUser": {
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "What they're called, e.g. `Alex`. Unique."
           }
         },
         "additionalProperties": false

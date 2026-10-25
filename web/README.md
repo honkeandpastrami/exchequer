@@ -11,9 +11,9 @@ npm run gen      # regenerate src/lib/api/schema.d.ts from ../api/openapi.json
 just web-check   # from the repo root: what CI runs
 ```
 
-Sign in with a passkey (run the API with `EXCHEQUER_ORIGIN=http://localhost:5173` and
-bootstrap a user as in [`deploy/README.md`](../deploy/README.md#install), step 6), or by
-pasting a token; it's kept in the browser's localStorage until you sign out.
+Sign in with a passkey: run the API with `EXCHEQUER_ORIGIN=http://localhost:5173`, and
+invite yourself with `cargo run -p server -- invite NAME` (design §10). Or paste a token.
+Either is kept in the browser's localStorage until you sign out.
 
 ## Layout
 

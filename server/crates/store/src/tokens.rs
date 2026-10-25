@@ -187,13 +187,34 @@ pub async fn revoke_all(db: impl PgExecutor<'_>) -> Result<Vec<TokenRow>, sqlx::
     Ok(rows)
 }
 
-/// Revokes every token of the user; returns how many were still active.
-pub async fn revoke_all_of(db: impl PgExecutor<'_>, user: UserId) -> Result<u64, sqlx::Error> {
-    let done = sqlx::query!(
-        "UPDATE api_token SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+/// Revokes every token of the user still working; returns them as revoked.
+pub async fn revoke_all_of(
+    db: impl PgExecutor<'_>,
+    user: UserId,
+) -> Result<Vec<TokenRow>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        Raw,
+        "UPDATE api_token SET revoked_at = now()
+         WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
+         RETURNING id, name, kind, secret_hash, created_at, revoked_at, user_id, expires_at,
+                   last_used_at",
         user.as_uuid(),
     )
-    .execute(db)
+    .fetch_all(db)
     .await?;
-    Ok(done.rows_affected())
+    let mut rows: Vec<_> = rows.into_iter().map(TokenRow::from).collect();
+    rows.sort_by_key(|r| r.id);
+    Ok(rows)
+}
+
+/// How many of the user's tokens still work.
+pub async fn working_of(db: impl PgExecutor<'_>, user: UserId) -> Result<i64, sqlx::Error> {
+    let n = sqlx::query_scalar!(
+        r#"SELECT count(*) AS "n!" FROM api_token
+           WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()"#,
+        user.as_uuid(),
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(n)
 }

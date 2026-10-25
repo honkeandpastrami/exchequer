@@ -1,11 +1,12 @@
-//! `/api/v1/users`, `/passkeys`, `/me` and `/devices`: who can sign in
-//! (design §10). Everyone signed in manages everyone, like the rest of the
-//! ledger.
+//! `/api/v1/users`, `/invites`, `/passkeys`, `/me` and `/devices`: who can
+//! sign in (design §10). Everyone signed in manages everyone, like the rest
+//! of the ledger. An invite is the one way in: it adds the user if need be,
+//! and registers a passkey; `exchequer-server invite` makes one on the server.
 
 use axum::Extension;
 use axum::extract::State;
 use axum::http::StatusCode;
-use domain::{PasskeyId, UserId};
+use domain::{PasskeyId, TokenId, UserId};
 use serde::{Deserialize, Serialize};
 use store::audit::{self, Action};
 use store::users::{PasskeyRow, UserRow};
@@ -21,13 +22,13 @@ use crate::problem::{Json, Path, Problem, is_unique_violation};
 use crate::tokens::{Token, person_of};
 
 /// How long an invite link works.
-const INVITE_LIFE: Duration = Duration::hours(24);
+const INVITE_LIFE: Duration = Duration::hours(3);
 
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
-        .routes(routes!(list, create))
+        .routes(routes!(list))
         .routes(routes!(remove))
-        .routes(routes!(invite))
+        .routes(routes!(create_invite))
         .routes(routes!(remove_passkey))
         .routes(routes!(me))
         .routes(routes!(sign_out))
@@ -38,11 +39,11 @@ pub fn routes() -> OpenApiRouter<AppState> {
 /// A household member who signs in.
 #[derive(Serialize, ToSchema)]
 pub struct User {
-    id: Uuid,
-    name: String,
+    pub id: Uuid,
+    pub name: String,
     #[serde(with = "time::serde::rfc3339")]
     created_at: OffsetDateTime,
-    passkeys: Vec<Passkey>,
+    pub passkeys: Vec<Passkey>,
 }
 
 impl User {
@@ -87,31 +88,40 @@ impl From<&PasskeyRow> for Passkey {
 pub struct Invite {
     user_id: Uuid,
     /// Shown only in this response.
-    code: String,
+    pub code: String,
     #[serde(with = "time::serde::rfc3339")]
-    expires_at: OffsetDateTime,
+    pub expires_at: OffsetDateTime,
+    /// Using it removes the user's other passkeys and revokes their tokens.
+    replace: bool,
 }
 
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
-pub struct NewUser {
-    /// What they're called, e.g. `Alex`. Unique.
+pub struct NewInvite {
+    /// Who it's for, e.g. `Alex`: added if there's no such user yet.
     name: String,
+    /// Using it removes their other passkeys and revokes their tokens: for
+    /// a lost device.
+    #[serde(default)]
+    replace: bool,
 }
 
+/// An invite made: send `invite.code`'s link to `user`.
 #[derive(Serialize, ToSchema)]
-pub struct CreatedUser {
-    user: User,
-    /// Their first invite: opening it registers their first passkey.
-    invite: Invite,
+pub struct Invited {
+    pub user: User,
+    pub invite: Invite,
+    /// Whether the user was added just now.
+    pub added: bool,
+    /// How many of their tokens still work: a `replace` invite revokes them
+    /// when it's used.
+    pub tokens: i64,
 }
 
 /// Who the request's token belongs to.
 #[derive(Serialize, ToSchema)]
 pub struct Me {
-    /// None for a script's token or the bootstrap token.
     user: Option<User>,
-    /// None for the bootstrap token.
     token: Option<Token>,
 }
 
@@ -143,23 +153,69 @@ pub(crate) fn valid_name(name: &str) -> Result<&str, Problem> {
     Ok(name)
 }
 
-async fn make_invite(
+/// Invites `name`, adding them if there's no such user: the one way in, for
+/// `POST /invites` and `exchequer-server invite` alike. `actor` is `None` on
+/// the server.
+pub async fn invite(
     tx: &mut sqlx::PgConnection,
-    principal: Principal,
-    user: UserId,
-) -> Result<Invite, Problem> {
+    actor: Option<TokenId>,
+    name: &str,
+    replace: bool,
+) -> Result<Invited, Problem> {
+    let name = valid_name(name)?;
+    let (row, added) = match store::users::find_by_name(&mut *tx, name).await? {
+        Some(u) if u.removed_at.is_some() => {
+            return Err(Problem::conflict(format!(
+                "{name:?} was removed, and the name stays taken; choose another"
+            )));
+        }
+        Some(u) => (u, false),
+        None => {
+            let row = store::users::insert(&mut *tx, UserId::new(), name)
+                .await
+                .map_err(|e| {
+                    if is_unique_violation(&e) {
+                        Problem::conflict("someone just added that name; try again")
+                    } else {
+                        e.into()
+                    }
+                })?;
+            audit::record(
+                &mut *tx,
+                audit::Entry {
+                    actor,
+                    action: Action::Create,
+                    entity: "user",
+                    entity_id: *row.id.as_uuid(),
+                    before: None,
+                    after: Some(json(&User::new(row.clone(), &[]))?),
+                },
+            )
+            .await?;
+            (row, true)
+        }
+    };
     let secret = auth::generate(auth::Kind::Invite)?;
     let expires_at = OffsetDateTime::now_utc() + INVITE_LIFE;
-    store::users::insert_invite(&mut *tx, secret.id, user, &secret.hash, expires_at).await?;
+    store::users::insert_invite(
+        &mut *tx,
+        secret.id,
+        row.id,
+        &secret.hash,
+        expires_at,
+        replace,
+    )
+    .await?;
     let invite = Invite {
-        user_id: *user.as_uuid(),
+        user_id: *row.id.as_uuid(),
         code: secret.text,
         expires_at,
+        replace,
     };
     audit::record(
         &mut *tx,
         audit::Entry {
-            actor: principal.actor(),
+            actor,
             action: Action::Create,
             entity: "invite",
             entity_id: secret.id,
@@ -168,11 +224,19 @@ async fn make_invite(
             after: Some(serde_json::json!({
                 "user_id": invite.user_id,
                 "expires_at": json(&Expiry(expires_at))?,
+                "replace": replace,
             })),
         },
     )
     .await?;
-    Ok(invite)
+    let passkeys = store::users::passkeys(&mut *tx).await?;
+    let tokens = store::tokens::working_of(&mut *tx, row.id).await?;
+    Ok(Invited {
+        user: User::new(row, &passkeys),
+        invite,
+        added,
+        tokens,
+    })
 }
 
 /// The users who can sign in, with their passkeys.
@@ -194,56 +258,31 @@ async fn list(State(state): State<AppState>) -> Result<axum::Json<Vec<User>>, Pr
     ))
 }
 
-/// Add a user, with an invite for their first passkey.
+/// Invite someone: a one-time link, for 3 hours, that registers a passkey.
+/// It adds them if there's no such user; for a user already there it adds a
+/// passkey on another device, or, with `replace`, replaces lost ones.
 #[utoipa::path(
     post,
-    path = "/users",
+    path = "/invites",
     tag = "users",
     security(("bearer" = [])),
-    request_body = NewUser,
+    request_body = NewInvite,
     responses(
-        (status = CREATED, body = CreatedUser),
+        (status = CREATED, body = Invited),
         (status = UNAUTHORIZED, body = Problem, content_type = "application/problem+json"),
-        (status = CONFLICT, description = "Name already used", body = Problem, content_type = "application/problem+json"),
+        (status = CONFLICT, description = "The name was a removed user's", body = Problem, content_type = "application/problem+json"),
         (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json"),
     ),
 )]
-async fn create(
+async fn create_invite(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
-    Json(req): Json<NewUser>,
-) -> Result<(StatusCode, axum::Json<CreatedUser>), Problem> {
-    let name = valid_name(&req.name)?;
+    Json(req): Json<NewInvite>,
+) -> Result<(StatusCode, axum::Json<Invited>), Problem> {
     let mut tx = state.pool.begin().await?;
-    let row = store::users::insert(&mut *tx, UserId::new(), name)
-        .await
-        .map_err(|e| {
-            if is_unique_violation(&e) {
-                Problem::conflict(format!("a user named {name:?} already exists"))
-            } else {
-                e.into()
-            }
-        })?;
-    let id = row.id;
-    let user = User::new(row, &[]);
-    audit::record(
-        &mut *tx,
-        audit::Entry {
-            actor: principal.actor(),
-            action: Action::Create,
-            entity: "user",
-            entity_id: user.id,
-            before: None,
-            after: Some(json(&user)?),
-        },
-    )
-    .await?;
-    let invite = make_invite(&mut tx, principal, id).await?;
+    let invited = invite(&mut tx, principal.actor(), &req.name, req.replace).await?;
     tx.commit().await?;
-    Ok((
-        StatusCode::CREATED,
-        axum::Json(CreatedUser { user, invite }),
-    ))
+    Ok((StatusCode::CREATED, axum::Json(invited)))
 }
 
 /// Remove a user: their passkeys are deleted and their tokens revoked.
@@ -270,7 +309,7 @@ async fn remove(
     let before = store::users::remove(&mut *tx, id)
         .await?
         .ok_or_else(Problem::not_found)?;
-    store::users::delete_passkeys_of(&mut *tx, id).await?;
+    store::users::delete_passkeys_of(&mut *tx, id, None).await?;
     store::tokens::revoke_all_of(&mut *tx, id).await?;
     audit::record(
         &mut *tx,
@@ -286,36 +325,6 @@ async fn remove(
     .await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-/// A new invite for a user: to add a passkey on another device, or replace
-/// lost ones. It works once, for 24 hours.
-#[utoipa::path(
-    post,
-    path = "/users/{id}/invites",
-    tag = "users",
-    security(("bearer" = [])),
-    params(("id" = Uuid, Path, description = "User ID")),
-    responses(
-        (status = CREATED, body = Invite),
-        (status = UNAUTHORIZED, body = Problem, content_type = "application/problem+json"),
-        (status = NOT_FOUND, body = Problem, content_type = "application/problem+json"),
-    ),
-)]
-async fn invite(
-    State(state): State<AppState>,
-    Extension(principal): Extension<Principal>,
-    Path(id): Path<Uuid>,
-) -> Result<(StatusCode, axum::Json<Invite>), Problem> {
-    let id = UserId::from_uuid(id);
-    let mut tx = state.pool.begin().await?;
-    store::users::find(&mut *tx, id)
-        .await?
-        .filter(|u| u.removed_at.is_none())
-        .ok_or_else(Problem::not_found)?;
-    let invite = make_invite(&mut tx, principal, id).await?;
-    tx.commit().await?;
-    Ok((StatusCode::CREATED, axum::Json(invite)))
 }
 
 /// Delete a passkey; it stops working at once.

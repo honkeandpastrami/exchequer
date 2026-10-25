@@ -62,6 +62,21 @@ pub async fn find(db: impl PgExecutor<'_>, id: UserId) -> Result<Option<UserRow>
     .map(|r| r.map(UserRow::from))
 }
 
+/// By name, removed users included: their names stay taken.
+pub async fn find_by_name(
+    db: impl PgExecutor<'_>,
+    name: &str,
+) -> Result<Option<UserRow>, sqlx::Error> {
+    sqlx::query_as!(
+        RawUser,
+        "SELECT id, name, created_at, removed_at FROM app_user WHERE name = $1",
+        name,
+    )
+    .fetch_optional(db)
+    .await
+    .map(|r| r.map(UserRow::from))
+}
+
 /// The users who haven't been removed, by name.
 pub async fn list(db: impl PgExecutor<'_>) -> Result<Vec<UserRow>, sqlx::Error> {
     let rows = sqlx::query_as!(
@@ -224,11 +239,22 @@ pub async fn delete_passkey(
     .map(|r| r.map(PasskeyRow::from))
 }
 
-pub async fn delete_passkeys_of(db: impl PgExecutor<'_>, user: UserId) -> Result<(), sqlx::Error> {
-    sqlx::query!("DELETE FROM passkey WHERE user_id = $1", user.as_uuid())
-        .execute(db)
-        .await?;
-    Ok(())
+/// Deletes the user's passkeys, but `keep`; returns the deleted ones.
+pub async fn delete_passkeys_of(
+    db: impl PgExecutor<'_>,
+    user: UserId,
+    keep: Option<PasskeyId>,
+) -> Result<Vec<PasskeyRow>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        RawPasskey,
+        "DELETE FROM passkey WHERE user_id = $1 AND id IS DISTINCT FROM $2
+         RETURNING id, user_id, name, credential, created_at, last_used_at",
+        user.as_uuid(),
+        keep.map(|k| *k.as_uuid()),
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(PasskeyRow::from).collect())
 }
 
 #[derive(Debug, Clone)]
@@ -237,6 +263,8 @@ pub struct InviteRow {
     pub user_id: UserId,
     pub secret_hash: String,
     pub expires_at: OffsetDateTime,
+    /// Using it removes the user's other passkeys and revokes their tokens.
+    pub replace: bool,
 }
 
 pub async fn insert_invite(
@@ -245,13 +273,16 @@ pub async fn insert_invite(
     user: UserId,
     secret_hash: &str,
     expires_at: OffsetDateTime,
+    replace: bool,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "INSERT INTO invite (id, user_id, secret_hash, expires_at) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO invite (id, user_id, secret_hash, expires_at, replace)
+         VALUES ($1, $2, $3, $4, $5)",
         id,
         user.as_uuid(),
         secret_hash,
         expires_at,
+        replace,
     )
     .execute(db)
     .await?;
@@ -264,7 +295,7 @@ pub async fn open_invite(
     id: Uuid,
 ) -> Result<Option<InviteRow>, sqlx::Error> {
     sqlx::query!(
-        "SELECT i.id, i.user_id, i.secret_hash, i.expires_at
+        "SELECT i.id, i.user_id, i.secret_hash, i.expires_at, i.replace
          FROM invite i JOIN app_user u ON u.id = i.user_id
          WHERE i.id = $1 AND i.used_at IS NULL AND i.expires_at > now()
            AND u.removed_at IS NULL",
@@ -278,6 +309,7 @@ pub async fn open_invite(
             user_id: UserId::from_uuid(r.user_id),
             secret_hash: r.secret_hash,
             expires_at: r.expires_at,
+            replace: r.replace,
         })
     })
 }

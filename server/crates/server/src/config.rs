@@ -12,15 +12,7 @@ use jiff::tz::TimeZone;
 use sqlx::postgres::PgConnectOptions;
 
 /// Settings that may only be given as files.
-const SECRETS: [&str; 4] = [
-    "DB_PASSWORD",
-    "BOOTSTRAP_TOKEN",
-    "REMOTE_AI_KEY",
-    "TIINGO_API_KEY",
-];
-
-/// `openssl rand -base64 32` gives 44 characters.
-const MIN_BOOTSTRAP_LEN: usize = 32;
+const SECRETS: [&str; 3] = ["DB_PASSWORD", "REMOTE_AI_KEY", "TIINGO_API_KEY"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -60,8 +52,6 @@ pub struct Config {
     /// `EXCHEQUER_BIND`, default `127.0.0.1:7438`.
     pub bind: SocketAddr,
     pub db: DbConfig,
-    /// `BOOTSTRAP_TOKEN_FILE`: accepted only for managing users (design §10).
-    pub bootstrap_token: Option<Secret>,
     /// `EXCHEQUER_ORIGIN`: where people open the web app, e.g.
     /// `https://books.example.org/exchequer/`. Passkeys are bound to its host;
     /// unset, passkey sign-in is off.
@@ -276,15 +266,6 @@ impl Config {
                 name: required("DB_NAME")?,
                 password: secret("DB_PASSWORD")?,
             },
-            bootstrap_token: match secret("BOOTSTRAP_TOKEN")? {
-                Some(t) if t.0.chars().count() < MIN_BOOTSTRAP_LEN => {
-                    return Err(ConfigError::Invalid {
-                        name: "BOOTSTRAP_TOKEN_FILE",
-                        value: format!("the token must be at least {MIN_BOOTSTRAP_LEN} characters"),
-                    });
-                }
-                t => t,
-            },
             origin: match env("EXCHEQUER_ORIGIN") {
                 Some(o) if api::passkeys(&o).is_err() => {
                     return Err(ConfigError::Invalid {
@@ -490,20 +471,6 @@ mod tests {
 
         assert_eq!(c.db.password.as_ref().unwrap().expose(), "s3cret-value");
         assert!(!format!("{c:?}").contains("s3cret"));
-    }
-
-    #[test]
-    fn short_bootstrap_token_is_refused() {
-        let dir = std::env::temp_dir().join(format!("exchequer-boot-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("token");
-        std::fs::write(&file, "too-short\n").unwrap();
-        let path = file.to_str().unwrap().to_owned();
-        let mut vars = DB.to_vec();
-        vars.push(("BOOTSTRAP_TOKEN_FILE", &path));
-        let result = config(&vars);
-        std::fs::remove_dir_all(&dir).unwrap();
-        assert!(matches!(result, Err(ConfigError::Invalid { .. })));
     }
 
     #[test]

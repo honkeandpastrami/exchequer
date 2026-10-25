@@ -624,6 +624,27 @@ export interface paths {
 		patch: operations['imports_set_statement'];
 		trace?: never;
 	};
+	'/api/v1/invites': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Invite someone: a one-time link, for 3 hours, that registers a passkey.
+		 *     It adds them if there's no such user; for a user already there it adds a
+		 *     passkey on another device, or, with `replace`, replaces lost ones.
+		 */
+		post: operations['users_create_invite'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/me': {
 		parameters: {
 			query?: never;
@@ -1234,8 +1255,7 @@ export interface paths {
 		/** The users who can sign in, with their passkeys. */
 		get: operations['users_list'];
 		put?: never;
-		/** Add a user, with an invite for their first passkey. */
-		post: operations['users_create'];
+		post?: never;
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -1254,26 +1274,6 @@ export interface paths {
 		post?: never;
 		/** Remove a user: their passkeys are deleted and their tokens revoked. */
 		delete: operations['users_remove'];
-		options?: never;
-		head?: never;
-		patch?: never;
-		trace?: never;
-	};
-	'/api/v1/users/{id}/invites': {
-		parameters: {
-			query?: never;
-			header?: never;
-			path?: never;
-			cookie?: never;
-		};
-		get?: never;
-		put?: never;
-		/**
-		 * A new invite for a user: to add a passkey on another device, or replace
-		 *     lost ones. It works once, for 24 hours.
-		 */
-		post: operations['users_invite'];
-		delete?: never;
 		options?: never;
 		head?: never;
 		patch?: never;
@@ -1632,11 +1632,6 @@ export interface components {
 			/** @description The full token. Shown only in this response; store it now. */
 			token: string;
 		};
-		CreatedUser: {
-			/** @description Their first invite: opening it registers their first passkey. */
-			invite: components['schemas']['Invite'];
-			user: components['schemas']['User'];
-		};
 		/**
 		 * @description A credit card's limit: display metadata, never part of the balance. Only
 		 *     a `credit_card` account has one (422 otherwise); changing a card to
@@ -1980,8 +1975,23 @@ export interface components {
 			code: string;
 			/** Format: date-time */
 			expires_at: string;
+			/** @description Using it removes the user's other passkeys and revokes their tokens. */
+			replace: boolean;
 			/** Format: uuid */
 			user_id: string;
+		};
+		/** @description An invite made: send `invite.code`'s link to `user`. */
+		Invited: {
+			/** @description Whether the user was added just now. */
+			added: boolean;
+			invite: components['schemas']['Invite'];
+			/**
+			 * Format: int64
+			 * @description How many of their tokens still work: a `replace` invite revokes them
+			 *     when it's used.
+			 */
+			tokens: number;
+			user: components['schemas']['User'];
 		};
 		/**
 		 * @description Derived from who is on each side; never stored or entered.
@@ -2163,6 +2173,15 @@ export interface components {
 			/** @description 1-1000 items, each (account, fingerprint) at most once. */
 			items: components['schemas']['ImportFingerprint'][];
 		};
+		NewInvite: {
+			/** @description Who it's for, e.g. `Alex`: added if there's no such user yet. */
+			name: string;
+			/**
+			 * @description Using it removes their other passkeys and revokes their tokens: for
+			 *     a lost device.
+			 */
+			replace?: boolean;
+		};
 		NewNumber: {
 			/**
 			 * @description The full number, as a bank file shows it: letters and digits, up to
@@ -2235,10 +2254,6 @@ export interface components {
 			splits: components['schemas']['NewSplit'][];
 			/** @description Tag names; unknown ones are created. */
 			tags?: string[];
-		};
-		NewUser: {
-			/** @description What they're called, e.g. `Alex`. Unique. */
-			name: string;
 		};
 		/** @description An account number, shown only by its last four characters. */
 		Number: {
@@ -5373,6 +5388,57 @@ export interface operations {
 			};
 		};
 	};
+	users_create_invite: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['NewInvite'];
+			};
+		};
+		responses: {
+			/** @description Created */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Invited'];
+				};
+			};
+			/** @description Unauthorized */
+			401: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description The name was a removed user's */
+			409: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
 	users_me: {
 		parameters: {
 			query?: never;
@@ -7326,57 +7392,6 @@ export interface operations {
 			};
 		};
 	};
-	users_create: {
-		parameters: {
-			query?: never;
-			header?: never;
-			path?: never;
-			cookie?: never;
-		};
-		requestBody: {
-			content: {
-				'application/json': components['schemas']['NewUser'];
-			};
-		};
-		responses: {
-			/** @description Created */
-			201: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/json': components['schemas']['CreatedUser'];
-				};
-			};
-			/** @description Unauthorized */
-			401: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/problem+json': components['schemas']['Problem'];
-				};
-			};
-			/** @description Name already used */
-			409: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/problem+json': components['schemas']['Problem'];
-				};
-			};
-			/** @description Unprocessable Entity */
-			422: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/problem+json': components['schemas']['Problem'];
-				};
-			};
-		};
-	};
 	users_remove: {
 		parameters: {
 			query?: never;
@@ -7395,47 +7410,6 @@ export interface operations {
 					[name: string]: unknown;
 				};
 				content?: never;
-			};
-			/** @description Unauthorized */
-			401: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/problem+json': components['schemas']['Problem'];
-				};
-			};
-			/** @description Not Found */
-			404: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/problem+json': components['schemas']['Problem'];
-				};
-			};
-		};
-	};
-	users_invite: {
-		parameters: {
-			query?: never;
-			header?: never;
-			path: {
-				/** @description User ID */
-				id: string;
-			};
-			cookie?: never;
-		};
-		requestBody?: never;
-		responses: {
-			/** @description Created */
-			201: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/json': components['schemas']['Invite'];
-				};
 			};
 			/** @description Unauthorized */
 			401: {

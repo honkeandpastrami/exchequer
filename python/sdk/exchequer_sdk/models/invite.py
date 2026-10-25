@@ -18,11 +18,13 @@ class Invite:
     Attributes:
         code (str): Shown only in this response.
         expires_at (datetime.datetime):
+        replace (bool): Using it removes the user's other passkeys and revokes their tokens.
         user_id (UUID):
     """
 
     code: str
     expires_at: datetime.datetime
+    replace: bool
     user_id: UUID
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -30,6 +32,8 @@ class Invite:
         code = self.code
 
         expires_at = self.expires_at.isoformat()
+
+        replace = self.replace
 
         user_id = str(self.user_id)
 
@@ -39,6 +43,7 @@ class Invite:
             {
                 "code": code,
                 "expires_at": expires_at,
+                "replace": replace,
                 "user_id": user_id,
             }
         )
@@ -52,11 +57,14 @@ class Invite:
 
         expires_at = datetime.datetime.fromisoformat(d.pop("expires_at"))
 
+        replace = d.pop("replace")
+
         user_id = UUID(d.pop("user_id"))
 
         invite = cls(
             code=code,
             expires_at=expires_at,
+            replace=replace,
             user_id=user_id,
         )
 

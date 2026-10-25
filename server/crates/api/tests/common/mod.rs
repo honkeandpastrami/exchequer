@@ -11,7 +11,6 @@ use serde_json::Value;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
-pub const BOOTSTRAP: &str = "bootstrap-token-for-tests-0123456789abcdef";
 /// Where the web app is served, for passkeys.
 pub const ORIGIN: &str = "https://books.example.org";
 
@@ -106,7 +105,6 @@ impl Call<'_> {
     pub async fn send(self) -> Response {
         let app = api::app(api::AppState {
             pool: self.pool.clone(),
-            bootstrap_token: Some(BOOTSTRAP.into()),
             passkeys: (!self.passkeys_off).then(|| api::passkeys(ORIGIN).unwrap()),
             zone: jiff::tz::TimeZone::get("America/New_York").unwrap(),
             suggestions: self.suggestions.unwrap_or_default(),
