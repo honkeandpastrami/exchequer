@@ -1,8 +1,9 @@
 # Every merge to main is a release (docs/deployment.md): it picks the next
 # version from the merged pull requests' labels (deploy/release-version), tags
 # the merge commit vX.Y.Z, builds both images, smoke-tests them, publishes them
-# to GitHub's container registry as X.Y.Z, X.Y and latest, and creates a
-# GitHub Release with the Python packages attached. Nothing in the repo holds
+# to GitHub's container registry as X.Y.Z, X.Y and latest, creates a GitHub
+# Release with the Python packages and the CLI's .deb attached, and has
+# honkeandpastrami/debian-repo publish that .deb. Nothing in the repo holds
 # the version: every build takes it from the tag (deploy/version, hatch-vcs).
 # The tag is pushed only once everything is built and tested, so a failed run
 # leaves nothing behind, and running it again picks the same version.
@@ -91,6 +92,11 @@ jobs:
           uv build --package firefly-migrate --out-dir dist
           # Their version comes from the tag too (hatch-vcs).
           ls dist/*"-$VERSION-"*.whl
+      - name: Build and smoke-test the CLI's Debian package
+        run: |
+          deb=$(deploy/build-cli-deb)
+          test "$deb" = "python/dist/exchequer-cli_${VERSION}_all.deb"
+          deploy/tests/cli-deb-smoke.sh "$deb"
       - name: Push the tag
         run: git push origin "v$VERSION"
       - name: Publish images
@@ -109,3 +115,8 @@ jobs:
           gh release create "v$VERSION" python/dist/* --verify-tag --generate-notes \
               --title "Exchequer $VERSION" \
               --notes "Images: \`$REGISTRY/exchequer-server:$VERSION\`, \`$REGISTRY/exchequer-backup:$VERSION\`."
+      # debian-repo rebuilds the apt repository from releases, this one included.
+      - name: Update the apt repository
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+        run: gh api repos/honkeandpastrami/debian-repo/dispatches -f event_type=release
