@@ -6,4 +6,4 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     steps:
-      - run: sleep 5 && exit 1
+      - run: sleep 5 && exit 0
