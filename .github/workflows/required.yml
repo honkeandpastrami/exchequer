@@ -1,0 +1,17 @@
+# The ruleset requires a check named `check`, and server, web and python each
+# run theirs only when their paths change. A pull request touching none of them
+# (a release.yml fix, say) would wait forever, so this one always passes. It
+# can't hide a failure: a failing `check` blocks the merge even when another
+# `check` passes (tested in #61).
+name: required
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: "true"
