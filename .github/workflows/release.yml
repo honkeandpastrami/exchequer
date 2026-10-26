@@ -135,7 +135,9 @@ jobs:
           gh auth setup-git
           git clone -q https://github.com/honkeandpastrami/homebrew-tap.git "$tap"
           deploy/exchequer-cli-formula "$tarball" "$url" "$VERSION" > "$tap/Formula/exchequer-cli.rb"
+          # Add first: commit with a path skips a file git doesn't track yet.
+          git -C "$tap" add Formula/exchequer-cli.rb
           git -C "$tap" -c user.name="github-actions[bot]" \
               -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit -q -m "exchequer-cli $VERSION" Formula/exchequer-cli.rb
+              commit -q -m "exchequer-cli $VERSION"
           git -C "$tap" push -q
