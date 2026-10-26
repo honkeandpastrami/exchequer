@@ -1,0 +1,9 @@
+# Temporary: how does a required check named "check" behave when two jobs share it?
+name: zz-test-fail
+on: pull_request
+permissions: {}
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: sleep 60 && exit 1
