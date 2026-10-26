@@ -10,6 +10,8 @@ on:
       - python/**
       - api/**
       - justfile
+      - deploy/build-cli-deb
+      - deploy/tests/cli-deb-smoke.sh
       - .github/workflows/python.yml
   pull_request:
     paths: *paths
@@ -31,3 +33,13 @@ jobs:
         with:
           tool: just
       - run: just python-check
+
+  # The CLI's Debian package, as the release builds it, installed on Debian 13.
+  deb:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - run: deploy/tests/cli-deb-smoke.sh "$(deploy/build-cli-deb)"

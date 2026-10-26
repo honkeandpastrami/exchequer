@@ -66,10 +66,15 @@ passes in CI. A pull request is merged once its checks pass.
 2. **Tag the merge commit** `vX.Y.Z`, locally.
 3. **Build** the server image (the web app's static build inside it) and the backup image,
    and **smoke-test** both (`deploy/tests/image-smoke.sh`).
-4. **Build the Python packages** (SDK, CLI, migration tool) at that version.
+4. **Build the Python packages** (SDK, CLI, migration tool) at that version, and the CLI's
+   **Debian package** (`deploy/build-cli-deb`), installed on Debian 13 to check it runs
+   (`deploy/tests/cli-deb-smoke.sh`).
 5. **Push the tag,** then **publish** both images to GitHub's container registry as
    `X.Y.Z`, `X.Y` and `latest`, and create the **GitHub Release** `vX.Y.Z` with the Python
-   packages attached and notes generated from the merged pull requests.
+   packages and the `.deb` attached and notes generated from the merged pull requests.
+6. **Notify** [debian-repo](https://github.com/honkeandpastrami/debian-repo), which
+   publishes the `.deb` to the apt repository. The `RELEASE_PUBLISH_TOKEN` secret is a
+   fine-grained token with *Contents: read & write* on debian-repo; it expires yearly.
 
 The tag is pushed only after everything is built and tested, so a failed release leaves
 no tag behind. Running the failed workflow again picks the same version; a run on a commit

@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# build-cli-deb: the CLI as a Debian package, python/dist/exchequer-cli_VERSION_all.deb.
+#
+#   deploy/build-cli-deb
+#
+# The version is deploy/version's. The CLI and every dependency it locks are
+# installed under /usr/lib/exchequer-cli, and /usr/bin/exchequer runs them with
+# the system's python3. All of them are pure Python, so one package serves every
+# architecture; the build fails if one stops being. Needs uv and dpkg-deb.
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+version=$(deploy/version)
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+root=$work/root
+lib=$root/usr/lib/exchequer-cli
+
+(
+    cd python
+    uv build --quiet --package exchequer-sdk --wheel --out-dir "$work/wheels"
+    uv build --quiet --package exchequer-cli --wheel --out-dir "$work/wheels"
+    uv export --quiet --frozen --package exchequer-cli --no-dev --no-hashes \
+        --no-emit-workspace --output-file "$work/requirements.txt"
+)
+install=(uv pip install --quiet --target "$lib" --python-version 3.13 --python-platform linux)
+"${install[@]}" -r "$work/requirements.txt"
+"${install[@]}" --no-deps "$work"/wheels/*.whl
+rm -rf "${lib:?}/bin" "$lib/.lock"
+if compiled=$(find "$lib" -name '*.so' | grep .); then
+    echo "not pure Python, so not Architecture: all:" >&2
+    echo "$compiled" >&2
+    exit 1
+fi
+
+install -d "$root/usr/bin"
+cat > "$root/usr/bin/exchequer" << 'EOF'
+#!/usr/bin/python3 -I
+import sys
+
+sys.path.insert(0, "/usr/lib/exchequer-cli")
+from exchequer_cli.cli import main
+
+sys.exit(main())
+EOF
+chmod 755 "$root/usr/bin/exchequer"
+
+install -d "$root/DEBIAN"
+cat > "$root/DEBIAN/control" << EOF
+Package: exchequer-cli
+Version: $version
+Architecture: all
+Maintainer: Exchequer maintainers <1747263+hgonzale@users.noreply.github.com>
+Depends: python3 (>= 3.13)
+Section: utils
+Priority: optional
+Installed-Size: $(du -sk "$root/usr" | cut -f1)
+Homepage: https://github.com/honkeandpastrami/exchequer
+Description: Exchequer's command line
+ Signs in, imports bank files, edits the rules script and manages sessions and
+ tokens on an Exchequer server.
+EOF
+
+mkdir -p python/dist
+deb=python/dist/exchequer-cli_${version}_all.deb
+dpkg-deb --build --root-owner-group "$root" "$deb" > /dev/null
+echo "$deb"

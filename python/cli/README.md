@@ -2,6 +2,14 @@
 
 Exchequer's command line.
 
+## Install
+
+- Debian 13 or newer: add the [apt repository](https://github.com/honkeandpastrami/debian-repo),
+  then `sudo apt install exchequer-cli`.
+- Anywhere else, from a checkout: `uv tool install ./python/cli`.
+
+## Use
+
 ```sh
 cd python
 uv run exchequer login [--days 90]         # sign in through the web app; writes the token file
