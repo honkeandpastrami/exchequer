@@ -2,8 +2,9 @@
 # version from the merged pull requests' labels (deploy/release-version), tags
 # the merge commit vX.Y.Z, builds both images, smoke-tests them, publishes them
 # to GitHub's container registry as X.Y.Z, X.Y and latest, creates a GitHub
-# Release with the Python packages and the CLI's .deb attached, and has
-# honkeandpastrami/debian-repo publish that .deb. Nothing in the repo holds
+# Release with the Python packages and the CLI's .deb attached, has
+# honkeandpastrami/debian-repo publish that .deb, and updates the CLI's formula
+# in honkeandpastrami/homebrew-tap. Nothing in the repo holds
 # the version: every build takes it from the tag (deploy/version, hatch-vcs).
 # The tag is pushed only once everything is built and tested, so a failed run
 # leaves nothing behind, and running it again picks the same version.
@@ -97,6 +98,10 @@ jobs:
           deb=$(deploy/build-cli-deb)
           test "$deb" = "python/dist/exchequer-cli_${VERSION}_all.deb"
           deploy/tests/cli-deb-smoke.sh "$deb"
+      # What the CLI's Homebrew formula installs from; the python workflow
+      # tests the formula on pull requests (deploy/tests/cli-formula-smoke.sh).
+      - name: Build the Python workspace's source tarball
+        run: test "$(deploy/build-python-source)" = "python/dist/exchequer-python-$VERSION.tar.gz"
       - name: Push the tag
         run: git push origin "v$VERSION"
       - name: Publish images
@@ -120,3 +125,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
         run: gh api repos/honkeandpastrami/debian-repo/dispatches -f event_type=release
+      - name: Update the Homebrew tap
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+        run: |
+          tarball=python/dist/exchequer-python-$VERSION.tar.gz
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/v$VERSION/${tarball##*/}"
+          tap="$RUNNER_TEMP/homebrew-tap"
+          gh auth setup-git
+          git clone -q https://github.com/honkeandpastrami/homebrew-tap.git "$tap"
+          deploy/exchequer-cli-formula "$tarball" "$url" "$VERSION" > "$tap/Formula/exchequer-cli.rb"
+          git -C "$tap" -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "exchequer-cli $VERSION" Formula/exchequer-cli.rb
+          git -C "$tap" push -q

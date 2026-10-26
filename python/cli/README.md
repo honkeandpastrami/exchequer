@@ -6,6 +6,7 @@ Exchequer's command line.
 
 - Debian 13 or newer: add the [apt repository](https://github.com/honkeandpastrami/debian-repo),
   then `sudo apt install exchequer-cli`.
+- macOS: `brew install honkeandpastrami/tap/exchequer-cli`.
 - Anywhere else, from a checkout: `uv tool install ./python/cli`.
 
 ## Use

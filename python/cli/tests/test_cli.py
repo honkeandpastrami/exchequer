@@ -1,12 +1,15 @@
 """The CLI's configuration and what it shows, without a server."""
 
 import datetime
+from importlib.metadata import version
 from pathlib import Path
 from uuid import UUID
 
 import pytest
+from typer.testing import CliRunner
 
 from exchequer_cli import config
+from exchequer_cli.cli import app
 from exchequer_cli.imports import Names, decisions_for, row_line, statement_line
 from exchequer_sdk.models import (
     Decision,
@@ -22,6 +25,11 @@ from exchequer_sdk.models import (
 )
 
 CARD = UUID(int=1)
+
+
+def test_version():
+    result = CliRunner().invoke(app, ["--version"])
+    assert (result.exit_code, result.output) == (0, version("exchequer-cli") + "\n")
 
 
 def test_config_from_env_or_file(tmp_path: Path):

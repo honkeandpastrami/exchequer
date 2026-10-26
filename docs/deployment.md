@@ -68,13 +68,20 @@ passes in CI. A pull request is merged once its checks pass.
    and **smoke-test** both (`deploy/tests/image-smoke.sh`).
 4. **Build the Python packages** (SDK, CLI, migration tool) at that version, and the CLI's
    **Debian package** (`deploy/build-cli-deb`), installed on Debian 13 to check it runs
-   (`deploy/tests/cli-deb-smoke.sh`).
+   (`deploy/tests/cli-deb-smoke.sh`), and the Python workspace's source tarball, which the
+   CLI's Homebrew formula installs from (`deploy/build-python-source`).
 5. **Push the tag,** then **publish** both images to GitHub's container registry as
    `X.Y.Z`, `X.Y` and `latest`, and create the **GitHub Release** `vX.Y.Z` with the Python
-   packages and the `.deb` attached and notes generated from the merged pull requests.
+   packages, the `.deb` and the tarball attached and notes generated from the merged pull
+   requests.
 6. **Notify** [debian-repo](https://github.com/honkeandpastrami/debian-repo), which
-   publishes the `.deb` to the apt repository. The `RELEASE_PUBLISH_TOKEN` secret is a
-   fine-grained token with *Contents: read & write* on debian-repo; it expires yearly.
+   publishes the `.deb` to the apt repository, and **commit the CLI's formula** to
+   [homebrew-tap](https://github.com/honkeandpastrami/homebrew-tap)
+   (`deploy/exchequer-cli-formula`). Both use the `RELEASE_PUBLISH_TOKEN` secret, a
+   fine-grained token with *Contents: read & write* on those two repos; it expires yearly.
+
+Pull requests check that the `.deb` installs on Debian 13 and the formula installs on macOS
+(`deploy/tests/cli-formula-smoke.sh`), so a release doesn't find out first.
 
 The tag is pushed only after everything is built and tested, so a failed release leaves
 no tag behind. Running the failed workflow again picks the same version; a run on a commit
