@@ -1,0 +1,13 @@
+# The workflows' actions are pinned to commit hashes, so nobody can swap the
+# code behind a tag; Dependabot proposes the new hashes. One pull request a
+# week, labelled `patch` so merging it is a patch release (docs/deployment.md).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    labels: [dependencies, patch, tools/deployment]
