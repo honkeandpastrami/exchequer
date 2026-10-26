@@ -1,0 +1,18 @@
+#!/bin/sh
+# build-python-source: the Python workspace at HEAD, as the tarball the CLI's
+# Homebrew formula installs from (deploy/exchequer-cli.rb.template).
+#
+#   deploy/build-python-source
+#
+# Writes python/dist/exchequer-python-VERSION.tar.gz, VERSION being
+# deploy/version's, and prints its path. It holds python/ as committed, under
+# exchequer-python-VERSION/python/.
+
+set -eu
+
+cd "$(dirname "$0")/.."
+version=$(deploy/version)
+mkdir -p python/dist
+out=python/dist/exchequer-python-$version.tar.gz
+git archive --format=tar.gz --prefix="exchequer-python-$version/" -o "$out" HEAD python
+echo "$out"

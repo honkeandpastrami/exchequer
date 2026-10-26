@@ -12,6 +12,10 @@ on:
       - justfile
       - deploy/build-cli-deb
       - deploy/tests/cli-deb-smoke.sh
+      - deploy/build-python-source
+      - deploy/exchequer-cli-formula
+      - deploy/exchequer-cli.rb.template
+      - deploy/tests/cli-formula-smoke.sh
       - .github/workflows/python.yml
   pull_request:
     paths: *paths
@@ -43,3 +47,12 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       - run: deploy/tests/cli-deb-smoke.sh "$(deploy/build-cli-deb)"
+
+  # The CLI's Homebrew formula, installed from a tarball of this commit.
+  brew:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - run: deploy/tests/cli-formula-smoke.sh

@@ -58,8 +58,21 @@ class TerminalUi:
                 return k
 
 
+def _show_version(show: bool) -> None:
+    if show:
+        typer.echo(version("exchequer-cli"))
+        raise typer.Exit()
+
+
 @app.callback()
-def main_callback() -> None:
+def main_callback(
+    show_version: Annotated[
+        bool,
+        typer.Option(
+            "--version", callback=_show_version, is_eager=True, help="Print the version and exit."
+        ),
+    ] = False,
+) -> None:
     """Exchequer, from the command line."""
 
 

@@ -1,0 +1,17 @@
+#!/bin/sh
+# exchequer-cli-formula: the CLI's Homebrew formula for a tarball from
+# deploy/build-python-source, from deploy/exchequer-cli.rb.template.
+#
+#   deploy/exchequer-cli-formula TARBALL URL VERSION > exchequer-cli.rb
+#
+# URL is where Homebrew downloads TARBALL from. VERSION is the release's X.Y.Z;
+# the CLI reports it (`exchequer --version`), so it must be a Python version.
+
+set -eu
+
+tarball=$1
+url=$2
+version=$3
+sha=$(shasum -a 256 "$tarball" | cut -d' ' -f1)
+sed -e "s|@@VERSION@@|$version|" -e "s|@@URL@@|$url|" -e "s|@@SHA256@@|$sha|" \
+    "$(dirname "$0")/exchequer-cli.rb.template"
