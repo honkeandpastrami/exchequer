@@ -2,6 +2,10 @@
 //! (under any of several common names), then one row per transaction. Lines
 //! before the header, such as a summary block, are ignored. A port of the
 //! preimporter's `csv_processor`, so the same file reads the same way.
+//!
+//! A negative amount is money leaving the account. Some card statements sign
+//! amounts the other way and add a debit/credit column; when a row says `D`
+//! or `C` there, that sets the sign instead.
 
 use domain::Amount;
 use rust_decimal::Decimal;
@@ -17,9 +21,11 @@ const DATE: &[&str] = &[
     "posted date",
     "posted_date",
     "posteddate",
+    "posting date",
     "transaction date",
     "transaction_date",
     "transactiondate",
+    "trans. date",
 ];
 const DESCRIPTION: &[&str] = &["description", "payee", "memo"];
 const AMOUNT: &[&str] = &["amount", "transaction amount"];
@@ -29,7 +35,9 @@ const REFERENCE: &[&str] = &[
     "reference number",
     "reference",
     "reference_number",
+    "reference id",
 ];
+const DIRECTION: &[&str] = &["transaction type"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -47,6 +55,7 @@ struct Columns {
     description: usize,
     amount: usize,
     reference: Option<usize>,
+    direction: Option<usize>,
 }
 
 fn find(header: &[String], aliases: &[&str]) -> Option<usize> {
@@ -62,6 +71,7 @@ fn columns(record: &::csv::StringRecord) -> Option<Columns> {
         description: find(&header, DESCRIPTION)?,
         amount: find(&header, AMOUNT)?,
         reference: find(&header, REFERENCE),
+        direction: find(&header, DIRECTION),
         names: record.iter().map(|c| c.trim().to_owned()).collect(),
     })
 }
@@ -175,6 +185,12 @@ pub fn parse(bytes: &[u8]) -> Result<Statement, Error> {
                 reason: format!("unreadable {what}"),
             });
             continue;
+        };
+        let size = Amount::from_decimal(amount.as_decimal().abs());
+        let amount = match c.direction.map(cell) {
+            Some("D" | "d") => -size,
+            Some("C" | "c") => size,
+            _ => amount,
         };
         let raw: Map<String, Value> = c
             .names
@@ -306,6 +322,56 @@ mod tests {
             ]
         );
         assert!(s.account.is_none() && s.ledger.is_none());
+    }
+
+    #[test]
+    fn a_card_statement_signed_by_its_debit_credit_column() {
+        let file = "Description,,,,Summary Amt.\n\
+            Total credits,,,,\"-50.00\"\n\
+            Total debits,,,,\"120.00\"\n\
+            \n\
+            CardHolder Name,Account/Card Number - last 4 digits,Posting Date,Trans. Date,Reference ID,Description,Amount,MCC,Merchant Category,Transaction Type,Expense Category\n\
+            JANE DOE,1234,10/20/2026,10/19/2026,Ref: 111,\"SQ *BAKERY, INC\",\"120.00\",5462,\"BAKERIES\",D,Food\n\
+            ACME LLC,5678,10/05/2026,10/03/2026,Ref: 222,\"PAYMENT FROM CHK 9999\",\"-50.00\",0000,\"\",C,\n\
+            ACME LLC,5678,10/06/2026,10/06/2026,Ref: 333,\"ADJUSTMENT\",\"-7.00\",0000,\"\",,\n";
+        assert!(looks_like(file.as_bytes()));
+        let s = parse(file.as_bytes()).unwrap();
+        let summary: Vec<_> = s
+            .rows
+            .iter()
+            .map(|r| {
+                (
+                    r.date.to_string(),
+                    r.amount.as_decimal().to_string(),
+                    r.description.as_str(),
+                    r.native_id.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (
+                    "2026-10-20".into(),
+                    "-120.00".into(),
+                    "SQ *BAKERY, INC",
+                    Some("Ref: 111")
+                ),
+                (
+                    "2026-10-05".into(),
+                    "50.00".into(),
+                    "PAYMENT FROM CHK 9999",
+                    Some("Ref: 222")
+                ),
+                (
+                    "2026-10-06".into(),
+                    "-7.00".into(),
+                    "ADJUSTMENT",
+                    Some("Ref: 333")
+                ),
+            ]
+        );
+        assert!(s.skipped.is_empty());
     }
 
     #[test]
