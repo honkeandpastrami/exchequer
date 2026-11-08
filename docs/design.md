@@ -480,19 +480,26 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      §4.1).
    - *Potential transfer matches:* each row's rows in your other accounts, in any staged
      import (this file's other statements, other files), with the opposite amount in the
-     same commodity, dated within 5 days. Every suggestion level sees them
+     same commodity, dated within 3 days. Every suggestion level sees them
      (`row.transfer_candidates` in rules).
-   - *Transfer match* (`transfer_match`): two staged rows that are the two sides of one
-     transfer: one settled as a transfer to the other's account (chosen, or a confident
-     suggestion), the other open or settled as the transfer back, a potential transfer
-     match of each other. Matched one-to-one (`import::matching`): agreeing pairs first,
-     then the closest dates. A chosen counterparty, or a decision made on a row, rules it
-     out. Worked out again across all staged imports whenever one changes (upload, a
-     statement's account, a row, discard, commit, refresh), after their open labels are
-     suggested again (§8), so a pair can form from either side's new suggestion.
+   - *Transfer match* (`transfer_match`): two staged rows that are potential transfer
+     matches of each other are the two sides of one transfer, unless your choice says
+     otherwise: a counterparty (or none) you chose for either, or a transfer you chose to
+     another account. Suggestions don't count: they're made without seeing the other side,
+     and the pair settles each row's other side as the other's account. Staging is
+     reviewed before anything commits, so a pair that isn't one costs a click (*Keep
+     separate transactions*), while a missed one would be an expense plus an income.
+     Matched one-to-one (`import::matching`): pairs you chose on both sides first, then the
+     closest dates. Worked out again across all staged imports whenever one changes
+     (upload, a statement's account, a row, discard, commit, refresh).
+   - *Transfer conflict* (`transfer_conflict`): a row you chose as a transfer to one
+     account, and an unpaired row in another of your accounts that fits it (not chosen,
+     or chosen as the transfer back). Neither pairs, and matching isn't sure of either
+     row's decision, so both wait for you: choose the other side again, or decide either
+     row.
    - *Transfer duplicate* (`transfer_duplicate`): the transfer is already in the ledger,
      from the other account: a one-split transfer between the account and another of
-     yours, the same amount the same way, within 5 days, holding no bank row of this
+     yours, the same amount the same way, within 3 days, holding no bank row of this
      account yet. Matched after exact duplicates and before near ones.
    - A transfer whose first side is committed before the other is staged is recorded as a
      transfer then; one-sided transactions in the ledger are never turned into transfers
@@ -546,7 +553,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      its decision, that is neither chosen nor confidently suggested. Each comes with a
      count. A row's decision is matching's suggestion (docs/ai.md): sure of a new row
      or an exact duplicate, as sure as the dates are close for a transfer, and never
-     sure of a near duplicate, which waits for you. Commit refuses exactly these (409:
+     sure of a near duplicate or a transfer conflict, which wait for you. Commit refuses exactly these (409:
      `labels-missing`, `decisions-missing`, or no account), so every client and page
      follows the same rule.
    - `suggested` (yellow): it would commit, but it relies on confident AI suggestions
@@ -617,7 +624,7 @@ takes, the API) is in [`docs/ai.md`](ai.md).
   the other isn't: then it's an expense or income). Every
   level sees each row's potential transfer matches in other staged files (§6.4), and
   local AI learns from past transfers. Pairing two staged rows into one transfer is then a
-  rule, not a suggestion (§6.4).
+  rule, not a suggestion, and it overrides a suggested other side (§6.4).
 - **A stack of three levels,** tried in order: rules → local AI → remote AI. A level runs
   while a label is still below **0.9 confidence**; labels already settled (by an earlier
   level at ≥ 0.9, or by you) are given to the next level as facts. Below 0.9 everywhere,

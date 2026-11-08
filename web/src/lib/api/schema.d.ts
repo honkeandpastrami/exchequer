@@ -2586,6 +2586,7 @@ export interface components {
 				 *     A transfer match's is its other side's account.
 				 */
 				transfer_account_id?: string | null;
+				transfer_conflict?: components['schemas']['TransferMatch'] | null;
 				transfer_match?: components['schemas']['TransferMatch'] | null;
 			}[];
 			/** @description Pass as `cursor` to get the next page; absent on the last page. */
@@ -3208,6 +3209,7 @@ export interface components {
 			 *     A transfer match's is its other side's account.
 			 */
 			transfer_account_id?: string | null;
+			transfer_conflict?: components['schemas']['TransferMatch'] | null;
 			transfer_match?: components['schemas']['TransferMatch'] | null;
 		};
 		/** @description One account's part of the file. */

@@ -315,7 +315,7 @@ async fn decisions_labels_and_transfers(pool: PgPool) {
             "POST",
             "/api/v1/transactions",
             Some(
-                json!({ "date": "2026-03-07", "description": "To checking", "splits": [{
+                json!({ "date": "2026-03-06", "description": "To checking", "splits": [{
                 "from": h.leg(savings, "1500.00"),
                 "to": h.leg(h.acct(&h.alex_checking), "1500.00") }] }),
             ),
@@ -364,9 +364,9 @@ async fn decisions_labels_and_transfers(pool: PgPool) {
         suggested(&all[2]),
         (
             json!("match"),
-            json!(880),
-            json!(false),
-            json!("the transfer is already recorded, 4 days apart"),
+            json!(910),
+            json!(true),
+            json!("the transfer is already recorded, 3 days apart"),
             json!("match")
         )
     );

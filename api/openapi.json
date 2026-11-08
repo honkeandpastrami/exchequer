@@ -9660,6 +9660,17 @@
                   "format": "uuid",
                   "description": "The other side when it's one of your accounts: the row is a transfer,\nwhose category and purpose don't apply (unless one account is liquid\nand the other isn't: an expense or income).\nA transfer match's is its other side's account."
                 },
+                "transfer_conflict": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/TransferMatch",
+                      "description": "A transfer conflict: you chose the row as a transfer to one account,\nand this staged row, in another of your accounts, fits as its other\nside. Matching isn't sure of the row's decision until you choose its\nother side again or decide either row."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "transfer_match": {
                   "oneOf": [
                     {
@@ -11188,6 +11199,17 @@
             ],
             "format": "uuid",
             "description": "The other side when it's one of your accounts: the row is a transfer,\nwhose category and purpose don't apply (unless one account is liquid\nand the other isn't: an expense or income).\nA transfer match's is its other side's account."
+          },
+          "transfer_conflict": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TransferMatch",
+                "description": "A transfer conflict: you chose the row as a transfer to one account,\nand this staged row, in another of your accounts, fits as its other\nside. Matching isn't sure of the row's decision until you choose its\nother side again or decide either row."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "transfer_match": {
             "oneOf": [

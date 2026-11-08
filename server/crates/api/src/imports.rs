@@ -14,7 +14,8 @@ use axum::response::{IntoResponse, Response};
 use domain::{AccountNumber, Amount};
 use import::fingerprint::fingerprints;
 use import::matching::{
-    Near, Side, Staged, near_confidence, one_to_one, transfer_confidence, transfer_matches,
+    Near, Side, Staged, near_confidence, one_to_one, transfer_confidence, transfer_conflicts,
+    transfer_matches,
 };
 use import::params::{MATCHER, NEAR_DAYS, SURE};
 use rust_decimal::Decimal;
@@ -384,6 +385,12 @@ pub struct StagedRow {
     /// side.
     #[serde(skip_serializing_if = "Option::is_none")]
     transfer_match: Option<TransferMatch>,
+    /// A transfer conflict: you chose the row as a transfer to one account,
+    /// and this staged row, in another of your accounts, fits as its other
+    /// side. Matching isn't sure of the row's decision until you choose its
+    /// other side again or decide either row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transfer_conflict: Option<TransferMatch>,
     /// What committing does with the row: the client's choice, else the
     /// default for its status. Absent while the statement has no account.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -934,18 +941,14 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
     Ok(())
 }
 
-/// A staged row's other side, as settled for transfer matching: your choice,
-/// else a confident suggestion of one of your accounts. A suggested
-/// counterparty doesn't rule a transfer out (it was made without seeing the
-/// other side); a chosen one does.
+/// A staged row's other side, as transfer matching sees it: your choice
+/// only. A suggestion was made without seeing the other side; a pair
+/// settles it.
 fn side(r: &Matchable) -> Side {
-    if r.chose_side {
-        return r.transfer_account_id.map_or(Side::Outside, Side::Transfer);
+    if !r.chose_side {
+        return Side::Open;
     }
-    match (r.suggested_account_id, r.suggested_confidence) {
-        (Some(a), Some(c)) if c >= CONFIDENT => Side::Transfer(a),
-        _ => Side::Open,
-    }
+    r.transfer_account_id.map_or(Side::Outside, Side::Transfer)
 }
 
 fn key(r: &Matchable) -> RowKey {
@@ -956,15 +959,24 @@ fn pair_of(r: &Matchable) -> Option<RowKey> {
     Some((r.pair_import_id?, r.pair_statement?, r.pair_position?))
 }
 
+fn conflict_of(r: &Matchable) -> Option<RowKey> {
+    Some((
+        r.conflict_import_id?,
+        r.conflict_statement?,
+        r.conflict_position?,
+    ))
+}
+
 /// Works out transfer matches among the rows of every staged import (design
 /// §6.4): two rows that will become new transactions, in two of your
-/// accounts, with opposite amounts a few days apart, one settled as a
-/// transfer to the other's account ([`import::matching`]). A skipped row
-/// isn't matched; a pair you said isn't one (both sides `new`) stays a pair,
-/// so you can change your mind. The two sides always agree: if one is `new`
-/// (a pair just formed with a row added as new before), both are, so no
-/// bank row is recorded twice. Touches and returns the imports whose rows
-/// changed.
+/// accounts, with opposite amounts a few days apart, unless your choice of
+/// either's other side says otherwise ([`import::matching`]); and transfer
+/// conflicts, where a transfer you chose to one account fits a row in
+/// another. A skipped row isn't matched; a pair you said isn't one (both
+/// sides `new`) stays a pair, so you can change your mind. The two sides
+/// always agree: if one is `new` (a pair just formed with a row added as
+/// new before), both are, so no bank row is recorded twice. Touches and
+/// returns the imports whose rows changed.
 async fn rematch(db: &mut PgConnection) -> Result<HashSet<Uuid>, Problem> {
     let rows = store::imports::matchable(&mut *db).await?;
     let open = |r: &Matchable| matches!(r.status.as_str(), "new" | "transfer_match");
@@ -980,10 +992,12 @@ async fn rematch(db: &mut PgConnection) -> Result<HashSet<Uuid>, Problem> {
                 side: side(r),
                 // A split row is added as new, never one side of a transfer.
                 eligible: open(r) && r.decision.as_deref() != Some("skip") && !r.split,
+                decided: r.decision.is_some(),
             })
         })
         .collect();
     let pairs = transfer_matches(&staged);
+    let conflicts = transfer_conflicts(&staged, &pairs);
     let mut changes = Vec::new();
     let mut agree = Vec::new();
     let mut changed = HashSet::new();
@@ -997,8 +1011,9 @@ async fn rematch(db: &mut PgConnection) -> Result<HashSet<Uuid>, Problem> {
             RowStatus::New.as_str().to_owned()
         };
         let pair = if open(r) { pair } else { None };
-        if status != r.status || pair != pair_of(r) {
-            changes.push((key(r), status, pair));
+        let conflict = conflicts.get(&key(r)).copied().filter(|_| open(r));
+        if status != r.status || pair != pair_of(r) || conflict != conflict_of(r) {
+            changes.push((key(r), status, pair, conflict));
             changed.insert(r.import_id);
         }
     }
@@ -1250,7 +1265,8 @@ fn apart(days: i32) -> String {
 
 /// What matching suggests committing does with a row, and how sure it is;
 /// `None` while its statement has no account. `pair_date`: a transfer
-/// match's other side's.
+/// match's other side's. A transfer conflict leaves matching unsure, so it
+/// waits for you.
 fn guess(r: &RowRow, pair_date: Option<Date>) -> Result<Option<Guess>, Problem> {
     let status = RowStatus::parse(&r.status)?;
     let Some(decision) = Decision::default_for(status) else {
@@ -1263,6 +1279,12 @@ fn guess(r: &RowRow, pair_date: Option<Date>) -> Result<Option<Guess>, Problem> 
     };
     let (confidence, reason) = match status {
         RowStatus::NeedsAccount => return Ok(None),
+        RowStatus::New if conflict_key(r).is_some() => (
+            0,
+            "a row in another of your accounts fits as the other side of this transfer, \
+             not the account chosen"
+                .to_owned(),
+        ),
         RowStatus::New => (SURE, "nothing like it in the ledger".to_owned()),
         RowStatus::Duplicate => (SURE, "this bank row was imported before".to_owned()),
         RowStatus::TransferDuplicate => transfer(
@@ -1437,13 +1459,14 @@ async fn shown(
                 .cloned()
                 .collect();
             let pair = pair_key(&r).and_then(|k| pairs.get(&k)).cloned();
+            let conflict = conflict_key(&r).and_then(|k| pairs.get(&k)).cloned();
             let cx = Context {
                 accounts: &accounts,
                 account: statements.get(&r.statement).copied().flatten(),
                 pair_account: pair.as_ref().map(|p| p.account_id),
                 splits: parts(&splits, &r),
             };
-            staged_row(r, &mine, &by, &matcher, &cx, pair)
+            staged_row(r, &mine, &by, &matcher, &cx, pair, conflict)
         })
         .collect()
 }
@@ -1471,12 +1494,24 @@ fn pair_key(r: &RowRow) -> Option<RowKey> {
     Some((r.pair_import_id?, r.pair_statement?, r.pair_position?))
 }
 
-/// The other sides of these rows' transfer matches.
+fn conflict_key(r: &RowRow) -> Option<RowKey> {
+    Some((
+        r.conflict_import_id?,
+        r.conflict_statement?,
+        r.conflict_position?,
+    ))
+}
+
+/// The other rows of these rows' transfer matches and transfer conflicts.
 async fn pairs(
     db: &mut PgConnection,
     rows: &[RowRow],
 ) -> Result<HashMap<RowKey, TransferMatch>, Problem> {
-    let keys: Vec<RowKey> = rows.iter().filter_map(pair_key).collect();
+    let keys: Vec<RowKey> = rows
+        .iter()
+        .flat_map(|r| [pair_key(r), conflict_key(r)])
+        .flatten()
+        .collect();
     if keys.is_empty() {
         return Ok(HashMap::new());
     }
@@ -1507,6 +1542,7 @@ fn staged_row(
     matcher: &Suggester,
     cx: &Context,
     transfer_match: Option<TransferMatch>,
+    transfer_conflict: Option<TransferMatch>,
 ) -> Result<StagedRow, Problem> {
     let status = RowStatus::parse(&r.status)?;
     let suggested_decision =
@@ -1548,6 +1584,7 @@ fn staged_row(
         } else {
             None
         },
+        transfer_conflict,
         decision,
         decided: chosen.is_some(),
         suggested_decision,
@@ -1747,6 +1784,9 @@ async fn upload(
                 pair_import_id: None,
                 pair_statement: None,
                 pair_position: None,
+                conflict_import_id: None,
+                conflict_statement: None,
+                conflict_position: None,
                 match_days: None,
                 match_similarity: None,
             });
@@ -2416,6 +2456,7 @@ async fn carry_out(
         now.status != before.status
             || now.match_transaction_id != before.match_transaction_id
             || pair_key(now) != pair_key(before)
+            || conflict_key(now) != conflict_key(before)
     });
     if changed {
         store::imports::touch(&mut *tx, id).await?;
