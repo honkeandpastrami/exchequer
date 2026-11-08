@@ -103,10 +103,6 @@
 		}}>Add party</button
 	>
 </div>
-<p class="muted intro">
-	The household, the people in it and their businesses: who owns accounts and who money is for.
-</p>
-
 {#if s.ref}
 	{@const r = s.ref}
 	<table class="list">
@@ -146,9 +142,6 @@
 		align-items: baseline;
 		justify-content: space-between;
 		gap: var(--space-4);
-	}
-	.intro {
-		margin-bottom: var(--space-4);
 	}
 	.list {
 		background: var(--color-surface);

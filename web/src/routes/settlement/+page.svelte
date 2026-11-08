@@ -6,6 +6,7 @@
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
 	import StatusMark from '#lib/components/StatusMark.svelte';
+	import DateStepper from '#lib/components/dates/DateStepper.svelte';
 	import { monthName, thisMonth } from '#lib/dates.ts';
 	import { fetched, latest } from '#lib/price-fetching.svelte.ts';
 	import { hashQuery } from '#lib/query.ts';
@@ -32,7 +33,7 @@
 		() => year,
 		() => load(year)
 	);
-	const go = (y: number) => goto(resolve(`/settlement?year=${y}`), { replace: true });
+	const go = (y: string) => goto(resolve(`/settlement?year=${y}`), { replace: true });
 
 	const columns = [
 		['carried', 'Carried'],
@@ -46,21 +47,14 @@
 
 <div class="heading">
 	<h1>Settlement</h1>
-	<div class="year">
-		<button class="quiet" onclick={() => go(+year - 1)} aria-label="Previous year">←</button>
-		<strong>{year}</strong>
-		<button
-			class="quiet"
-			onclick={() => go(+year + 1)}
-			disabled={year >= current.slice(0, 4)}
-			aria-label="Next year">→</button
-		>
-	</div>
+	<DateStepper
+		value={year}
+		granularity="year"
+		max={current.slice(0, 4)}
+		name="Year"
+		onchange={go}
+	/>
 </div>
-<p class="muted legend">
-	Positive amounts go from the first party to the second.
-	<code>outstanding = carried + due − paid</code>; <code>due = claims − stipend</code>.
-</p>
 
 {#await data.promise}
 	{#if !data.value}<p class="muted">Loading…</p>{/if}
@@ -111,19 +105,9 @@
 <style>
 	.heading {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: baseline;
-		gap: var(--space-5);
-	}
-	.year {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-	.year button {
-		padding: var(--space-1) var(--space-3);
-	}
-	.legend {
-		font-size: var(--text-sm);
+		gap: var(--space-2) var(--space-5);
 	}
 	.card {
 		margin-bottom: var(--space-5);

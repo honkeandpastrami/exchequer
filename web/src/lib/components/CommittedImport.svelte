@@ -1,6 +1,7 @@
 <script lang="ts">
 	// What committing an import did (docs/ux.md §5): a block for the commit, and
 	// one per balance check, each with its colour, one item per line.
+	import { dayName } from '../dates';
 	import { resolve } from '$app/paths';
 	import type { Schemas } from '../api/client';
 	import { accountLabel } from '../names';
@@ -43,7 +44,7 @@
 		</div>
 		<dl class="facts">
 			<dt>Bank</dt>
-			<dd><Amount value={b.amount} {code} /> on {b.date}</dd>
+			<dd><Amount value={b.amount} {code} /> on {dayName(b.date)}</dd>
 			<dd class="aside"></dd>
 			<dt>Ledger</dt>
 			<dd><Amount value={b.ledger} {code} /></dd>

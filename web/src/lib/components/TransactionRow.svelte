@@ -6,6 +6,7 @@
 	// the actions are a column on the right; narrow, the row is one block, its
 	// actions at the bottom. Actions are boxes (`.box`) using the column's
 	// width; `.tools` puts the ones after the choices side by side when narrow.
+	import { dayName } from '../dates';
 	import type { Snippet } from 'svelte';
 	import type { Tone } from './Mark.svelte';
 	import { look } from './Section.svelte';
@@ -54,7 +55,7 @@
 	class:muted
 	aria-label={label}
 >
-	<div class="date">{date}</div>
+	<div class="date">{dayName(date)}</div>
 	<div class="desc">{@render description()}</div>
 	<div class="amount">{@render amount()}</div>
 	{#if status}<div class="status">{@render status()}</div>{/if}

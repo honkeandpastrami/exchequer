@@ -36,6 +36,27 @@ A TOML file you keep privately, never in this repository; one per year migrated.
   month given (amounts as strings, e.g. `"2026-01" = "500.00"`); `settles`, Firefly IDs
   of payments that settle a month other than the one before they were made.
 
+## What becomes what
+
+- **Accounts** keep their identity; inactive ones arrive archived. Per-security accounts
+  collapse into one brokerage account per institution, and Firefly transfers carrying a
+  foreign amount become conversion splits.
+- **Credit cards:** Firefly's balance includes the card's virtual balance (its credit
+  limit); the migration subtracts it and keeps the limit on the account.
+- **Currencies,** custom ones for securities included, become commodities.
+- **Expense and revenue accounts** become counterparties, merged by normalized name.
+  Firefly's initial-balance and reconciliation accounts become the system counterparties.
+- **Transaction types are dropped;** the kind is derived (design §3.2). A withdrawal to a
+  liability becomes a transfer.
+- **Settlement history:** transfers between personal accounts and shared savings become
+  settlement payments of their month; transfers into or out of investments and mortgages
+  become expenses and income; transfers to a business are funding.
+- **Split transactions** keep their splits. **Categories and tags** carry over, but for
+  `[categories] drop` and `[tags] retire`.
+- **Each year** starts with one opening balance per account and commodity on Jan 1, and
+  every transaction keeps its Firefly ID as an external reference.
+- **Firefly is never modified:** the tool's client refuses every request but GET.
+
 ## Labels
 
 There's no default purpose or category (design §4.1). An income or expense whose Firefly
@@ -66,6 +87,8 @@ before a `run` into a server in use.
 - **Always stops:** near duplicates, bank rows already recorded, Firefly IDs already on
   the server, writes into closed months, and parties, commodities or accounts the server
   has with another kind.
+- **Closed months after the year:** their statements are compared before and after the
+  run; one that changed fails it.
 
 Reference data is reused by name and created when missing. Transactions get one import
 batch per Firefly import tag, and one for the rest. Not migrated: rules (the rules script

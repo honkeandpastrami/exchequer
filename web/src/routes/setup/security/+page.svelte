@@ -9,7 +9,7 @@
 	import Failure from '#lib/components/Failure.svelte';
 	import NoValue from '#lib/components/NoValue.svelte';
 	import RowForm from '#lib/components/RowForm.svelte';
-	import { localDate } from '#lib/dates.ts';
+	import { stampName } from '#lib/dates.ts';
 	import { signOut } from '#lib/session.svelte.ts';
 
 	type User = Schemas['User'];
@@ -254,7 +254,7 @@
 </script>
 
 {#snippet dateOrNone(t: string | null | undefined)}
-	{#if t}{localDate(t)}{:else}<NoValue kind="none" />{/if}
+	{#if t}{stampName(t)}{:else}<NoValue kind="none" />{/if}
 {/snippet}
 
 {#snippet userFields(f: UserForm, u?: User)}
@@ -298,7 +298,7 @@
 			{/if}
 		{/snippet}
 		{#snippet facts()}
-			{#if u}<span>Added {localDate(u.created_at)}</span><span>ID {u.id}</span>{/if}
+			{#if u}<span>Added {stampName(u.created_at)}</span><span>ID {u.id}</span>{/if}
 		{/snippet}
 	</RowForm>
 {/snippet}
@@ -382,7 +382,7 @@
 		{/snippet}
 		{#snippet facts()}
 			{#if t}
-				{#if t.revoked_at}<span>Revoked {localDate(t.revoked_at)}</span>{/if}
+				{#if t.revoked_at}<span>Revoked {stampName(t.revoked_at)}</span>{/if}
 				<span>ID {t.id}</span>
 			{/if}
 		{/snippet}
@@ -414,7 +414,7 @@
 							>{u.name}{#if u.id === me}<span class="muted aside">(you)</span>{/if}</td
 						>
 						<td>{u.passkeys.length}</td>
-						<td>{localDate(u.created_at)}</td>
+						<td>{stampName(u.created_at)}</td>
 						<td class="actions">
 							<button class="link" aria-expanded={userForm?.id === u.id} onclick={() => editUser(u)}
 								>Edit</button
@@ -440,7 +440,7 @@
 					<tr>
 						<td>{p.name}</td>
 						<td>{p.user.name}</td>
-						<td>{localDate(p.created_at)}</td>
+						<td>{stampName(p.created_at)}</td>
 						<td>{@render dateOrNone(p.last_used_at)}</td>
 						<td class="actions">
 							<button
@@ -479,8 +479,8 @@
 						<td>
 							{#if s.signed_in_with}{s.signed_in_with}{:else}<NoValue kind="unknown" />{/if}
 						</td>
-						<td>{localDate(s.started_at)}</td>
-						<td>{localDate(s.last_used_at)}</td>
+						<td>{stampName(s.started_at)}</td>
+						<td>{stampName(s.last_used_at)}</td>
 						<td>
 							{#if s.client || s.host}
 								{[s.client, s.host].filter(Boolean).join(' · ')}
@@ -488,7 +488,7 @@
 								<NoValue kind="unknown" />
 							{/if}
 						</td>
-						<td>{localDate(s.expires_at)}</td>
+						<td>{stampName(s.expires_at)}</td>
 						<td class="actions">
 							<button
 								class="link"
@@ -534,9 +534,9 @@
 						<td>
 							{#if nameOf(t.user_id)}{nameOf(t.user_id)}{:else}<NoValue kind="none" />{/if}
 						</td>
-						<td>{localDate(t.created_at)}</td>
+						<td>{stampName(t.created_at)}</td>
 						<td>{@render dateOrNone(t.last_used_at)}</td>
-						<td>{t.revoked_at ? 'revoked' : localDate(t.expires_at)}</td>
+						<td>{t.revoked_at ? 'revoked' : stampName(t.expires_at)}</td>
 						<td class="actions">
 							<button
 								class="link"

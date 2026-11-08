@@ -4,6 +4,7 @@
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
 	import Worth from '#lib/components/Worth.svelte';
+	import DateStepper from '#lib/components/dates/DateStepper.svelte';
 	import { today } from '#lib/dates.ts';
 	import { fetched, latest } from '#lib/price-fetching.svelte.ts';
 	import { accountKinds, holdings, partyKinds } from '#lib/labels.ts';
@@ -37,7 +38,16 @@
 
 <div class="heading">
 	<h1>Accounts</h1>
-	<label>Balances at the end of <input type="date" bind:value={date} required /></label>
+	<span class="at"
+		><span class="caption">Balances at the end of</span>
+		<DateStepper
+			value={date}
+			granularity="day"
+			max={today()}
+			name="Balances at the end of"
+			onchange={(d) => (date = d)}
+		/></span
+	>
 	<label class="check"><input type="checkbox" bind:checked={showArchived} /> Show archived</label>
 </div>
 
@@ -137,7 +147,8 @@
 	.heading h1 {
 		margin: 0;
 	}
-	label {
+	label,
+	.caption {
 		font-size: var(--text-sm);
 		color: var(--color-text-muted);
 	}
@@ -182,7 +193,7 @@
 	tfoot td {
 		border-top-width: calc(var(--border-width) * 2);
 	}
-	.check {
+	td.check {
 		width: 1%;
 		font-size: var(--text-sm);
 	}

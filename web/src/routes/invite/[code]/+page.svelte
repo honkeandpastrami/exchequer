@@ -29,14 +29,9 @@
 
 <div class="invite">
 	<h1>Exchequer</h1>
-	<p>
-		This invite adds a passkey on this device: Face ID, Touch ID, Windows Hello or a security key.
-		There's no password.
-	</p>
+	<p>Create a passkey on this device to sign in.</p>
 	{#if session.token}
-		<p class="muted">
-			You'll be signed in as the person it was made for, which may not be who's signed in now.
-		</p>
+		<p class="muted">You'll be signed in as the person this invite is for.</p>
 	{/if}
 	<button type="button" onclick={create} disabled={busy}>Create a passkey</button>
 	{#if failure}<Failure error={failure} />{/if}

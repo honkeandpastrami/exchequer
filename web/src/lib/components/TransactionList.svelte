@@ -16,7 +16,8 @@
 	import { reference, sorted, type Reference } from '#lib/reference.ts';
 	import { categoryNames, effectOn, runningBalances, size } from '#lib/views/transactions.ts';
 	import { batchName } from '#lib/views/batches.ts';
-	import { localDate } from '#lib/dates.ts';
+	import { dayName, stampName } from '#lib/dates.ts';
+	import DateField from './dates/DateField.svelte';
 
 	const KEYS = [
 		'q',
@@ -180,19 +181,15 @@
 			: null}
 	<form class="filters" onsubmit={(e) => e.preventDefault()}>
 		<input type="search" placeholder="Search text" bind:value={text} oninput={typed} />
-		<label
-			>From <input
-				type="date"
+		<span class="bound"
+			>From <DateField
+				label="From"
 				value={filters.from ?? ''}
-				onchange={(e) => set('from', e.currentTarget.value)}
-			/></label
+				onchange={(v) => set('from', v)}
+			/></span
 		>
-		<label
-			>To <input
-				type="date"
-				value={filters.to ?? ''}
-				onchange={(e) => set('to', e.currentTarget.value)}
-			/></label
+		<span class="bound"
+			>To <DateField label="To" value={filters.to ?? ''} onchange={(v) => set('to', v)} /></span
 		>
 		<select
 			value={filters.account_id ?? ''}
@@ -244,7 +241,7 @@
 			{#if batch}
 				<strong>{batchName(batch)}</strong>
 				<span class="muted"
-					>created {localDate(batch.created_at)} · {batch.transaction_count}
+					>created {stampName(batch.created_at)} · {batch.transaction_count}
 					{batch.transaction_count === 1 ? 'transaction' : 'transactions'}</span
 				>
 			{/if}
@@ -280,7 +277,7 @@
 			{/if}
 			{#each items as tx, i (tx.id)}
 				<tr class="row" class:open={open[tx.id]} onclick={() => (open[tx.id] = !open[tx.id])}>
-					<td class="date">{tx.date}</td>
+					<td class="date">{dayName(tx.date)}</td>
 					<td class="desc">
 						<button class="link" aria-expanded={!!open[tx.id]}
 							>{tx.description || '(no description)'}</button
@@ -348,7 +345,11 @@
 		gap: var(--space-2) var(--space-3);
 		margin-bottom: var(--space-4);
 	}
-	.filters label {
+	.filters .bound {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+		white-space: nowrap;
 		font-size: var(--text-sm);
 		color: var(--color-text-muted);
 	}

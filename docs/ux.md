@@ -66,9 +66,25 @@ a reason to change this doc, not to make an exception.
 
 ## 9. Short text
 
-- A label or a one-line hint. Explanations go in the docs; no footnotes.
+- A label or a one-line hint. Explanations go in the docs.
+- No paragraph at the top of a page, and no footnotes at the bottom. What the user needs
+  goes where it applies: a label, a column header, a field hint.
 
 ## 10. Privacy
 
 - Identifiers are masked by default; one remembered setting shows them, everywhere at once.
   It's a display choice only, decided in one place.
+
+## 11. Dates
+
+- One date system, from `web/src/lib/components/dates/`; a page never adds a date control of
+  its own (lint enforces it).
+
+  | What the page needs | Component |
+  |---|---|
+  | Its current day, month or year | `DateStepper` |
+  | A run of months | `MonthRange` |
+  | A day in a form or a filter | `DateField` |
+
+- Every date shown has one format: `Aug 14, 2026`, `Aug 2026`, `2026`,
+  `Sep 2025 – Aug 2026`.

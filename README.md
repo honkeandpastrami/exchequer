@@ -10,8 +10,7 @@ between each person and the household's shared money every month.
   everywhere (no floating point).
 - Clients are a Python CLI/TUI and a SvelteKit web app, both generated from the OpenAPI spec.
 
-**Status:** design phase. See [`docs/requirements.md`](docs/requirements.md) and
-[`docs/design.md`](docs/design.md).
+**Docs:** [`docs/design.md`](docs/design.md) maps the pieces and links the rest.
 
 ## License
 

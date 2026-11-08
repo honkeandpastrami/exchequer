@@ -10,6 +10,7 @@
 	import SplitLines from './SplitLines.svelte';
 	import Tags from './Tags.svelte';
 	import { today } from '../dates';
+	import DateField from './dates/DateField.svelte';
 	import { forgetReference, reference, sorted, type Reference } from '../reference';
 	import {
 		blankDraft,
@@ -150,7 +151,7 @@
 		onreload={load}
 	>
 		<Field label="Date" id="{uid}-date">
-			<input id="{uid}-date" type="date" bind:value={draft.date} />
+			<DateField id="{uid}-date" bind:value={draft.date} required />
 		</Field>
 		<Field label="Description" id="{uid}-description">
 			<input id="{uid}-description" bind:value={draft.description} maxlength="500" />
