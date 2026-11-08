@@ -2,6 +2,7 @@
 //! ledger (duplicates), and to each other (transfer matches). Each match is
 //! one-to-one.
 
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
@@ -64,11 +65,11 @@ pub fn one_to_one<K: Copy + Ord + Hash>(
     out
 }
 
-/// What a staged row's other side is, as settled so far: by you, or by a
-/// confident suggestion.
+/// What a staged row's other side is, as you chose it. A suggestion doesn't
+/// count: it was made without seeing the other side, and a pair settles it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
-    /// Not settled.
+    /// Not chosen.
     Open,
     /// One of your accounts: a transfer.
     Transfer(Uuid),
@@ -88,8 +89,10 @@ pub struct Staged<K> {
     pub amount: Decimal,
     pub side: Side,
     /// Whether it may be matched: a row that will become a new transaction
-    /// (not a duplicate, not skipped, not one you made new on purpose).
+    /// (not a duplicate, not skipped).
     pub eligible: bool,
+    /// Whether you made a decision on it.
+    pub decided: bool,
 }
 
 /// Whether `b` may be the other side of `a`'s transfer: in another account,
@@ -103,38 +106,40 @@ pub fn fits<K>(a: &Staged<K>, b: &Staged<K>) -> bool {
         && (a.date - b.date).whole_days().abs() <= TRANSFER_DAYS
 }
 
-/// Transfer matches among staged rows: pairs of rows that are the two sides
-/// of one transfer, each key mapped to the other's. A pair needs one row
-/// settled as a transfer to the other's account, and the other row open or
-/// settled as a transfer back; rows both settled that way go first, then
-/// the closest dates.
-#[must_use]
-pub fn transfer_matches<K: Copy + Ord + Hash>(rows: &[Staged<K>]) -> HashMap<K, K> {
-    let mut pairs: Vec<(bool, i64, K, K)> = Vec::new();
-    for a in rows.iter().filter(|r| r.eligible) {
-        let Side::Transfer(to) = a.side else { continue };
-        for b in rows.iter().filter(|r| r.eligible && r.account == to) {
-            let back = b.side == Side::Transfer(a.account);
-            if !fits(a, b) || !(back || b.side == Side::Open) {
-                continue;
+/// Whether `a`'s other side, as you chose it, lets `b` be its transfer's
+/// other side: not chosen, or chosen as a transfer to `b`'s account.
+fn allows<K>(a: &Staged<K>, b: &Staged<K>) -> bool {
+    match a.side {
+        Side::Open => true,
+        Side::Transfer(to) => to == b.account,
+        Side::Outside => false,
+    }
+}
+
+/// Eligible rows that fit each other, each pair once, the lower key first.
+fn fitting<K: Ord>(rows: &[Staged<K>]) -> Vec<(&Staged<K>, &Staged<K>)> {
+    let eligible: Vec<&Staged<K>> = rows.iter().filter(|r| r.eligible).collect();
+    let mut out = Vec::new();
+    for (i, a) in eligible.iter().enumerate() {
+        for b in &eligible[i + 1..] {
+            if fits(a, b) {
+                out.push(if a.key < b.key { (*a, *b) } else { (*b, *a) });
             }
-            // Each pair once, whichever side found it.
-            if back && b.key < a.key {
-                continue;
-            }
-            let days = (a.date - b.date).whole_days().abs();
-            let (x, y) = if a.key < b.key {
-                (a.key, b.key)
-            } else {
-                (b.key, a.key)
-            };
-            pairs.push((!back, days, x, y));
         }
     }
+    out
+}
+
+fn days<K>(a: &Staged<K>, b: &Staged<K>) -> i64 {
+    (a.date - b.date).whole_days().abs()
+}
+
+/// Takes pairs in order, each row at most once; each key maps to the
+/// other's.
+fn greedy<K: Copy + Ord + Hash, R: Ord>(mut pairs: Vec<(R, K, K)>) -> HashMap<K, K> {
     pairs.sort();
-    pairs.dedup();
     let mut out = HashMap::new();
-    for (_, _, x, y) in pairs {
+    for (_, x, y) in pairs {
         if out.contains_key(&x) || out.contains_key(&y) {
             continue;
         }
@@ -142,6 +147,50 @@ pub fn transfer_matches<K: Copy + Ord + Hash>(rows: &[Staged<K>]) -> HashMap<K, 
         out.insert(y, x);
     }
     out
+}
+
+/// Transfer matches among staged rows: pairs of rows that are the two sides
+/// of one transfer, each key mapped to the other's. Two rows that fit each
+/// other pair unless your choice says otherwise: a counterparty (or none)
+/// you chose for either, or a transfer to another account. Suggestions
+/// don't count; the pair settles them. Rows you chose as transfers to each
+/// other go first, then the closest dates.
+#[must_use]
+pub fn transfer_matches<K: Copy + Ord + Hash>(rows: &[Staged<K>]) -> HashMap<K, K> {
+    let pairs = fitting(rows)
+        .into_iter()
+        .filter(|(a, b)| allows(a, b) && allows(b, a))
+        .map(|(a, b)| {
+            let chosen = [a, b]
+                .iter()
+                .filter(|r| matches!(r.side, Side::Transfer(_)))
+                .count();
+            ((Reverse(chosen), days(a, b)), a.key, b.key)
+        })
+        .collect();
+    greedy(pairs)
+}
+
+/// Transfer conflicts among the rows [`transfer_matches`] left unpaired:
+/// a row you chose as a transfer to one account, and a row in another of
+/// your accounts that fits it and would take it (not chosen, or chosen as
+/// the transfer back). Neither pairs; you settle it by choosing again or by
+/// deciding either row. One-to-one, the closest dates first.
+#[must_use]
+pub fn transfer_conflicts<K: Copy + Ord + Hash>(
+    rows: &[Staged<K>],
+    pairs: &HashMap<K, K>,
+) -> HashMap<K, K> {
+    let free = |r: &Staged<K>| !r.decided && !pairs.contains_key(&r.key);
+    let clash = |a: &Staged<K>, b: &Staged<K>| {
+        matches!(a.side, Side::Transfer(to) if to != b.account) && allows(b, a)
+    };
+    let conflicts = fitting(rows)
+        .into_iter()
+        .filter(|(a, b)| free(a) && free(b) && (clash(a, b) || clash(b, a)))
+        .map(|(a, b)| (days(a, b), a.key, b.key))
+        .collect();
+    greedy(conflicts)
 }
 
 #[cfg(test)]
@@ -207,49 +256,76 @@ mod tests {
             amount: Decimal::new(cents, 2),
             side,
             eligible: true,
+            decided: false,
         }
     }
 
     #[test]
-    fn a_settled_transfer_pairs_with_its_other_side() {
+    fn rows_that_fit_pair_unless_you_chose_otherwise() {
         let rows = vec![
-            // A card payment from checking, settled as a transfer to the
-            // card; the card's side is open.
-            staged(1, CHECKING, 13, -64_218, Side::Transfer(CARD)),
-            staged(2, CARD, 12, 64_218, Side::Open),
-            // Same amount, but a counterparty on purpose: never paired.
-            staged(3, CARD, 13, 64_218, Side::Outside),
-            // Not settled on either side: no pair, however well it fits.
-            staged(4, CHECKING, 9, -5000, Side::Open),
-            staged(5, SAVINGS, 9, 5000, Side::Open),
+            // A card payment from checking and its arrival on the card:
+            // neither side chosen, still a pair.
+            staged(1, CHECKING, 13, -64_218, Side::Open),
+            staged(2, CARD, 10, 64_218, Side::Open),
+            // A counterparty you chose: never paired.
+            staged(3, CHECKING, 9, -5000, Side::Open),
+            staged(4, SAVINGS, 9, 5000, Side::Outside),
+            // A transfer you chose to another account: not paired either.
+            staged(5, CHECKING, 20, -700, Side::Transfer(CARD)),
+            staged(6, SAVINGS, 20, 700, Side::Open),
+            // Four days apart: too far.
+            staged(7, CHECKING, 1, -900, Side::Open),
+            staged(8, CARD, 5, 900, Side::Open),
         ];
-        let got = transfer_matches(&rows);
-        assert_eq!(got, HashMap::from([(1, 2), (2, 1)]));
+        assert_eq!(transfer_matches(&rows), HashMap::from([(1, 2), (2, 1)]));
     }
 
     #[test]
-    fn pairs_are_one_to_one_agreeing_first_then_closest() {
+    fn pairs_are_one_to_one_chosen_first_then_closest() {
         let rows = vec![
             staged(1, CHECKING, 10, -10_000, Side::Transfer(SAVINGS)),
-            // Closer, but only open.
+            // Closer, but not chosen.
             staged(2, SAVINGS, 10, 10_000, Side::Open),
-            // Settled as the transfer back: agreeing pairs go first, the
-            // closest of them (with 4) before the other (with 1).
+            // Chosen as the transfer back: pairs chosen on both sides go
+            // first, the closest of them (with 4) before the other (with 1).
             staged(3, SAVINGS, 13, 10_000, Side::Transfer(CHECKING)),
             staged(4, CHECKING, 11, -10_000, Side::Transfer(SAVINGS)),
-            // Too far apart, the wrong sign, another account: never.
+            // Too far apart, the wrong sign: never.
             staged(5, SAVINGS, 20, 10_000, Side::Open),
             staged(6, SAVINGS, 10, -10_000, Side::Open),
-            staged(7, CARD, 10, 10_000, Side::Open),
         ];
         let got = transfer_matches(&rows);
         // 1 takes the one left.
         assert_eq!(got, HashMap::from([(3, 4), (4, 3), (1, 2), (2, 1)]));
-        // A row that can't be matched (a duplicate, or made new on purpose)
-        // isn't.
+        // A row that can't be matched (a duplicate, or skipped) isn't.
         let mut rows = rows;
         rows[2].eligible = false;
         rows[3].eligible = false;
         assert_eq!(transfer_matches(&rows), HashMap::from([(1, 2), (2, 1)]));
+    }
+
+    #[test]
+    fn a_transfer_chosen_elsewhere_is_a_conflict() {
+        let rows = vec![
+            // You chose savings, but the card holds the other side.
+            staged(1, CHECKING, 13, -100_429, Side::Transfer(SAVINGS)),
+            staged(2, CARD, 10, 100_429, Side::Open),
+            // Settled already: you decided one of them.
+            staged(3, CHECKING, 13, -2000, Side::Transfer(SAVINGS)),
+            Staged {
+                decided: true,
+                ..staged(4, CARD, 13, 2000, Side::Open)
+            },
+            // Paired with the account you chose: no conflict with the card.
+            staged(5, CHECKING, 13, -300, Side::Transfer(SAVINGS)),
+            staged(6, SAVINGS, 13, 300, Side::Open),
+            staged(7, CARD, 13, 300, Side::Open),
+        ];
+        let pairs = transfer_matches(&rows);
+        assert_eq!(pairs, HashMap::from([(5, 6), (6, 5)]));
+        assert_eq!(
+            transfer_conflicts(&rows, &pairs),
+            HashMap::from([(1, 2), (2, 1)])
+        );
     }
 }

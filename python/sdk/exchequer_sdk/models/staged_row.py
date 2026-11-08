@@ -60,6 +60,7 @@ class StagedRow:
             whose category and purpose don't apply (unless one account is liquid
             and the other isn't: an expense or income).
             A transfer match's is its other side's account.
+        transfer_conflict (None | TransferMatch | Unset):
         transfer_match (None | TransferMatch | Unset):
     """
 
@@ -85,6 +86,7 @@ class StagedRow:
     set_description: None | str | Unset = UNSET
     suggested_decision: DecisionSuggestion | None | Unset = UNSET
     transfer_account_id: None | Unset | UUID = UNSET
+    transfer_conflict: None | TransferMatch | Unset = UNSET
     transfer_match: None | TransferMatch | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -201,6 +203,14 @@ class StagedRow:
         else:
             transfer_account_id = self.transfer_account_id
 
+        transfer_conflict: dict[str, Any] | None | Unset
+        if isinstance(self.transfer_conflict, Unset):
+            transfer_conflict = UNSET
+        elif isinstance(self.transfer_conflict, TransferMatch):
+            transfer_conflict = self.transfer_conflict.to_dict()
+        else:
+            transfer_conflict = self.transfer_conflict
+
         transfer_match: dict[str, Any] | None | Unset
         if isinstance(self.transfer_match, Unset):
             transfer_match = UNSET
@@ -246,6 +256,8 @@ class StagedRow:
             field_dict["suggested_decision"] = suggested_decision
         if transfer_account_id is not UNSET:
             field_dict["transfer_account_id"] = transfer_account_id
+        if transfer_conflict is not UNSET:
+            field_dict["transfer_conflict"] = transfer_conflict
         if transfer_match is not UNSET:
             field_dict["transfer_match"] = transfer_match
 
@@ -448,6 +460,23 @@ class StagedRow:
 
         transfer_account_id = _parse_transfer_account_id(d.pop("transfer_account_id", UNSET))
 
+        def _parse_transfer_conflict(data: object) -> None | TransferMatch | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                transfer_conflict_type_0 = TransferMatch.from_dict(data)
+
+                return transfer_conflict_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | TransferMatch | Unset, data)
+
+        transfer_conflict = _parse_transfer_conflict(d.pop("transfer_conflict", UNSET))
+
         def _parse_transfer_match(data: object) -> None | TransferMatch | Unset:
             if data is None:
                 return data
@@ -488,6 +517,7 @@ class StagedRow:
             set_description=set_description,
             suggested_decision=suggested_decision,
             transfer_account_id=transfer_account_id,
+            transfer_conflict=transfer_conflict,
             transfer_match=transfer_match,
         )
 
