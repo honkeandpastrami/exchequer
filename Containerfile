@@ -5,7 +5,9 @@
 # deploy/examples/exchequer-server.container. The version comes from git tags:
 #   podman build --build-arg EXCHEQUER_VERSION="$(deploy/version)" -t exchequer-server .
 
-FROM docker.io/library/node:26-slim AS web
+# Base images are pinned by digest, so CI's layer cache stays valid until
+# Dependabot proposes a new one.
+FROM docker.io/library/node:26-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund --loglevel=error
@@ -20,7 +22,7 @@ RUN npm run build
 # static by default. TLS roots are compiled in (webpki-roots): the image has
 # no certificate store. sqlx checks queries against the committed cache in
 # server/.sqlx, no database needed.
-FROM docker.io/library/rust:1.99-alpine AS chef
+FROM docker.io/library/rust:1.99-alpine@sha256:44819b27be4c97b0e4d7203bd2e02c4820f97700211b6a37fb4c246a2de59383 AS chef
 RUN apk add --no-cache gcc musl-dev make perl
 RUN cargo install cargo-chef --version 0.1.78 --locked
 WORKDIR /src/server

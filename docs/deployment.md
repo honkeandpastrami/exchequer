@@ -24,17 +24,18 @@ branch ─▶ pull request ─▶ checks ─▶ merge to main ─▶ release vX.
 
 ## Checks
 
-Three workflows check a pull request, and check `main` again after the merge. Each runs only
-when its part of the repository changed:
+The `ci` workflow checks a pull request, and checks `main` again after the merge. Each area
+runs only when its part of the repository changed (a change to `ci.yml` runs them all):
 
-| Workflow | Runs when these change | Runs |
+| Area | Runs when these change | Jobs |
 |---|---|---|
-| `server` | `server/`, `api/`, `deploy/`, `web/`, `justfile`, `Containerfile` | `just check`, then builds and smoke-tests both images |
-| `web` | `web/`, `api/`, `justfile` | `just web-check` |
-| `python` | `python/`, `api/`, `justfile` | `just python-check` |
+| server | `server/`, `api/`, `deploy/`, `web/`, `justfile`, `Containerfile` | `server` (`just check`), `image` (builds and smoke-tests both images) |
+| web | `web/`, `api/`, `justfile` | `web` (`just web-check`) |
+| python | `python/`, `api/`, `justfile`, the CLI's packaging in `deploy/` | `python` (`just python-check`), `deb`, `brew` |
 
 They run the same `just` recipes as a local checkout, so a change that passes locally
-passes in CI. A pull request is merged once its checks pass.
+passes in CI. The last job, `gate`, passes only if every job that ran passed; it's the one
+check the repository rule requires, so a pull request merges only when all of them pass.
 
 ## Versions
 
