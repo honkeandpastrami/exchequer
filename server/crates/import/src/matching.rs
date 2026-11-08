@@ -1,5 +1,5 @@
 //! Matching staged rows (design §6.3-§6.4): to transactions already in the
-//! ledger (duplicates), and to each other (transfer matches). Each match is
+//! ledger (duplicates), and to each other (transfer pairs). Each match is
 //! one-to-one.
 
 use std::cmp::Reverse;
@@ -14,13 +14,13 @@ use uuid::Uuid;
 use crate::params::{NEAR_DAY, NEAR_LIKENESS, NEAR_MOST, TRANSFER_DAY, UNMEASURED};
 
 /// How sure matching is, per mille, that two sides of a transfer `days`
-/// apart are one transfer (a transfer match, or a transfer duplicate).
+/// apart are one transfer (a transfer pair, or a recorded transfer).
 #[must_use]
 pub fn transfer_confidence(days: Option<i32>) -> i32 {
     days.map_or(UNMEASURED, |d| (1000 - TRANSFER_DAY * d).max(0))
 }
 
-/// How sure matching is, per mille, that a near duplicate is the
+/// How sure matching is, per mille, that a possible duplicate by amount is the
 /// transaction it's like: never sure ([`NEAR_MOST`]).
 #[must_use]
 pub fn near_confidence(days: i32, similarity: i32) -> i32 {
@@ -208,7 +208,7 @@ mod tests {
             .map(transfer_confidence)
             .collect();
         assert_eq!(transfer, [1000, 970, 910, 850, 500]);
-        // A near duplicate never reaches confident, however alike.
+        // A possible duplicate never reaches confident, however alike.
         assert_eq!(near_confidence(0, 1000), 890);
         assert_eq!(near_confidence(1, 1000), 830);
         assert_eq!(near_confidence(2, 300), 147);

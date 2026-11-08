@@ -95,7 +95,7 @@ pub struct RowRow {
     /// The labels set by the client (`counterparty`, `category`,
     /// `purpose`); the others are open to suggestions.
     pub chosen: Vec<String>,
-    /// A transfer match's other side: a staged row, maybe in another
+    /// A transfer pair's other row: a staged row, maybe in another
     /// import.
     pub pair_import_id: Option<Uuid>,
     pub pair_statement: Option<i16>,

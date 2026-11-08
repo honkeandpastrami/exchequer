@@ -4,7 +4,7 @@
 
 /// Matching as a suggester: its name and version.
 pub const MATCHER: (&str, &str) = ("matching", "2");
-/// How far apart, in days, a near duplicate's date may be.
+/// How far apart, in days, a possible duplicate by amount may be dated.
 pub const NEAR_DAYS: i32 = 3;
 
 /// Per mille: a new row (nothing like it) and an exact duplicate (the same
@@ -20,11 +20,11 @@ pub const CHANGED: i32 = 890;
 /// A transfer pair whose rows you gave another other side: your choice
 /// stays the default, short of sure.
 pub const DISAGREES: i32 = 500;
-/// A near duplicate: this share of its descriptions' likeness, in percent,
+/// A possible duplicate by amount: this share of its descriptions' likeness, in percent,
 /// less a day's worth for each day apart.
 pub const NEAR_LIKENESS: i32 = 89;
 pub const NEAR_DAY: i32 = 60;
-/// A near duplicate is never sure enough to commit unseen: it may be
+/// A possible duplicate by amount is never confident: it may be
 /// another, identical purchase. Below [`suggest::CONFIDENT`].
 pub const NEAR_MOST: i32 = 890;
 const _: () = assert!(NEAR_MOST < suggest::CONFIDENT as i32);

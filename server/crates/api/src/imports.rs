@@ -1869,8 +1869,7 @@ async fn list(
     })))
 }
 
-/// Get one staged import, with its statements and how many rows have each
-/// status.
+/// Get one staged import, with its statements and its rows by state.
 #[utoipa::path(get, path = "/imports/{id}", tag = "imports", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = OK, body = Import, headers(("ETag" = String))),
@@ -2023,7 +2022,7 @@ async fn upload(
         suggestions::labels(&mut tx, &levels, id, position, false).await?;
     }
     // The other staged imports' rows now see this one's as potential
-    // transfer matches.
+    // transfer pairs.
     let others = staged_statements(&mut tx, Some(id)).await?;
     resuggest(&mut tx, &levels, &others).await?;
     rematch(&mut tx).await?;
@@ -2180,10 +2179,10 @@ async fn set_statement(
     Ok(respond(StatusCode::OK, &after))
 }
 
-/// Work an import out again without uploading it again: its rows' statuses
+/// Work an import out again without uploading it again: its rows' labels
 /// against the ledger, the suggestions that aren't confident (the
 /// statement's account, then each row's labels; yours and confident ones
-/// stay) and transfer matches across every staged import.
+/// stay) and transfer pairs across every staged import.
 #[utoipa::path(post, path = "/imports/{id}/refresh", tag = "imports", security(("bearer" = [])),
     params(("id" = Uuid, Path), ("If-Match" = String, Header, description = "ETag from your last read")),
     responses((status = OK, body = Import, headers(("ETag" = String))),
@@ -2255,7 +2254,7 @@ async fn discard(
         return Err(Problem::stale());
     }
     store::imports::delete(&mut *tx, id).await?;
-    // Its rows' transfer matches in other imports are gone.
+    // Its rows' transfer pairs in other imports are gone.
     rematch(&mut tx).await?;
     audit::<serde_json::Value>(
         &mut tx,
