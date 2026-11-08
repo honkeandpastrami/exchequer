@@ -9,6 +9,7 @@ import {
 	percent,
 	plan,
 	statementName,
+	toReview,
 	totals,
 	unlabeled
 } from './imports';
@@ -43,6 +44,7 @@ const row = (decision: Schemas['Decision'] | null): Schemas['StagedRow'] => ({
 	description: 'x',
 	status: 'new',
 	decided: false,
+	reviewed: false,
 	decision,
 	raw: {},
 	chosen: [],
@@ -113,6 +115,25 @@ describe('import review', () => {
 		expect(labelState({ ...r, suggestions: [] }, 'counterparty').kind).toBe('missing');
 		expect(unlabeled([r, row('new')])).toEqual([r]);
 		expect(percent(926)).toBe('93%');
+	});
+
+	it('asks you to review rows on AI suggestions, until you tick them', () => {
+		const sure = {
+			...row('new'),
+			suggestions: [
+				suggestion('counterparty', 950),
+				suggestion('category', 950),
+				suggestion('purpose', 950)
+			]
+		};
+		const certain = {
+			...sure,
+			suggestions: sure.suggestions.map((s) => ({ ...s, confidence: 1000 }))
+		};
+		// Labels missing: it needs work, not a look.
+		const lacking = { ...sure, missing: ['category' as const] };
+		expect(toReview([sure, certain, lacking, row('skip')])).toEqual([sure]);
+		expect(toReview([{ ...sure, reviewed: true }])).toEqual([]);
 	});
 });
 

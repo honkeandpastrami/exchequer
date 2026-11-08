@@ -50,6 +50,7 @@ const row = (more: Partial<Schemas['StagedRow']> = {}): Schemas['StagedRow'] => 
 	description: 'MORTGAGE PMT',
 	status: 'new',
 	decided: false,
+	reviewed: false,
 	decision: 'new',
 	raw: {},
 	chosen: [],

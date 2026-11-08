@@ -75,13 +75,31 @@ fn status(row: &Value) -> (&Value, &Value) {
 async fn two_files_two_sides_one_transfer(pool: PgPool) {
     let h = H::new(&pool).await;
     let card = upload(&pool, &h, &h.alex_credit, CARD).await;
-    let checking = upload(&pool, &h, &h.alex_checking, CHECKING).await;
-    // Nothing settled: two new rows, each needing labels.
-    let deposit = &rows(&pool, &h, &card).await[0];
-    assert_eq!(status(deposit), (&json!("new"), &json!("new")));
-
-    // The payment's other side is the card: the two rows are one transfer.
     let card_version = read(&pool, &h, &card).await.etag();
+    let checking = upload(&pool, &h, &h.alex_checking, CHECKING).await;
+    // Nothing chosen on either side, but the two rows fit: one transfer.
+    let payment = &rows(&pool, &h, &checking).await[0];
+    assert_eq!(
+        (
+            status(payment),
+            &payment["transfer_account_id"],
+            &payment["transfer_match"]["import_id"],
+            &payment["transfer_match"]["account_id"],
+            &payment["missing"],
+        ),
+        (
+            (&json!("transfer_match"), &json!("match")),
+            &json!(h.alex_credit),
+            &json!(card),
+            &json!(h.alex_credit),
+            &json!([])
+        ),
+        "{payment}"
+    );
+    assert_eq!(payment.get("counterparty_id"), None);
+    // The card's row too, in its own import, which changed.
+    assert_ne!(read(&pool, &h, &card).await.etag(), card_version);
+    // Choosing the card as the payment's other side keeps the pair.
     let r = set_row(
         &pool,
         &h,
@@ -91,27 +109,7 @@ async fn two_files_two_sides_one_transfer(pool: PgPool) {
     )
     .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
-    assert_eq!(
-        (
-            status(&r.body),
-            &r.body["transfer_account_id"],
-            &r.body["transfer_match"]["import_id"],
-            &r.body["transfer_match"]["account_id"],
-            &r.body["missing"],
-        ),
-        (
-            (&json!("transfer_match"), &json!("match")),
-            &json!(h.alex_credit),
-            &json!(card),
-            &json!(h.alex_credit),
-            &json!([])
-        ),
-        "{}",
-        r.body
-    );
-    assert_eq!(r.body.get("counterparty_id"), None);
-    // The card's row too, in its own import, which changed.
-    assert_ne!(read(&pool, &h, &card).await.etag(), card_version);
+    assert_eq!(status(&r.body), (&json!("transfer_match"), &json!("match")));
     let deposit = &rows(&pool, &h, &card).await[0];
     assert_eq!(
         (
@@ -511,12 +509,20 @@ async fn refresh_suggests_again_but_keeps_your_labels(pool: PgPool) {
     )
     .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    // The two rows fit: a pair, with nothing suggested.
+    let transfer_suggested = |row: &Value| {
+        row["suggestions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s.get("transfer_account_id").is_some())
+    };
+    let deposit = &rows(&pool, &h, &card).await[0];
+    assert_eq!(status(deposit), (&json!("transfer_match"), &json!("match")));
+    assert!(!transfer_suggested(deposit), "{deposit}");
     // A rule written after both files were staged changes nothing yet.
     put_rules(&pool, &h, DEPOSIT_RULE).await;
-    assert_eq!(
-        status(&rows(&pool, &h, &card).await[0]),
-        (&json!("new"), &json!("new"))
-    );
+    assert!(!transfer_suggested(&rows(&pool, &h, &card).await[0]));
     let stale = read(&pool, &h, &card).await.etag();
     let refresh = |etag: String| {
         let pool = pool.clone();
@@ -532,10 +538,9 @@ async fn refresh_suggests_again_but_keeps_your_labels(pool: PgPool) {
     let r = refresh(stale.clone()).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_ne!(r.etag(), stale);
-    assert_eq!(
-        status(&rows(&pool, &h, &card).await[0]),
-        (&json!("transfer_match"), &json!("match"))
-    );
+    let deposit = &rows(&pool, &h, &card).await[0];
+    assert_eq!(status(deposit), (&json!("transfer_match"), &json!("match")));
+    assert!(transfer_suggested(deposit), "{deposit}");
     // Your choice on the other import is still yours.
     let coffee = &rows(&pool, &h, &checking).await[1];
     assert_eq!(
@@ -545,4 +550,109 @@ async fn refresh_suggests_again_but_keeps_your_labels(pool: PgPool) {
     );
     // A stale version is refused.
     assert_eq!(refresh(stale).await.status, StatusCode::PRECONDITION_FAILED);
+}
+
+/// Suggests the card's deposit came from the brokerage: wrong, as a
+/// suggestion can be.
+const WRONG_RULE: &str = r#"
+fn classify(row, s) {
+    if row.description.contains("FROM CHECKING") {
+        s.transfer("Alex · Alex Brokerage");
+    }
+}
+"#;
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn a_wrong_suggestion_doesnt_keep_a_pair_apart(pool: PgPool) {
+    let h = H::new(&pool).await;
+    put_rules(&pool, &h, WRONG_RULE).await;
+    let card = upload(&pool, &h, &h.alex_credit, CARD).await;
+    let checking = upload(&pool, &h, &h.alex_checking, CHECKING).await;
+    // Suggested from the brokerage, but the payment fits: the pair settles
+    // the deposit's other side.
+    let deposit = &rows(&pool, &h, &card).await[0];
+    assert_eq!(
+        (
+            status(deposit),
+            &deposit["transfer_account_id"],
+            &deposit["transfer_match"]["import_id"],
+            &deposit["suggestions"][0]["transfer_account_id"],
+        ),
+        (
+            (&json!("transfer_match"), &json!("match")),
+            &json!(h.alex_checking),
+            &json!(checking),
+            &json!(h.alex_brokerage),
+        ),
+        "{deposit}"
+    );
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn a_transfer_chosen_elsewhere_waits_for_you(pool: PgPool) {
+    let h = H::new(&pool).await;
+    let card = upload(&pool, &h, &h.alex_credit, CARD).await;
+    let checking = upload(&pool, &h, &h.alex_checking, CHECKING).await;
+    // You say the deposit came from savings, but the payment from checking
+    // fits it: a conflict, not a pair.
+    let r = set_row(
+        &pool,
+        &h,
+        &card,
+        0,
+        json!({ "transfer_account_id": h.joint_savings }),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(
+        (
+            status(&r.body),
+            &r.body["transfer_conflict"]["import_id"],
+            &r.body["transfer_conflict"]["account_id"],
+            &r.body["suggested_decision"]["confident"],
+        ),
+        (
+            (&json!("new"), &json!("new")),
+            &json!(checking),
+            &json!(h.alex_checking),
+            &json!(false),
+        ),
+        "{}",
+        r.body
+    );
+    let payment = &rows(&pool, &h, &checking).await[0];
+    assert_eq!(
+        (status(payment), &payment["transfer_conflict"]["import_id"]),
+        ((&json!("new"), &json!("new")), &json!(card)),
+        "{payment}"
+    );
+    // It waits for you.
+    assert_eq!(
+        read(&pool, &h, &card).await.body["readiness"]["undecided"],
+        json!(1)
+    );
+    let r = commit(&pool, &h, &card).await;
+    assert_eq!(r.status, StatusCode::CONFLICT, "{}", r.body);
+
+    // Deciding either row settles it: the payment is its own transaction.
+    set_row(&pool, &h, &checking, 0, json!({ "decision": "new" })).await;
+    let deposit = &rows(&pool, &h, &card).await[0];
+    assert_eq!(deposit.get("transfer_conflict"), None, "{deposit}");
+    assert_eq!(
+        read(&pool, &h, &card).await.body["readiness"]["undecided"],
+        json!(0)
+    );
+
+    // Or change your mind: with the choices gone, the two pair.
+    set_row(&pool, &h, &checking, 0, json!({ "decision": null })).await;
+    set_row(&pool, &h, &card, 0, json!({ "revert": ["counterparty"] })).await;
+    let deposit = &rows(&pool, &h, &card).await[0];
+    assert_eq!(
+        (status(deposit), &deposit["transfer_match"]["import_id"]),
+        (
+            (&json!("transfer_match"), &json!("match")),
+            &json!(checking)
+        ),
+        "{deposit}"
+    );
 }

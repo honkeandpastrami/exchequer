@@ -2895,6 +2895,99 @@
         ]
       }
     },
+    "/api/v1/imports/{id}/review": {
+      "post": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Tick rows as reviewed, or untick them (design §6.7): a ticked row's AI\nsuggestions count as yours, so an import whose rows you ticked is ready\nto commit. A row that needs a label or a decision isn't ticked. Each\ntick goes by itself when its row changes under it.",
+        "operationId": "imports_review",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag from your last read",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Review"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Import"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/imports/{id}/rows": {
       "get": {
         "tags": [
@@ -9511,6 +9604,7 @@
                 "description",
                 "status",
                 "decided",
+                "reviewed",
                 "chosen",
                 "suggestions",
                 "missing",
@@ -9613,6 +9707,10 @@
                   "type": "object",
                   "description": "The row's fields as the file had them."
                 },
+                "reviewed": {
+                  "type": "boolean",
+                  "description": "Whether you ticked the row as reviewed, and it still shows what you\nsaw then: the AI suggestions it takes count as yours."
+                },
                 "set_description": {
                   "type": [
                     "string",
@@ -9659,6 +9757,17 @@
                   ],
                   "format": "uuid",
                   "description": "The other side when it's one of your accounts: the row is a transfer,\nwhose category and purpose don't apply (unless one account is liquid\nand the other isn't: an expense or income).\nA transfer match's is its other side's account."
+                },
+                "transfer_conflict": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/TransferMatch",
+                      "description": "A transfer conflict: you chose the row as a transfer to one account,\nand this staged row, in another of your accounts, fits as its other\nside. Matching isn't sure of the row's decision until you choose its\nother side again or decide either row."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "transfer_match": {
                   "oneOf": [
@@ -10203,7 +10312,7 @@
           "suggested_rows": {
             "type": "integer",
             "format": "int32",
-            "description": "Rows that would take a confident AI suggestion short of 100%.",
+            "description": "Rows that would take a confident AI suggestion short of 100%, not\nticked as reviewed.",
             "minimum": 0
           },
           "undecided": {
@@ -10357,6 +10466,28 @@
           }
         }
       },
+      "Review": {
+        "type": "object",
+        "description": "Rows to tick as reviewed, or untick.",
+        "required": [
+          "rows",
+          "reviewed"
+        ],
+        "properties": {
+          "reviewed": {
+            "type": "boolean",
+            "description": "`true` ticks the rows that don't need a label or a decision (the\nothers stay as they are); `false` unticks them all."
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RowRef"
+            },
+            "description": "The rows, as you saw them; at most 500."
+          }
+        },
+        "additionalProperties": false
+      },
       "RevokedAll": {
         "type": "object",
         "description": "What `POST /revoke-all` did.",
@@ -10486,6 +10617,25 @@
           }
         }
       },
+      "RowRef": {
+        "type": "object",
+        "description": "A staged row of the import.",
+        "required": [
+          "statement",
+          "position"
+        ],
+        "properties": {
+          "position": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "statement": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
       "RowSplit": {
         "type": "object",
         "description": "One part of a row split before commit: a split of the new transaction\nbetween the statement's account and this part's other side.",
@@ -10594,6 +10744,13 @@
               "$ref": "#/components/schemas/Label"
             },
             "description": "Labels to stop choosing, so their suggestions apply again. Setting a\nlabel (to a value or `null`) makes it your choice."
+          },
+          "reviewed": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`true` ticks the row as reviewed, as it is after this change: you\nagree with what it shows, so the AI suggestions it takes count as\nyours. Not for a row that needs a label or a decision. `false`\nunticks it. The tick goes by itself when the row changes under it: a\nnew suggestion, or a transfer match made or undone."
           },
           "set_description": {
             "type": [
@@ -11040,6 +11197,7 @@
           "description",
           "status",
           "decided",
+          "reviewed",
           "chosen",
           "suggestions",
           "missing",
@@ -11142,6 +11300,10 @@
             "type": "object",
             "description": "The row's fields as the file had them."
           },
+          "reviewed": {
+            "type": "boolean",
+            "description": "Whether you ticked the row as reviewed, and it still shows what you\nsaw then: the AI suggestions it takes count as yours."
+          },
           "set_description": {
             "type": [
               "string",
@@ -11188,6 +11350,17 @@
             ],
             "format": "uuid",
             "description": "The other side when it's one of your accounts: the row is a transfer,\nwhose category and purpose don't apply (unless one account is liquid\nand the other isn't: an expense or income).\nA transfer match's is its other side's account."
+          },
+          "transfer_conflict": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TransferMatch",
+                "description": "A transfer conflict: you chose the row as a transfer to one account,\nand this staged row, in another of your accounts, fits as its other\nside. Matching isn't sure of the row's decision until you choose its\nother side again or decide either row."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "transfer_match": {
             "oneOf": [

@@ -34,16 +34,20 @@ transfer, never an expense plus an income.
   expense or income (design §3.2), which keeps them.
 - **Potential transfer matches.** Each row comes with the rows of every staged import
   (this file's other statements, other files) that could be the other side of it: in
-  another of your accounts, with the opposite amount in the same currency, dated within 5
+  another of your accounts, with the opposite amount in the same currency, dated within 3
   days. Every level sees them (`row.transfer_candidates` in rules); they're evidence, not a
   verdict.
-- **Transfer match.** When a row is settled as a transfer to an account (yours, or a
-  confident suggestion) and one of its potential transfer matches is in that account and
-  open (or settled as the transfer back), the two are a transfer match: committed as one
-  transfer, by whichever file is committed first, with both bank rows. The pairing is
-  logic (`import::matching`): one-to-one, rows agreeing on both sides first, then the
-  closest dates; merging them is matching's suggestion, as sure as the dates are close. A counterparty you chose, or a decision you made on a row, rules
-  it out; *Keep separate transactions* splits a pair.
+- **Transfer match.** A row and one of its potential transfer matches are a transfer
+  match unless your choice says otherwise: a counterparty (or none) you chose for either,
+  or a transfer you chose to another account. Suggestions don't count; the pair settles
+  each row's other side as the other's account, whatever was suggested. It's committed as
+  one transfer, by whichever file is committed first, with both bank rows. The pairing is
+  logic (`import::matching`): one-to-one, rows you chose on both sides first, then the
+  closest dates; merging them is matching's suggestion, as sure as the dates are close.
+  *Keep separate transactions* splits a pair.
+- **Transfer conflict.** A row you chose as a transfer to one account, and a row in
+  another of your accounts that fits it: neither pairs, and matching is unsure of both
+  rows' decisions until you choose the other side again or decide either row.
 - **Transfer duplicate.** When the transfer is already in the ledger (committed from the
   other account), its other side is a transfer duplicate: kept with that transfer,
   nothing new created, unless you add it as new.
@@ -62,6 +66,7 @@ sure as what it found:
 | Duplicate: the same bank row, imported before | *Already there* | 1.0 |
 | Transfer duplicate or transfer match | *Already there* / *Merge into one transfer* | 1.0, less 0.03 a day apart |
 | Near duplicate: the same amount a few days apart | *Already there* | the descriptions' likeness, less 0.06 a day apart; **never above 0.89** |
+| New, in a transfer conflict | *Add as new* | 0 |
 
 A near duplicate may be another, identical purchase, so it's never confident: it always
 waits for your decision. Choosing a decision, even the suggested one, makes it yours. A
@@ -411,6 +416,7 @@ shows the suggester and the reason.
 - **Transfers.** A transfer match names its other side (account, date, text, and file if
   it's another), linked to that row, and committing makes the two one transfer (*Merge
   into one transfer*); *Keep separate transactions* splits them. A transfer duplicate names the transfer it's the other side of.
+  A transfer conflict names the row that fits in another account.
 - **A row's decision.** *On commit* shows matching's suggestion with its badge and reason.
   A confident one is selected; an unsure one (every near duplicate) asks *Choose…*, with
   the suggestion marked. Picking any option makes it yours.
@@ -449,12 +455,16 @@ transactions are later edited or undone.
   `chosen` lists the labels you set; `suggestions` has at most one per label (a
   suggested transfer has `transfer_account_id`); `missing` lists, for a row that will be
   a new transaction, the labels commit still needs; `not_applicable` the labels a
-  transfer doesn't have; `transfer_match` is a transfer match's other side.
+  transfer doesn't have; `transfer_match` is a transfer match's other side;
+  `transfer_conflict` is the row in a transfer conflict with it.
 - `PATCH /imports/{id}/rows/{statement}/{position}`: setting a label (to a value or
   `null`) makes it yours; `transfer_account_id` sets the other side to one of your
   accounts (the counterparty label, yours); `"revert": ["category"]` hands it back to its
   suggestion. `"decision": "new"` on a transfer match keeps its two sides separate.
   `"splits": [...]` splits a row added as new into parts (two or more, adding up to its
   amount), each with its own other side, category, purpose and note; `null` unsplits it.
+  `"reviewed": true` ticks the row as reviewed (design §6.7): its AI suggestions count as
+  yours while it shows what you ticked; `false` unticks it. `POST /imports/{id}/review`
+  ticks or unticks many rows at once.
 - `PATCH /imports/{id}/statements/{position}` with an `account_id` makes it the
   statement's own; with `null`, it goes back to the suggestion, if any.

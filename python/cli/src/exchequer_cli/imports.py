@@ -153,6 +153,10 @@ def row_line(r: StagedRow, matched: str | None = None, names: Names | None = Non
     if not isinstance(m, Unset) and m is not None:
         account = names.accounts.get(m.account_id, "?") if names else str(m.account_id)
         text += f" with {account}: {m.date} {m.description!r}"
+    c = r.transfer_conflict
+    if not isinstance(c, Unset) and c is not None:
+        account = names.accounts.get(c.account_id, "?") if names else str(c.account_id)
+        text += f", conflicts with {account}: {c.date} {c.description!r}"
     if r.splits:
         text += f", split {len(r.splits)} ways"
     return text
