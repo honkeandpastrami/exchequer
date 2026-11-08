@@ -5,8 +5,10 @@
 	import { resolve } from '$app/paths';
 	import { api, done, ok, type Schemas } from '../api/client';
 	import Failure from './Failure.svelte';
+	import Field from './Field.svelte';
 	import RowForm from './RowForm.svelte';
 	import SplitLines from './SplitLines.svelte';
+	import Tags from './Tags.svelte';
 	import { today } from '../dates';
 	import { forgetReference, reference, sorted, type Reference } from '../reference';
 	import {
@@ -146,29 +148,23 @@
 		oncancel={() => onclose()}
 		onreload={load}
 	>
-		<div class="fields">
-			<label class="field">
-				<span>Date</span>
-				<input type="date" bind:value={draft.date} />
-			</label>
-			<label class="field grow">
-				<span>Description</span>
-				<input bind:value={draft.description} maxlength="500" />
-			</label>
-		</div>
-		<div class="fields">
-			<label class="field grow">
-				<span>Tags, comma-separated</span>
-				<input bind:value={draft.tags} list="{uid}-tags" />
-			</label>
-			<datalist id="{uid}-tags">
-				{#each sorted(ref.tags) as t (t.id)}<option value={t.name}></option>{/each}
-			</datalist>
-			<label class="field grow">
-				<span>Notes</span>
-				<input bind:value={draft.notes} />
-			</label>
-		</div>
+		<Field label="Date" id="{uid}-date">
+			<input id="{uid}-date" type="date" bind:value={draft.date} />
+		</Field>
+		<Field label="Description" id="{uid}-description">
+			<input id="{uid}-description" bind:value={draft.description} maxlength="500" />
+		</Field>
+		<Field label="Tags" id="{uid}-tags">
+			<Tags
+				bind:tags={draft.tags}
+				known={sorted(ref.tags).map((t) => t.name)}
+				id="{uid}-tags"
+				label="Tags"
+			/>
+		</Field>
+		<Field label="Notes" id="{uid}-notes">
+			<input id="{uid}-notes" bind:value={draft.notes} />
+		</Field>
 		<SplitLines bind:splits={draft.splits} {ref} commodity={household(ref)} />
 
 		{#snippet actions()}

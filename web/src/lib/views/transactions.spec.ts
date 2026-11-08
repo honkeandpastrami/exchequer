@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Schemas } from '../api/client';
 import type { Reference } from '../reference';
-import { categoryNames, effectOn, route, runningBalances, size } from './transactions';
+import { categoryNames, effectOn, legName, runningBalances, size } from './transactions';
 
 const usd = { id: 'usd', code: 'USD', kind: 'fiat', precision: 2 } as const;
 const acct = (id: string): Schemas['Account'] => ({
@@ -72,10 +72,9 @@ describe('transactions view', () => {
 
 	it('summarizes', () => {
 		expect(size(t, ref)).toEqual([{ commodity: usd, quantity: '112.50' }]);
-		expect(route(t.splits, ref)).toBe('2 splits');
-		expect(route([t.splits[0]], ref)).toBe('Sam · checking → Grocer');
-		const unknown = { ...t.splits[0], to: { commodity_id: 'usd', quantity: '12.50' } };
-		expect(route([unknown], ref)).toBe('Sam · checking → Unknown');
+		expect(legName(t.splits[0].from, ref)).toBe('Sam · checking');
+		expect(legName(t.splits[0].to, ref)).toBe('Grocer');
+		expect(legName({ commodity_id: 'usd', quantity: '12.50' }, ref)).toBe('Unknown');
 		expect(categoryNames(t.splits, ref)).toEqual(['Food']);
 	});
 

@@ -59,6 +59,30 @@ select {
 	color: inherit;
 }
 
+/* Every control a finger can hit (docs/ux.md §9). */
+button:not(.link),
+input:not([type='checkbox'], [type='radio']),
+select {
+	min-height: var(--target);
+}
+input[type='checkbox'],
+input[type='radio'] {
+	width: var(--check-size);
+	height: var(--check-size);
+	margin: 0;
+	flex: none;
+	accent-color: var(--color-accent);
+	cursor: pointer;
+}
+/* A choice's whole line is its target, its words included. */
+label.choice {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-height: var(--target);
+	cursor: pointer;
+}
+
 button {
 	padding: var(--space-2) var(--space-4);
 	border: var(--border-width) solid var(--color-accent);

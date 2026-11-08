@@ -8,18 +8,13 @@
 	import { tick, untrack } from 'svelte';
 	import { api, ok, type Schemas } from '#lib/api/client.ts';
 	import Failure from '#lib/components/Failure.svelte';
+	import LegName from '#lib/components/LegName.svelte';
 	import Quantities from '#lib/components/Quantities.svelte';
 	import TransactionForm from '#lib/components/TransactionForm.svelte';
 	import { hashQuery, withParam } from '#lib/query.ts';
 	import { accountLabel, accountsByOwner } from '#lib/names.ts';
 	import { reference, sorted, type Reference } from '#lib/reference.ts';
-	import {
-		categoryNames,
-		effectOn,
-		route,
-		runningBalances,
-		size
-	} from '#lib/views/transactions.ts';
+	import { categoryNames, effectOn, runningBalances, size } from '#lib/views/transactions.ts';
 	import { batchName } from '#lib/views/batches.ts';
 	import { localDate } from '#lib/dates.ts';
 
@@ -295,7 +290,10 @@
 							<div class="muted notes">{tx.notes}</div>
 						{/if}
 					</td>
-					<td class="muted route">{route(tx.splits, r)}</td>
+					<td class="muted route">
+						{#if tx.splits.length === 1}<LegName leg={tx.splits[0].from} ref={r} /> →
+							<LegName leg={tx.splits[0].to} ref={r} />{:else}{tx.splits.length} splits{/if}
+					</td>
 					<td class="muted category">{categoryNames(tx.splits, r).join(', ')}</td>
 					<td class="num amount"><Quantities items={amounts(tx, r)} /></td>
 					{#if running}<td class="num balance"><Quantities items={running[i]} /></td>{/if}

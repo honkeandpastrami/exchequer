@@ -56,12 +56,6 @@ export function size(tx: Schemas['Transaction'], ref: Reference): Quantity[] {
 	);
 }
 
-/** One line summarizing the splits: `Checking → Grocer`, or `3 splits`. */
-export function route(splits: Split[], ref: Reference): string {
-	if (splits.length !== 1) return `${splits.length} splits`;
-	return `${legName(splits[0].from, ref)} → ${legName(splits[0].to, ref)}`;
-}
-
 /** Distinct category names across the splits. */
 export function categoryNames(splits: Split[], ref: Reference): string[] {
 	const ids = [...new Set(splits.map((s) => s.category_id).filter((id) => id != null))];
