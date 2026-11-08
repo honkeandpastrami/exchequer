@@ -440,7 +440,7 @@ adjustment, or a past mistake: one that the old system made and that is now carr
 ```
 upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerprint/dedup
      ─▶ suggest (rules → local AI → remote AI) ─▶ transfer matching ─▶ STAGED batch
-     ─▶ client review (accept / edit / reject per row) ─▶ COMMIT (atomic)
+     ─▶ client review (add / don't add, labels per row) ─▶ COMMIT (atomic)
 ```
 
 1. **Format detection and parsers.** Each format is a plugin behind one Rust trait: CSV with
@@ -457,20 +457,25 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    accounts' numbers (stored without spaces or dashes, shown as their last four unless the
    user asks for them, §3.6). A
    CSV names no account. A statement whose account isn't known (a CSV, an unknown number)
-   is staged anyway, its rows `needs-account`, and the account is picked in review (the
-   upload may name it if the client already knows), or suggested (§8). Picking it can
-   add the file's number to the account.
+   is staged anyway, its rows `no_account`, and the account is picked in review (the
+   upload may name it if the client already knows), or suggested (§8). Picking it, or
+   confirming its suggestion, adds the file's number to the account, so its next files
+   resolve by themselves.
 3. **Deduplication,** done once, on the server, with full DB access:
    - *Exact:* native ID (FITID or bank reference), or a content hash with an occurrence
      suffix for identical rows in one file; unique per account (`import_fingerprint`,
      recorded on commit and deleted with its transaction). Transactions that came in another
      way get theirs through `POST /import-fingerprints`; the Firefly migration records each
-     journal's `external_id`, the ID the preimporter gave the row (§11).
+     journal's `external_id`, the ID the preimporter gave the row (§11). A row whose ID
+     was imported is a *duplicate* when the bank's row is unchanged since (its fields as
+     a file had them, `imported_row`; with nothing to compare, the ID alone), else a
+     *possible duplicate* of the same transaction. Added anyway, it's recorded under the
+     ID with the next free suffix (`~2`, `~3`…).
    - *Near:* same account, commodity and signed amount, date within ±[`NEAR_DAYS`](../server/crates/import/src/params.rs), matched
      one-to-one: the most similar descriptions first (`pg_trgm`), then the closest dates.
      Similarity only ranks: a transaction typed by hand rarely reads like the bank's text,
-     so a low score doesn't clear a row. Near-duplicates are **flagged in staging**, not
-     prompted mid-run.
+     so a low score doesn't clear a row. These are **possible duplicates in staging**,
+     not prompted mid-run.
    - Re-uploading a file, or overlapping date ranges, is a no-op.
 4. **Transfers.** A card payment appears in both the checking and the card file; it's one
    transfer, never an expense plus an income.
@@ -482,25 +487,25 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      import (this file's other statements, other files), with the opposite amount in the
      same commodity, dated within [`TRANSFER_DAYS`](../server/crates/suggest/src/params.rs). Every suggestion level sees them
      (`row.transfer_candidates` in rules).
-   - *Transfer match* (`transfer_match`): two staged rows that are potential transfer
-     matches of each other are the two sides of one transfer, unless your choice says
-     otherwise: a counterparty (or none) you chose for either, or a transfer you chose to
-     another account. Suggestions don't count: they're made without seeing the other side,
-     and the pair settles each row's other side as the other's account. Staging is
-     reviewed before anything commits, so a pair that isn't one costs a click (*Keep
-     separate transactions*), while a missed one would be an expense plus an income.
-     Matched one-to-one (`import::matching`): pairs you chose on both sides first, then the
-     closest dates. Worked out again across all staged imports whenever one changes
-     (upload, a statement's account, a row, discard, commit, refresh).
-   - *Transfer conflict* (`transfer_conflict`): a row you chose as a transfer to one
-     account, and an unpaired row in another of your accounts that fits it (not chosen,
-     or chosen as the transfer back). Neither pairs, and matching isn't sure of either
-     row's decision, so both wait for you: choose the other side again, or decide either
-     row.
-   - *Transfer duplicate* (`transfer_duplicate`): the transfer is already in the ledger,
-     from the other account: a one-split transfer between the account and another of
-     yours, the same amount the same way, within [`TRANSFER_DAYS`](../server/crates/suggest/src/params.rs), holding no bank row of this
-     account yet. Matched after exact duplicates and before near ones.
+   - *Transfer pair* (`transfer_pair`): two staged rows that are potential transfer
+     matches of each other are the two sides of one transfer, unless a counterparty (or
+     none) you chose for either says otherwise. Suggestions don't count: they're made
+     without seeing the other side, and the pair, added as one transfer, settles each
+     row's other side as the other's account. Staging is reviewed before anything
+     commits, so a pair that isn't one costs a click (*Add separately*), while a missed
+     one would be an expense plus an income. Matched one-to-one (`import::matching`):
+     pairs you chose on both sides first, then the closest dates. Worked out again across
+     all staged imports whenever one changes (upload, a statement's account, a row,
+     discard, commit, refresh); a row's choice never changes whether it's paired.
+   - *Your choices win:* a row you chose as a transfer to one account, and an unpaired row
+     in another of your accounts that fits it (not chosen, or chosen as the transfer
+     back), are a transfer pair whose default keeps your choice: *Add separately*,
+     short of certain.
+   - *A recorded transfer:* the transfer is already in the ledger, from the other
+     account: a one-split transfer between the account and another of yours, the same
+     amount the same way, within [`TRANSFER_DAYS`](../server/crates/suggest/src/params.rs), holding no bank row of this
+     account yet. The row is a duplicate of it, recorded the same day, else a possible
+     duplicate. Matched after exact duplicates and before possible ones by amount.
    - A transfer whose first side is committed before the other is staged is recorded as a
      transfer then; one-sided transactions in the ledger are never turned into transfers
      afterwards.
@@ -508,76 +513,86 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    counterparty, purpose and category, each with a confidence, a reason and the exact
    suggester.
 6. **Staging and review.** The batch lives on the server, so a review started in one client
-   can finish in another. Rows are `new`, `duplicate`, `near-duplicate`, `transfer-match`,
-   `transfer-duplicate` or `needs-account`. `POST /imports` takes the file's bytes (at most
-   [`MAX_FILE`](../server/crates/api/src/imports.rs); optional `account_id`) and stages one statement per account in it; `GET
-   /imports/{id}` shows each statement's account, ledger balance, skipped lines and row
-   counts by status, `GET /imports/{id}/rows` the rows; `PATCH
-   /imports/{id}/statements/{n}` sets a statement's account (optionally remembering the
-   file's number for it) and works its rows' statuses out again; `DELETE` discards it.
-7. **Commit** is all or nothing. Each row has a decision (`PATCH
-   /imports/{id}/rows/{statement}/{position}`): `match` (the default for duplicates,
-   near-duplicates, transfer matches and transfer duplicates), `new` (the default for new
-   rows; never for a duplicate; for a transfer match, both sides are added as new and stay
-   a potential match, so `match` brings the pair back; the two sides always share the
-   decision), `replace` (a
-   duplicate or near-duplicate whose bank row should win: the
-   matched transaction keeps its ID, notes, tags and batch and takes the row's date,
-   amount and description, and the labels set in review; it must be one split between
-   the statement's account and the outside) or `skip` (shown as *Do not import*), plus optional labels for the new
-   transaction (description, the other side, category, purpose). A row added as new
-   (not a transfer match) can instead be **split** into parts that add up to its amount,
-   each with its own other side, category, purpose and note; its labels are then the
-   parts', all yours, and it isn't matched as a transfer. `POST
-   /imports/{id}/commit` first works every status and transfer match out again; if one
-   changed, nothing is committed and the client reviews again (409). Then: `new` rows
-   become transactions in one `file` import batch, one split each (the other side is the
-   chosen counterparty, unknown, or one of your accounts for a transfer), or one per part
-   for a split row; a transfer match
-   becomes one transfer, dated and described as the side the money left, and both rows
-   are recorded with it, so the other file's row is a duplicate of it from then on; every
-   row now in the ledger is recorded in `import_fingerprint`. **A row that matches a
-   transaction already in the ledger (a duplicate, near-duplicate or transfer duplicate)
-   never creates anything: what it says is added to that transaction.** Other staged
-   imports are then worked out again, since the ledger changed. Each row is kept as each file had
-   it (`imported_row`: raw fields, when), the transaction's provenance; a file is identified
-   by its bytes' SHA-256, so a copy under another name adds nothing (`GET
-   /transactions/{id}/imported-rows`). A closed month or a broken ledger rule refuses the whole commit,
-   naming the row. Each transaction keeps its `import_batch_id`, so undoing a batch is one
-   call; it deletes the new transactions and their recorded rows. Every transaction has a batch and
-   edits never change it: a migration is a batch, and a transaction entered by hand is a
-   batch of its own. Uploaded files aren't kept; only each row's parsed raw form is.
+   can finish in another. Each row has a **label** (what matching found) and a
+   **choice** (what committing does), with a default:
+
+   | Label | Found | Choices | Default |
+   |---|---|---|---|
+   | `new` | Nothing | add · don't add | add |
+   | `duplicate` | This bank row, unchanged, or the transfer it's part of, recorded the same day | add · don't add | don't add |
+   | `possible_duplicate` | A ledger transaction that may be it | add · don't add | don't add |
+   | `transfer_pair` | The other side, in another account's staged file | add (one transfer) · add separately · don't add | add, unless your choices say otherwise |
+   | `no_account` | The statement has no account | none: the rows wait for it | — |
+
+   *Don't add* on a duplicate or possible duplicate records the row as the transaction it
+   matched, so it never comes up again. A transfer pair's two rows share one choice. Undoing
+   a choice goes back to the default; when a row's label (or match, or pair) changes, it
+   goes back to the new label's default, and its Reviewed tick clears.
+
+   Three rules decide everything: **every choice has a default**, with a confidence
+   (matching's, docs/ai.md); **your choices win**: when what's found disagrees with
+   something you chose, your choice stays the default, short of certain; and **a row's
+   colour is one function** (`state`), checked in order: not added (grey,
+   `not_added`) when set to don't add; needs you (red, `needs_you`) when a value is
+   missing; to review (yellow, `to_review`) when something it shows (an AI suggestion, a
+   default) is short of [`CERTAIN`](../server/crates/suggest/src/params.rs) and it isn't ticked reviewed; else ready (green,
+   `ready`). A statement is red without an account, yellow while its account is a
+   suggestion short of certain, else green.
+
+   `POST /imports` takes the file's bytes (at most [`MAX_FILE`](../server/crates/api/src/imports.rs); optional `account_id`) and
+   stages one statement per account in it; `GET /imports/{id}` shows each statement's
+   account, ledger balance, skipped lines and rows by state, `GET /imports/{id}/rows` the
+   rows; `PATCH /imports/{id}/statements/{n}` sets a statement's account, or ticks its
+   suggestion reviewed, and works its rows' labels out again; `DELETE` discards it.
+7. **Commit** is all or nothing. Each row's choice is set with `PATCH
+   /imports/{id}/rows/{statement}/{position}` (`decision`: `add`, `add_separately` or
+   `dont_add`), plus optional labels and tags for the new transaction (description, the
+   other side, category, purpose). A row that's added (not a transfer pair) can instead
+   be **split** into parts that add up to its amount, each with its own other side,
+   category, purpose and note; its labels are then the parts', all yours, and it isn't
+   matched as a transfer. `POST /imports/{id}/commit` first works every label and
+   transfer pair out again; if one changed, nothing is committed and the client reviews
+   again (409). Then: rows that are added become transactions in one `file` import batch,
+   one split each (the other side is the chosen counterparty, unknown, or one of your
+   accounts for a transfer), or one per part for a split row; a transfer pair added as
+   one becomes one transfer, dated and described as the side the money left, and both
+   rows are recorded with it, so the other file's row is a duplicate of it from then on;
+   every row now in the ledger is recorded in `import_fingerprint`. **A duplicate or
+   possible duplicate that isn't added never creates anything: what it says is added to
+   the transaction it matched.** Other staged imports are then worked out again, since the
+   ledger changed. Each row is kept as each file had it (`imported_row`: raw fields,
+   when), the transaction's provenance; a file is identified by its bytes' SHA-256, so a
+   copy under another name adds nothing (`GET /transactions/{id}/imported-rows`). A
+   closed month or a broken ledger rule refuses the whole commit, naming the row. Each
+   transaction keeps its `import_batch_id`, so undoing a batch is one call; it deletes the
+   new transactions and their recorded rows. Every transaction has a batch and edits
+   never change it: a migration is a batch, and a transaction entered by hand is a batch
+   of its own. Uploaded files aren't kept; only each row's parsed raw form is.
 
    **Readiness.** Each staged import says how close it is to committing (`readiness`):
-   - `needs_work` (red): a statement has no account; a new row has a label, or a row
-     its decision, that is neither chosen nor confidently suggested. Each comes with a
-     count. A row's decision is matching's suggestion (docs/ai.md): sure of a new row
-     or an exact duplicate, as sure as the dates are close for a transfer, and never
-     sure of a near duplicate or a transfer conflict, which wait for you. Commit refuses exactly these (409:
-     `labels-missing`, `decisions-missing`, or no account), so every client and page
-     follows the same rule.
-   - `suggested` (yellow): it would commit, but it relies on confident AI suggestions
-     (local or remote) or a suggested account that you haven't confirmed, short of [`CERTAIN`](../server/crates/suggest/src/params.rs).
-   - `ready` (green): it commits exactly as shown. A suggestion from logic (the rules,
-     matching), or any at [`CERTAIN`](../server/crates/suggest/src/params.rs), counts as yours.
+   needs you if a statement or a row does, else to review if one is, else ready; with
+   its rows by state, the statements without an account or with one to review, and the
+   transactions a commit would add. Commit refuses exactly what needs you (409:
+   `labels-missing`, or no account), so every client and page follows the same rule;
+   with something to review left, clients ask once before committing.
 
    **Reviewed rows.** You can tick a row as reviewed: you read what it shows and agree, so
-   the AI suggestions it takes count as yours, and an import whose rows are all settled
-   or ticked is `ready`. A tick isn't a choice: it doesn't make the row's labels yours, so
-   a transfer match can still form and settle its other side (§6.4). It holds while the
-   row shows what you ticked (the same status and transfer match, and no AI suggestion
-   it didn't take then; a label you since chose yourself doesn't undo it), and goes by
-   itself when the row changes under it. A row that needs work can't be ticked: there's
-   nothing to agree with. A tick can be taken back any time before commit (`PATCH` the row
-   with `reviewed`, or `POST /imports/{id}/review {rows, reviewed}` for many).
+   what it takes counts as yours, and an import whose rows are all settled or ticked is
+   `ready`. A tick isn't a choice: it doesn't make the row's labels yours, so a transfer
+   pair can still form and settle its other side (§6.4). It holds while the row shows
+   what you ticked (the same label and transfer pair, and no AI suggestion it didn't take
+   then; a label you since chose yourself doesn't undo it), and goes by itself when the
+   row changes under it. A row that needs you, or isn't added, can't be ticked. A tick
+   can be taken back any time before commit (`PATCH` the row with `reviewed`, or `POST
+   /imports/{id}/review {rows, reviewed}` for many).
 
-   The web app shows the same mark and reasons on the Imports list and on an import's
-   review, where its rows to label or decide are one filter away; either page can
-   commit any import that isn't `needs_work`, through the one commit endpoint. **Commit N ready** (`POST /imports/commit-ready {ids}`) commits the `ready` ones
-   that were listed. It goes oldest first, each import on its own, and checks each one
-   again just before its turn, since committing one changes the others. Each import comes
-   back committed or skipped, with the reason: gone, not ready, changed since it was
-   checked, or refused.
+   The web app shows the same colours on the Imports list and on an import's review,
+   where each colour's rows are one filter away; either page can commit any import that
+   doesn't need you, through the one commit endpoint. **Commit N ready imports** (`POST
+   /imports/commit-ready {ids}`) commits the `ready` ones that were listed. It goes oldest
+   first, each import on its own, and checks each one again just before its turn, since
+   committing one changes the others. Each import comes back committed or skipped, with
+   the reason: gone, not ready, changed since it was checked, or refused.
 8. **Balance check.** An OFX `LEDGERBAL` is recorded on commit as a balance check (source
    `ofx`), returned with the commit's result, with candidates if it doesn't match (§7.1).
 
@@ -626,7 +641,8 @@ takes, the API) is in [`docs/ai.md`](ai.md).
   as one proposal per row (they're highly correlated), each with its own confidence. A
   statement's **account** is suggested first, when the file doesn't settle it; a
   confident one counts as the account and the rows are worked out against it. A row's
-  **decision** (match, new, replace, skip) is suggested too, by matching (§6, `docs/ai.md`).
+  **choice** (add, add separately, don't add) is suggested too, by matching: its label's
+  default (§6, `docs/ai.md`).
   Tags aren't suggested.
 - **Transfers are suggested like anything else:** the counterparty label is the row's
   *other side*, a counterparty or one of your accounts. Once it's settled as an account,

@@ -12,12 +12,13 @@ When a bank file is staged (design §6), suggestions are made in two passes:
 1. **The statement's account,** when the file doesn't settle it: a CSV names no account,
    and an OFX file may carry a number no account has yet.
 2. **Each row's labels** — **counterparty**, **purpose** (who the money was for) and
-   **category** — for every row that will become a new transaction. The three are
+   **category** — for every row that may be added. The three are
    suggested together, as one proposal per row, since they depend on each other: the
    counterparty mostly decides the category, and the two together with the account
    mostly decide the purpose. Each label still gets its own confidence.
-3. **Each row's decision** — what committing does with it: add it as new, or keep it with
-   what's already there. Matching suggests it (see [Matching](#matching)).
+3. **Each row's choice** — what committing does with it: add it, or don't (a duplicate
+   is then kept with what's already there). Matching suggests it: the label's default
+   (see [Matching](#matching)).
 
 Bills and tags are not suggested yet.
 
@@ -37,41 +38,42 @@ transfer, never an expense plus an income.
   another of your accounts, with the opposite amount in the same currency, dated within
   [`TRANSFER_DAYS`](../server/crates/suggest/src/params.rs). Every level sees them (`row.transfer_candidates` in rules); they're evidence, not a
   verdict.
-- **Transfer match.** A row and one of its potential transfer matches are a transfer
-  match unless your choice says otherwise: a counterparty (or none) you chose for either,
-  or a transfer you chose to another account. Suggestions don't count; the pair settles
-  each row's other side as the other's account, whatever was suggested. It's committed as
-  one transfer, by whichever file is committed first, with both bank rows. The pairing is
-  logic (`import::matching`): one-to-one, rows you chose on both sides first, then the
-  closest dates; merging them is matching's suggestion, as sure as the dates are close.
-  *Keep separate transactions* splits a pair.
-- **Transfer conflict.** A row you chose as a transfer to one account, and a row in
-  another of your accounts that fits it: neither pairs, and matching is unsure of both
-  rows' decisions until you choose the other side again or decide either row.
-- **Transfer duplicate.** When the transfer is already in the ledger (committed from the
-  other account), its other side is a transfer duplicate: kept with that transfer,
-  nothing new created, unless you add it as new.
+- **Transfer pair.** A row and one of its potential transfer matches are a transfer
+  pair unless your choice says otherwise: a counterparty (or none) you chose for either.
+  Suggestions don't count; added as one transfer, the pair settles each row's other side
+  as the other's account, whatever was suggested. It's committed as one transfer, by
+  whichever file is committed first, with both bank rows. The pairing is logic
+  (`import::matching`): one-to-one, rows you chose on both sides first, then the closest
+  dates; adding them as one transfer is matching's default, as sure as the dates are
+  close. *Add separately* makes each row a transaction of its own; *Don't add* leaves both
+  out. The two rows share one choice.
+- **Your choices win.** A row you chose as a transfer to one account, with a row in another
+  of your accounts that fits it, is a transfer pair too, but its default keeps your
+  choice: *Add separately*, short of sure, so it's to review. Ticking it reviewed
+  confirms; choosing *Add as one transfer* pairs them, and the other side you chose gives
+  way.
+- **A recorded transfer.** When the transfer is already in the ledger (committed from the
+  other account), its other side is a duplicate of it (recorded the same day) or a
+  possible duplicate: not added by default, and kept with that transfer.
 - One-sided transactions already in the ledger are never turned into transfers
   afterwards: a transfer is recorded as one when its first side is committed.
 
 ## Matching
 
-Every row's decision is a suggestion, made by **matching**: logic, like the rules, and a
-level of its own (kind `match`). It suggests the decision a row's status calls for, as
-sure as what it found:
+Every row's default is a suggestion, made by **matching**: logic, like the rules, and a
+level of its own (kind `match`). It suggests the choice a row's label calls for, as sure
+as what it found:
 
 | Row | Suggests | Confidence |
 |---|---|---|
-| New: nothing like it | *Add as new* | [`SURE`](../server/crates/import/src/params.rs) |
-| Duplicate: the same bank row, imported before | *Already there* | [`SURE`](../server/crates/import/src/params.rs) |
-| Transfer duplicate or transfer match | *Already there* / *Merge into one transfer* | [`SURE`](../server/crates/import/src/params.rs), less [`TRANSFER_DAY`](../server/crates/import/src/params.rs) a day apart |
-| Near duplicate: the same amount a few days apart | *Already there* | the descriptions' likeness, less [`NEAR_DAY`](../server/crates/import/src/params.rs) a day apart; **never above [`NEAR_LIKENESS`](../server/crates/import/src/params.rs)%** |
-| New, in a transfer conflict | *Add as new* | 0 |
+| New: nothing like it | *Add* | [`SURE`](../server/crates/import/src/params.rs) |
+| Duplicate: the same bank row, unchanged since it was imported | *Don't add* | [`SURE`](../server/crates/import/src/params.rs) |
+| Possible duplicate: the same bank row, changed since | *Don't add* | [`CHANGED`](../server/crates/import/src/params.rs) |
+| Transfer pair, or a recorded transfer | *Add as one transfer* / *Don't add* | [`SURE`](../server/crates/import/src/params.rs), less [`TRANSFER_DAY`](../server/crates/import/src/params.rs) a day apart |
+| Possible duplicate: the same amount a few days apart | *Don't add* | the descriptions' likeness, less [`NEAR_DAY`](../server/crates/import/src/params.rs) a day apart; **never above [`NEAR_MOST`](../server/crates/import/src/params.rs)** |
+| Transfer pair your choice disagrees with | *Add separately* | [`DISAGREES`](../server/crates/import/src/params.rs) |
 
-A near duplicate may be another, identical purchase, so it's never confident: it always
-waits for your decision. Choosing a decision, even the suggested one, makes it yours. A
-transfer match's two sides share one decision. Calibrating matching is a new version of
-it (`matching` v1 now).
+A default short of certain ([`CERTAIN`](../server/crates/suggest/src/params.rs)) on a row that's added makes it to review. Choosing any option makes it yours. Calibrating matching is a new version of it (`matching` v2 now).
 
 ## The stack
 
@@ -85,7 +87,8 @@ Suggestions come from three levels, tried in order:
 A level runs while anything is still below the **confidence threshold** ([`CONFIDENT`](../server/crates/suggest/src/params.rs)). Labels
 already settled — by an earlier level at or above it, or by you — are given to the next
 level as facts, so it proposes the rest consistently with them. If no level reaches it
-for a label, the most confident suggestion any level made is kept, marked as unsure.
+for a label, the most confident suggestion any level made is kept, marked as unsure, and
+taken as the label's value: the row is to review (design §6.7).
 
 Suggestions are made when a file is uploaded: first the account of each statement that has
 none, then every row's labels. Changing a statement's account suggests its rows' labels
@@ -274,7 +277,7 @@ Version 2 learns transfers (version 1 didn't see them).
    history as if its rows had been staged together; its category and purpose aren't
    asked.
 
-Reasons read like *like 2026-03-12 “CORNER CAFE #” (6 of 7 similar)*, *the last 3 times
+Reasons read like *like 2026-03-12 “CORNER CAFE #”*, *the last 3 times
 as “corner cafe”*, or, for an account, *12 of 15 rows look like its past transactions*.
 The suggester's details record the data it learned from: a snapshot hash, the number of
 transactions and the latest date.
@@ -401,46 +404,45 @@ Each suggestion keeps:
 In the web app's import review, every suggested value carries a badge: one color per
 level, **solid when confident** ([`CONFIDENT`](../server/crates/suggest/src/params.rs) or more), **outlined when not**. Your own choices
 carry none, so "the AI said so" and "I said so" always look different. Hovering a badge
-shows the suggester and the reason.
+shows the suggester and the reason; tapping it opens the row's details, where each
+field's reason sits under it in full. A suggestion is always the value shown, never an
+extra option to pick.
 
 - **A statement's account.** A confident suggestion counts as the account: the rows are
-  checked against it (duplicates, transfer matches). *Accept* makes it the statement's
-  own, and then offers to remember the file's number for it. An unsure suggestion is
-  shown with *Use it*; the rows wait until an account is picked.
-- **A row's labels.** Each new row shows its counterparty, category and purpose, with
-  their badges. In its details, you can change any of them (the value becomes yours),
-  accept an unsure suggestion (it becomes yours too), or go back to the suggestion.
-  *None* is a choice you can make explicitly for the counterparty: an unknown one. A
-  category always names something and a purpose someone (design §4.1). The counterparty can be one of your accounts
-  (typed by its `Owner · Name`): the row is then a transfer, and its category and purpose
-  show *Not for a transfer*.
-- **Transfers.** A transfer match names its other side (account, date, text, and file if
-  it's another), linked to that row, and committing makes the two one transfer (*Merge
-  into one transfer*); *Keep separate transactions* splits them. A transfer duplicate names the transfer it's the other side of.
-  A transfer conflict names the row that fits in another account.
-- **A row's decision.** *On commit* shows matching's suggestion with its badge and reason.
-  A confident one is selected; an unsure one (every near duplicate) asks *Choose…*, with
-  the suggestion marked. Picking any option makes it yours.
+  checked against it (duplicates, transfer pairs). Short of certain, the statement is to
+  review; ticking it *Reviewed* makes it the statement's own. Picking or confirming an
+  account remembers the file's number for it. An unsure suggestion is shown, but the rows
+  wait until an account is picked.
+- **A row's labels.** Each row that's added shows its counterparty, category and purpose,
+  with their badges. In its details, you can change any of them; saving makes all it
+  shows yours. *Unknown* is a choice you can make explicitly for the counterparty. A
+  category always names something and a purpose someone (design §4.1). The counterparty
+  can be one of your accounts (typed by its `Owner · Name`): the row is then a transfer,
+  and its category and purpose don't apply.
+- **Transfers.** A transfer pair names its other row (account, date, text, and file if
+  it's another), linked to that row. A duplicate or possible duplicate names the
+  transaction it may be.
+- **A row's choice.** *On commit* lists the row's options, its default chosen. Choosing
+  any of them makes it yours.
 
 ## Commit
 
-**Commit takes what's on screen:** your choices, and confident suggestions where you
-made none. There's no separate step to accept them.
+**Commit takes what's on screen:** your choices, and suggestions where you made none.
+There's no separate step to accept them. With rows or statements to review left, the web
+app asks once first.
 
 Commit is refused while information is missing:
 
 - a statement has no account (neither its own nor a confident suggestion);
-- a row that will become a new transaction has a label that is neither yours nor
-  confidently suggested (a row split into parts has none of its own: the parts' labels
-  are all yours, and its suggestions don't apply);
-- a row's decision is neither yours nor confidently suggested.
+- a row that's added has a label with neither your choice nor a suggestion (a row split
+  into parts has none of its own: the parts' labels are all yours, and its suggestions
+  don't apply).
 
-The web app marks such an import *Needs work*, disables *Commit* and links the rows that
-need labels or a decision. The server enforces the same rule (`409`, problem types
-`urn:exchequer:problem:labels-missing` and `…:decisions-missing`, naming the rows), so
-the command line leaves such an import staged, to finish in the web app.
+The web app shows such rows as needing you and disables *Commit*. The server enforces the
+same rule (`409`, problem type `urn:exchequer:problem:labels-missing`, naming the rows),
+so the command line leaves such an import staged, to finish in the web app.
 
-On commit, every suggestion for a committed row (but a split one's labels), its decision included, and every
+On commit, every suggestion for a committed row (but a split one's labels), its choice included, and every
 statement's suggested account, is recorded with what was actually committed (`suggestion_outcome`). This
 measures each suggester — how often a confident suggestion was kept, an old model
 against its replacement — and doesn't depend on the ledger: it stays if the
@@ -450,22 +452,23 @@ transactions are later edited or undone.
 
 - `GET /imports/{id}`: each statement's `account_id` is the one the rows are checked
   against; `account_suggested` says it's a suggestion's; `suggested_account` is the
-  suggestion, confident or not.
+  suggestion, confident or not; `reviewed` says you ticked it.
 - `GET /imports/{id}/rows`: each row's `counterparty_id` (or `transfer_account_id`, for
   a transfer), `category_id` and `purpose_id` are what a new transaction would get;
   `chosen` lists the labels you set; `suggestions` has at most one per label (a
-  suggested transfer has `transfer_account_id`); `missing` lists, for a row that will be
-  a new transaction, the labels commit still needs; `not_applicable` the labels a
-  transfer doesn't have; `transfer_match` is a transfer match's other side;
-  `transfer_conflict` is the row in a transfer conflict with it.
+  suggested transfer has `transfer_account_id`); `missing` lists, for a row that's
+  added, the labels commit still needs; `not_applicable` the labels a transfer doesn't
+  have; `transfer_pair` is a transfer pair's other row; `options` the row's choices,
+  `decision` the one it takes, `state` its colour.
 - `PATCH /imports/{id}/rows/{statement}/{position}`: setting a label (to a value or
   `null`) makes it yours; `transfer_account_id` sets the other side to one of your
   accounts (the counterparty label, yours); `"revert": ["category"]` hands it back to its
-  suggestion. `"decision": "new"` on a transfer match keeps its two sides separate.
-  `"splits": [...]` splits a row added as new into parts (two or more, adding up to its
+  suggestion. `"decision": "add_separately"` on a transfer pair keeps its two rows apart.
+  `"splits": [...]` splits a row that's added into parts (two or more, adding up to its
   amount), each with its own other side, category, purpose and note; `null` unsplits it.
-  `"reviewed": true` ticks the row as reviewed (design §6.7): its AI suggestions count as
-  yours while it shows what you ticked; `false` unticks it. `POST /imports/{id}/review`
-  ticks or unticks many rows at once.
+  `"tags": [...]` sets the new transaction's tags. `"reviewed": true` ticks the row as
+  reviewed (design §6.7): what it takes counts as yours while it shows what you ticked;
+  `false` unticks it. `POST /imports/{id}/review` ticks or unticks many rows at once.
 - `PATCH /imports/{id}/statements/{position}` with an `account_id` makes it the
-  statement's own; with `null`, it goes back to the suggestion, if any.
+  statement's own; with `null`, it goes back to the suggestion, if any. `"reviewed":
+  true` makes the suggested account the statement's own; `false` hands it back.
