@@ -34,7 +34,7 @@ transfer, never an expense plus an income.
   expense or income (design §3.2), which keeps them.
 - **Potential transfer matches.** Each row comes with the rows of every staged import
   (this file's other statements, other files) that could be the other side of it: in
-  another of your accounts, with the opposite amount in the same currency, dated within 3
+  another of your accounts, with the opposite amount in the same currency, dated within 5
   days. Every level sees them (`row.transfer_candidates` in rules); they're evidence, not a
   verdict.
 - **Transfer match.** A row and one of its potential transfer matches are a transfer

@@ -10,4 +10,4 @@ pub const CERTAIN: u16 = 1000;
 
 /// How far apart the two sides of a transfer may be dated: money can take a
 /// few days to arrive.
-pub const TRANSFER_DAYS: i64 = 3;
+pub const TRANSFER_DAYS: i64 = 5;

@@ -480,7 +480,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      §4.1).
    - *Potential transfer matches:* each row's rows in your other accounts, in any staged
      import (this file's other statements, other files), with the opposite amount in the
-     same commodity, dated within 3 days. Every suggestion level sees them
+     same commodity, dated within 5 days. Every suggestion level sees them
      (`row.transfer_candidates` in rules).
    - *Transfer match* (`transfer_match`): two staged rows that are potential transfer
      matches of each other are the two sides of one transfer, unless your choice says
@@ -499,7 +499,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      row.
    - *Transfer duplicate* (`transfer_duplicate`): the transfer is already in the ledger,
      from the other account: a one-split transfer between the account and another of
-     yours, the same amount the same way, within 3 days, holding no bank row of this
+     yours, the same amount the same way, within 5 days, holding no bank row of this
      account yet. Matched after exact duplicates and before near ones.
    - A transfer whose first side is committed before the other is staged is recorded as a
      transfer then; one-sided transactions in the ledger are never turned into transfers
