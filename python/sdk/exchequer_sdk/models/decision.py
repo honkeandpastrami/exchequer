@@ -2,10 +2,9 @@ from enum import StrEnum
 
 
 class Decision(StrEnum):
-    MATCH = "match"
-    NEW = "new"
-    REPLACE = "replace"
-    SKIP = "skip"
+    ADD = "add"
+    ADD_SEPARATELY = "add_separately"
+    DONT_ADD = "dont_add"
 
     def __str__(self) -> str:
         return str(self.value)

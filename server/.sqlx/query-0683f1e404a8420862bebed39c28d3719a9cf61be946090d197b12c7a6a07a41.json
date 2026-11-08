@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT import_id, position, account_number, account_id, kind, commodity_id,\n                ledger_amount, ledger_date, skipped, suggested_account_id,\n                account_suggester_id, account_confidence, account_reason\n         FROM staged_statement WHERE import_id = ANY($1) ORDER BY import_id, position",
+  "query": "SELECT import_id, position, account_number, account_id, kind, commodity_id,\n                ledger_amount, ledger_date, skipped, suggested_account_id,\n                account_suggester_id, account_confidence, account_reason, reviewed\n         FROM staged_statement WHERE import_id = ANY($1) ORDER BY import_id, position",
   "describe": {
     "columns": [
       {
@@ -145,6 +145,17 @@
             "name": "account_reason"
           }
         }
+      },
+      {
+        "ordinal": 13,
+        "name": "reviewed",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "staged_statement",
+            "name": "reviewed"
+          }
+        }
       }
     ],
     "parameters": {
@@ -165,8 +176,9 @@
       true,
       true,
       true,
-      true
+      true,
+      false
     ]
   },
-  "hash": "2ffff7db78ac352bdd4d3a425e1b99916ed293fb70c47a850ba8315102354136"
+  "hash": "0683f1e404a8420862bebed39c28d3719a9cf61be946090d197b12c7a6a07a41"
 }

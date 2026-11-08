@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT r.import_id, r.statement, r.position, i.file_name, i.file_sha256,\n                  coalesce(st.account_id,\n                           CASE WHEN st.account_confidence >= $4\n                                THEN st.suggested_account_id END) AS account_id,\n                  r.date, r.amount, r.description, r.set_description, r.fingerprint, r.raw\n           FROM unnest($1::uuid[], $2::int2[], $3::int4[]) AS u(i, s, p)\n           JOIN staged_row r\n             ON r.import_id = u.i AND r.statement = u.s AND r.position = u.p\n           JOIN staged_statement st\n             ON st.import_id = r.import_id AND st.position = r.statement\n           JOIN staged_import i ON i.id = r.import_id",
+  "query": "SELECT r.import_id, r.statement, r.position, i.file_name, i.file_sha256,\n                  coalesce(st.account_id,\n                           CASE WHEN st.account_confidence >= $4\n                                THEN st.suggested_account_id END) AS account_id,\n                  r.date, r.amount, r.description, r.set_description, r.fingerprint, r.raw,\n                  r.tags\n           FROM unnest($1::uuid[], $2::int2[], $3::int4[]) AS u(i, s, p)\n           JOIN staged_row r\n             ON r.import_id = u.i AND r.statement = u.s AND r.position = u.p\n           JOIN staged_statement st\n             ON st.import_id = r.import_id AND st.position = r.statement\n           JOIN staged_import i ON i.id = r.import_id",
   "describe": {
     "columns": [
       {
@@ -129,6 +129,17 @@
             "name": "raw"
           }
         }
+      },
+      {
+        "ordinal": 12,
+        "name": "tags",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "tags"
+          }
+        }
       }
     ],
     "parameters": {
@@ -151,8 +162,9 @@
       false,
       true,
       false,
+      false,
       false
     ]
   },
-  "hash": "756eb01e1c95a6f1002eb7a4117a84a7d8c65a97c51d9641e8654f0eb25f8406"
+  "hash": "131bc80b0d28a87fbb07eaa5245ba3582036cd9a23039a381406718d25b59763"
 }

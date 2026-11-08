@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE staged_statement SET account_id = $3, reviewed = $4\n         WHERE import_id = $1 AND position = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2",
+        "Uuid",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0b874d5fa3f8e0962325a25d299ce6d05f0609552dc506b6a89a32a40ba38975"
+}

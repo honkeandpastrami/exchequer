@@ -1,50 +1,57 @@
-// Import review (design §6.6-6.7): what each staged row is and what
-// committing will do with it.
+// Import review (design §6.6-6.7): what matching found for each staged row
+// (its label), what committing does with it (its choice), and what it needs
+// (its state, shown as its colour).
 
 import type { Schemas } from '../api/client';
 import type { Tone } from '../components/Mark.svelte';
 
 type Status = Schemas['RowStatus'];
 type Decision = Schemas['Decision'];
+type State = Schemas['ReviewState'];
 
-/** In display order. */
+/** A row's label in words. */
 export const statuses: Record<Status, string> = {
 	new: 'New',
 	duplicate: 'Duplicate',
-	near_duplicate: 'Near duplicate',
-	transfer_match: 'Transfer match',
-	transfer_duplicate: 'Transfer already recorded',
-	needs_account: 'Needs account'
+	possible_duplicate: 'Possible duplicate',
+	transfer_pair: 'Transfer pair',
+	no_account: 'No account'
 };
 
-export const decisions: Record<Decision, string> = {
-	new: 'Add as new',
-	match: 'Already there',
-	replace: 'Replace it',
-	skip: 'Do not import'
-};
-
-/** What a row with this status can become, its default first (the server's rules). */
-export function decisionsFor(status: Status): Decision[] {
-	switch (status) {
-		case 'new':
-			return ['new', 'skip'];
-		case 'duplicate':
-			return ['match', 'replace', 'skip'];
-		case 'near_duplicate':
-			return ['match', 'replace', 'new', 'skip'];
-		case 'needs_account':
-			return [];
-		default:
-			return ['match', 'new', 'skip'];
-	}
+/** A choice in words: a transfer pair's `add` is one transfer. */
+export function choiceName(status: Status, d: Decision): string {
+	if (d === 'add') return status === 'transfer_pair' ? 'Add as one transfer' : 'Add';
+	return d === 'add_separately' ? 'Add separately' : "Don't add";
 }
 
-/** For a transfer match, `match` and `new` mean something else. */
-export function decisionLabel(status: Status, d: Decision): string {
-	if (status === 'transfer_match' && d === 'match') return 'Merge into one transfer';
-	if (status === 'transfer_match' && d === 'new') return 'Keep separate transactions';
-	return decisions[d];
+/** A state's mark (docs/ux.md §6), and its filter's words. */
+export const states: Record<State, { tone: Tone; label: string }> = {
+	needs_you: { tone: 'error', label: 'Needs you' },
+	to_review: { tone: 'warning', label: 'To review' },
+	ready: { tone: 'ok', label: 'Ready' },
+	not_added: { tone: 'off', label: 'Not added' }
+};
+
+/** The states in display order. */
+export const stateOrder: State[] = ['needs_you', 'to_review', 'ready', 'not_added'];
+
+/** How many rows a count is, by state: "2 need you". */
+const counts: Record<State, [string, string]> = {
+	needs_you: ['needs you', 'need you'],
+	to_review: ['to review', 'to review'],
+	ready: ['ready', 'ready'],
+	not_added: ['not added', 'not added']
+};
+
+/** Rows by state, those that aren't zero, in order; rows not added are
+ * left out unless `all`. */
+export function counted(
+	rows: Schemas['StateCounts'],
+	all = false
+): { state: State; text: string }[] {
+	return stateOrder
+		.filter((s) => rows[s] > 0 && (all || s !== 'not_added'))
+		.map((s) => ({ state: s, text: `${rows[s]} ${counts[s][rows[s] === 1 ? 0 : 1]}` }));
 }
 
 /** `…6789`, or what to call a statement without a number. */
@@ -52,79 +59,36 @@ export function statementName(s: Schemas['StagedStatement']): string {
 	return s.number_last4 ? `…${s.number_last4}` : 'No account number';
 }
 
-/** The statuses with rows, in display order, with how many. */
-export function counted(counts: Schemas['RowCounts']): [Status, number][] {
-	return (Object.keys(statuses) as Status[])
-		.map((s): [Status, number] => [s, counts[s]])
-		.filter(([, n]) => n > 0);
-}
-
-/** Every statement's counts added up. */
-export function totals(statements: Schemas['StagedStatement'][]): Schemas['RowCounts'] {
-	const out: Schemas['RowCounts'] = {
-		new: 0,
-		duplicate: 0,
-		near_duplicate: 0,
-		transfer_match: 0,
-		transfer_duplicate: 0,
-		needs_account: 0
-	};
-	for (const s of statements) for (const k of Object.keys(out) as Status[]) out[k] += s.counts[k];
-	return out;
-}
-
-// --------------------------------------------------------- Readiness ----
-// Design §6.7: ready commits as shown; suggested would commit on confident AI
-// suggestions you haven't confirmed; needs work needs you first.
-
-type Readiness = Schemas['Readiness'];
-
-export const readinessNames: Record<Schemas['ReadinessState'], string> = {
-	ready: 'Ready',
-	suggested: 'Confident suggestions',
-	needs_work: 'Needs work'
-};
-
-export const readinessTones: Record<Schemas['ReadinessState'], Tone> = {
-	ready: 'ok',
-	suggested: 'warning',
-	needs_work: 'error'
-};
-
 const several = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** Why an import isn't ready, briefly; nothing when it is. */
-export function readinessWhy(r: Readiness): string[] {
-	return [
-		r.no_account && several(r.no_account, 'statement has no account', 'statements have no account'),
-		r.unlabeled && several(r.unlabeled, 'row needs labels', 'rows need labels'),
-		r.undecided && several(r.undecided, 'row needs a decision', 'rows need a decision'),
-		r.suggested_accounts &&
-			several(r.suggested_accounts, 'suggested account', 'suggested accounts'),
-		r.suggested_rows &&
-			several(r.suggested_rows, 'row with AI suggestions', 'rows with AI suggestions')
-	].filter((x): x is string => !!x);
+/** What Commit says it will do, or why it can't yet. */
+export function commitLine(r: Schemas['Readiness']): { blocked: boolean; text: string } {
+	if (r.no_account)
+		return {
+			blocked: true,
+			text: several(r.no_account, 'statement needs its account', 'statements need their account')
+		};
+	if (r.rows.needs_you)
+		return {
+			blocked: true,
+			text: several(r.rows.needs_you, 'row needs', 'rows need') + ' you first'
+		};
+	return { blocked: false, text: `adds ${several(r.adds, 'transaction', 'transactions')}` };
 }
 
-/** What a commit did, in a line. */
-export function committedSummary(c: Schemas['Committed']): string {
-	return (
-		[
-			c.created && several(c.created, 'new transaction', 'new transactions'),
-			c.matched && `${c.matched} already there`,
-			c.replaced && `${c.replaced} replaced`,
-			c.skipped && `${c.skipped} not imported`
-		]
-			.filter((x): x is string => !!x)
-			.join(', ') || 'nothing to add'
-	);
-}
-
-/** What committing would do now, by decision. */
-export function plan(rows: Schemas['StagedRow'][]): Record<Decision, number> {
-	const out: Record<Decision, number> = { new: 0, match: 0, replace: 0, skip: 0 };
-	for (const r of rows) if (r.decision) out[r.decision] += 1;
-	return out;
+/** What committing with rows to review asks first; nothing if there are none. */
+export function unreviewedQuestion(r: Schemas['Readiness']): string {
+	const rows = r.rows.to_review;
+	const accounts = r.accounts_to_review;
+	if (!rows && !accounts) return '';
+	const what = [
+		rows && several(rows, 'row', 'rows'),
+		accounts && several(accounts, 'statement', 'statements')
+	]
+		.filter(Boolean)
+		.join(' and ');
+	const take = rows + accounts === 1 ? 'takes' : 'take';
+	return `${what} ${take} suggestions you haven't reviewed. They'll be committed as shown.`;
 }
 
 /** A row's key, unique in its import. */
@@ -132,24 +96,17 @@ export const rowKey = (r: { statement: number; position: number }) =>
 	`${r.statement}/${r.position}`;
 
 // ------------------------------------------------------- Suggestions ----
-// Design §8, docs/ai.md: a label is yours, confidently suggested (committed
-// as shown), unsurely suggested (shown, but not committed unless you accept
-// it) or missing.
+// Design §8, docs/ai.md: a label is yours, a suggestion's (committed as
+// shown; its badge says how sure), or missing.
 
 type Label = Schemas['Label'];
 type Suggestion = Schemas['LabelSuggestion'];
 
 /** In display order. */
 export const labelNames: Record<Label, string> = {
-	counterparty: 'Counterparty',
+	counterparty: 'To',
 	category: 'Category',
 	purpose: 'For'
-};
-
-/** What choosing "none" means. A category and a purpose have no such
- * choice: they name something and someone (design §4.1). */
-export const noneNames: Record<'counterparty', string> = {
-	counterparty: 'Unknown'
 };
 
 export const sourceNames: Record<Schemas['SuggesterKind'], string> = {
@@ -160,16 +117,13 @@ export const sourceNames: Record<Schemas['SuggesterKind'], string> = {
 };
 
 export type LabelState =
-	| { kind: 'yours' }
-	| { kind: 'confident'; suggestion: Suggestion }
-	| { kind: 'unsure'; suggestion: Suggestion }
-	| { kind: 'missing' };
+	{ kind: 'yours' } | { kind: 'suggested'; suggestion: Suggestion } | { kind: 'missing' };
 
 export function labelState(row: Schemas['StagedRow'], label: Label): LabelState {
 	if (row.chosen.includes(label)) return { kind: 'yours' };
+	if (row.missing.includes(label)) return { kind: 'missing' };
 	const suggestion = row.suggestions.find((s) => s.label === label);
-	if (!suggestion) return { kind: 'missing' };
-	return { kind: suggestion.confident ? 'confident' : 'unsure', suggestion };
+	return suggestion ? { kind: 'suggested', suggestion } : { kind: 'missing' };
 }
 
 /** A per-mille confidence as a whole percentage. */
@@ -199,38 +153,3 @@ export function suggestedSide(s: Suggestion): Side {
 		? { account: s.transfer_account_id }
 		: { counterparty: s.value ?? null };
 }
-
-/** New rows commit refuses until their labels are settled. */
-export const unlabeled = (rows: Schemas['StagedRow'][]) =>
-	rows.filter((r) => r.decision === 'new' && r.missing.length);
-
-/** Rows whose decision is neither yours nor confidently suggested. */
-export const undecided = (rows: Schemas['StagedRow'][]) =>
-	rows.filter((r) => r.suggested_decision && !r.decided && !r.suggested_decision.confident);
-
-/** Rows that need you before commit: no account yet, labels, or a decision. */
-export const needsWork = (r: Schemas['StagedRow']) =>
-	!r.decision ||
-	(r.decision === 'new' && r.missing.length > 0) ||
-	(!!r.suggested_decision && !r.decided && !r.suggested_decision.confident);
-
-/** Whether a row takes an AI suggestion short of 100%: worth a look. A
- * split row's labels are its parts', and a transfer match's other side is
- * the match's. */
-const takesAi = (r: Schemas['StagedRow']) =>
-	(r.decision === 'new' || r.decision === 'replace' || r.status === 'transfer_match') &&
-	!r.splits.length &&
-	(Object.keys(labelNames) as Label[]).some((label) => {
-		const st = labelState(r, label);
-		return (
-			st.kind === 'confident' &&
-			!r.not_applicable.includes(label) &&
-			!(label === 'counterparty' && r.transfer_match) &&
-			(st.suggestion.suggester.kind === 'local' || st.suggestion.suggester.kind === 'remote') &&
-			st.suggestion.confidence < 1000
-		);
-	});
-
-/** Rows that would commit on AI suggestions you haven't ticked as reviewed. */
-export const toReview = (rows: Schemas['StagedRow'][]) =>
-	rows.filter((r) => !r.reviewed && !needsWork(r) && takesAi(r));

@@ -86,7 +86,7 @@ def sync_detailed(
     body: RowUpdate,
     if_match: str,
 ) -> Response[Problem | StagedRow]:
-    """Decide what committing does with a row, and label the transaction it
+    """Choose what committing does with a row, and label the transaction it
     will become.
 
     Args:
@@ -128,7 +128,7 @@ def sync(
     body: RowUpdate,
     if_match: str,
 ) -> Problem | StagedRow | None:
-    """Decide what committing does with a row, and label the transaction it
+    """Choose what committing does with a row, and label the transaction it
     will become.
 
     Args:
@@ -165,7 +165,7 @@ async def asyncio_detailed(
     body: RowUpdate,
     if_match: str,
 ) -> Response[Problem | StagedRow]:
-    """Decide what committing does with a row, and label the transaction it
+    """Choose what committing does with a row, and label the transaction it
     will become.
 
     Args:
@@ -205,7 +205,7 @@ async def asyncio(
     body: RowUpdate,
     if_match: str,
 ) -> Problem | StagedRow | None:
-    """Decide what committing does with a row, and label the transaction it
+    """Choose what committing does with a row, and label the transaction it
     will become.
 
     Args:

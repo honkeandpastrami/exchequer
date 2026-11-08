@@ -7,14 +7,15 @@ from uuid import UUID
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.review_state import ReviewState
 from ..models.statement_kind import StatementKind
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.account_suggestion import AccountSuggestion
     from ..models.ledger_balance import LedgerBalance
-    from ..models.row_counts import RowCounts
     from ..models.skipped_line import SkippedLine
+    from ..models.state_counts import StateCounts
 
 
 T = TypeVar("T", bound="StagedStatement")
@@ -27,12 +28,16 @@ class StagedStatement:
     Attributes:
         account_suggested (bool): Whether `account_id` is the suggestion's, not yet the statement's own.
         commodity_id (UUID):
-        counts (RowCounts): How many rows have each status.
         position (int):
+        reviewed (bool): Whether you ticked the suggested account as reviewed, making it the
+            statement's own.
+        rows (StateCounts): How many rows are in each state.
         skipped (list[SkippedLine]):
+        state (ReviewState): What a row, a statement or an import needs (design §6.7), shown as its
+            colour.
         account_id (None | Unset | UUID): The account the rows are worked out against: the one the file's
-            number belongs to, or the client's choice, else a confident suggestion
-            (`account_suggested`). `null` until there is one.
+            number belongs to, or the one you picked, else a confident
+            suggestion (`account_suggested`). `null` until there is one.
         kind (None | StatementKind | Unset):
         ledger (LedgerBalance | None | Unset):
         number_last4 (None | str | Unset): The last four of the account number in the file (CSVs have none). Example:
@@ -42,9 +47,11 @@ class StagedStatement:
 
     account_suggested: bool
     commodity_id: UUID
-    counts: RowCounts
     position: int
+    reviewed: bool
+    rows: StateCounts
     skipped: list[SkippedLine]
+    state: ReviewState
     account_id: None | Unset | UUID = UNSET
     kind: None | StatementKind | Unset = UNSET
     ledger: LedgerBalance | None | Unset = UNSET
@@ -60,14 +67,18 @@ class StagedStatement:
 
         commodity_id = str(self.commodity_id)
 
-        counts = self.counts.to_dict()
-
         position = self.position
+
+        reviewed = self.reviewed
+
+        rows = self.rows.to_dict()
 
         skipped = []
         for skipped_item_data in self.skipped:
             skipped_item = skipped_item_data.to_dict()
             skipped.append(skipped_item)
+
+        state = self.state.value
 
         account_id: None | str | Unset
         if isinstance(self.account_id, Unset):
@@ -113,9 +124,11 @@ class StagedStatement:
             {
                 "account_suggested": account_suggested,
                 "commodity_id": commodity_id,
-                "counts": counts,
                 "position": position,
+                "reviewed": reviewed,
+                "rows": rows,
                 "skipped": skipped,
+                "state": state,
             }
         )
         if account_id is not UNSET:
@@ -135,17 +148,19 @@ class StagedStatement:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.account_suggestion import AccountSuggestion  # noqa: PLC0415
         from ..models.ledger_balance import LedgerBalance  # noqa: PLC0415
-        from ..models.row_counts import RowCounts  # noqa: PLC0415
         from ..models.skipped_line import SkippedLine  # noqa: PLC0415
+        from ..models.state_counts import StateCounts  # noqa: PLC0415
 
         d = dict(src_dict)
         account_suggested = d.pop("account_suggested")
 
         commodity_id = UUID(d.pop("commodity_id"))
 
-        counts = RowCounts.from_dict(d.pop("counts"))
-
         position = d.pop("position")
+
+        reviewed = d.pop("reviewed")
+
+        rows = StateCounts.from_dict(d.pop("rows"))
 
         skipped = []
         _skipped = d.pop("skipped")
@@ -153,6 +168,8 @@ class StagedStatement:
             skipped_item = SkippedLine.from_dict(skipped_item_data)
 
             skipped.append(skipped_item)
+
+        state = ReviewState(d.pop("state"))
 
         def _parse_account_id(data: object) -> None | Unset | UUID:
             if data is None:
@@ -234,9 +251,11 @@ class StagedStatement:
         staged_statement = cls(
             account_suggested=account_suggested,
             commodity_id=commodity_id,
-            counts=counts,
             position=position,
+            reviewed=reviewed,
+            rows=rows,
             skipped=skipped,
+            state=state,
             account_id=account_id,
             kind=kind,
             ledger=ledger,

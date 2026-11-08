@@ -23,8 +23,7 @@ class LabelSuggestion:
 
     Attributes:
         confidence (int): Per mille: 900 is 0.9.
-        confident (bool): Whether it's confident enough (at least 900) to be committed unless
-            you choose otherwise.
+        confident (bool): Whether it's confident (at least 900): the level below isn't asked.
         label (Label): A label a row's new transaction gets.
         reason (str):
         suggester (Suggester): The exact system that made a suggestion.

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,\n                status, match_transaction_id, decision, set_description, counterparty_id,\n                transfer_account_id, category_id, purpose_id, chosen, pair_import_id,\n                pair_statement, pair_position, conflict_import_id, conflict_statement,\n                conflict_position, reviewed, match_days, match_similarity\n         FROM staged_row\n         WHERE import_id = $1\n           AND ($2::int2 IS NULL OR statement = $2)\n           AND ($3::text IS NULL OR status = $3)\n           AND ($4::int2 IS NULL OR (statement, position) > ($4, $5::int4))\n         ORDER BY statement, position LIMIT $6",
+  "query": "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,\n                status, match_transaction_id, match_kind, decision, set_description,\n                counterparty_id, transfer_account_id, category_id, purpose_id, chosen,\n                pair_import_id, pair_statement, pair_position, conflict_import_id,\n                conflict_statement, conflict_position, reviewed, match_days,\n                match_similarity, tags\n         FROM staged_row\n         WHERE import_id = $1\n           AND ($2::int2 IS NULL OR statement = $2)\n           AND ($3::text IS NULL OR status = $3)\n           AND ($4::int2 IS NULL OR (statement, position) > ($4, $5::int4))\n         ORDER BY statement, position LIMIT $6",
   "describe": {
     "columns": [
       {
@@ -115,6 +115,17 @@
       },
       {
         "ordinal": 10,
+        "name": "match_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "match_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
         "name": "decision",
         "type_info": "Text",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "set_description",
         "type_info": "Text",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "counterparty_id",
         "type_info": "Uuid",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "transfer_account_id",
         "type_info": "Uuid",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "category_id",
         "type_info": "Uuid",
         "origin": {
@@ -169,7 +180,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "purpose_id",
         "type_info": "Uuid",
         "origin": {
@@ -180,7 +191,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "chosen",
         "type_info": "TextArray",
         "origin": {
@@ -191,7 +202,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "pair_import_id",
         "type_info": "Uuid",
         "origin": {
@@ -202,7 +213,7 @@
         }
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
         "name": "pair_statement",
         "type_info": "Int2",
         "origin": {
@@ -213,7 +224,7 @@
         }
       },
       {
-        "ordinal": 19,
+        "ordinal": 20,
         "name": "pair_position",
         "type_info": "Int4",
         "origin": {
@@ -224,7 +235,7 @@
         }
       },
       {
-        "ordinal": 20,
+        "ordinal": 21,
         "name": "conflict_import_id",
         "type_info": "Uuid",
         "origin": {
@@ -235,7 +246,7 @@
         }
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "conflict_statement",
         "type_info": "Int2",
         "origin": {
@@ -246,7 +257,7 @@
         }
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "conflict_position",
         "type_info": "Int4",
         "origin": {
@@ -257,7 +268,7 @@
         }
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "reviewed",
         "type_info": "Jsonb",
         "origin": {
@@ -268,7 +279,7 @@
         }
       },
       {
-        "ordinal": 24,
+        "ordinal": 25,
         "name": "match_days",
         "type_info": "Int2",
         "origin": {
@@ -279,13 +290,24 @@
         }
       },
       {
-        "ordinal": 25,
+        "ordinal": 26,
         "name": "match_similarity",
         "type_info": "Int2",
         "origin": {
           "Table": {
             "table": "staged_row",
             "name": "match_similarity"
+          }
+        }
+      },
+      {
+        "ordinal": 27,
+        "name": "tags",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "staged_row",
+            "name": "tags"
           }
         }
       }
@@ -317,6 +339,7 @@
       true,
       true,
       true,
+      true,
       false,
       true,
       true,
@@ -326,8 +349,9 @@
       true,
       true,
       true,
-      true
+      true,
+      false
     ]
   },
-  "hash": "564df1985350712f79b377a93509a7d9e0fc94d486b7e92f7574727ed1fdb8a6"
+  "hash": "9c8d1e8fb2e74e76289e7ab375611f7ca158373a64b955d4e7ed639f9108f60e"
 }

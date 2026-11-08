@@ -10,6 +10,8 @@ from attrs import field as _attrs_field
 
 from ..models.decision import Decision
 from ..models.label import Label
+from ..models.match_kind import MatchKind
+from ..models.review_state import ReviewState
 from ..models.row_status import RowStatus
 from ..types import UNSET, Unset
 
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
     from ..models.label_suggestion import LabelSuggestion
     from ..models.row_split import RowSplit
     from ..models.staged_row_raw import StagedRowRaw
-    from ..models.transfer_match import TransferMatch
+    from ..models.transfer_pair import TransferPair
 
 
 T = TypeVar("T", bound="StagedRow")
@@ -31,39 +33,44 @@ class StagedRow:
         amount (str): Signed from the account's side: negative is money leaving it. Example: -80.00.
         chosen (list[Label]): The labels you set (a `null` one is an explicit none).
         date (datetime.date):
-        decided (bool): Whether `decision` is the client's choice rather than the default.
+        decided (bool): Whether `decision` is your choice rather than the default.
         description (str):
-        missing (list[Label]): For a row that will be a new transaction: the labels that are
-            neither yours nor confidently suggested. Commit refuses while any row
-            has some.
+        missing (list[Label]): For a row that will be added: the labels with neither your choice
+            nor a suggestion. Commit refuses while any row has some.
         not_applicable (list[Label]): Labels that don't apply: a transfer's category and purpose (design
             §3.2).
+        options (list[Decision]): The choices the row has, in the order shown: `add` and `dont_add`,
+            and for a transfer pair `add` (one transfer), `add_separately` and
+            `dont_add`. None while the statement has no account.
         position (int):
         raw (StagedRowRaw): The row's fields as the file had them.
         reviewed (bool): Whether you ticked the row as reviewed, and it still shows what you
-            saw then: the AI suggestions it takes count as yours.
+            saw then: what it takes counts as yours.
         splits (list[RowSplit]): The row split into parts, each a split of the new transaction; empty
-            if it isn't split. A split row is added as new, and its labels are
-            the parts': the row's own, and its suggestions, don't apply.
+            if it isn't split. A split row is added, and its labels are the
+            parts': the row's own, and its suggestions, don't apply.
+        state (ReviewState): What a row, a statement or an import needs (design §6.7), shown as its
+            colour.
         statement (int):
-        status (RowStatus): What a row would become.
+        status (RowStatus): What matching found for a row (design §6.6): its label.
         suggestions (list[LabelSuggestion]): At most one per label, confident or not.
+        tags (list[str]): The new transaction's tags.
         category_id (None | Unset | UUID):
         counterparty_id (None | Unset | UUID): The labels below are what a new transaction gets: your choice, else a
-            confident suggestion. For a new transaction: who's on the outside
-            side (unknown if absent and there's no `transfer_account_id`).
+            suggestion. For a new transaction: who's on the outside side
+            (unknown if absent and there's no `transfer_account_id`).
         decision (Decision | None | Unset):
-        match_transaction_id (None | Unset | UUID): The existing transaction a duplicate or transfer duplicate is of.
+        match_kind (MatchKind | None | Unset):
+        match_transaction_id (None | Unset | UUID): The existing transaction a duplicate or possible duplicate may be.
         native_id (None | str | Unset): The bank's own ID for the row, if it has one.
         purpose_id (None | Unset | UUID): Who the money was for; absent, the account's owner.
         set_description (None | str | Unset): The new transaction's description, if not the bank's.
         suggested_decision (DecisionSuggestion | None | Unset):
         transfer_account_id (None | Unset | UUID): The other side when it's one of your accounts: the row is a transfer,
             whose category and purpose don't apply (unless one account is liquid
-            and the other isn't: an expense or income).
-            A transfer match's is its other side's account.
-        transfer_conflict (None | TransferMatch | Unset):
-        transfer_match (None | TransferMatch | Unset):
+            and the other isn't: an expense or income). A transfer pair added as
+            one transfer has its other row's account.
+        transfer_pair (None | TransferPair | Unset):
     """
 
     amount: str
@@ -73,29 +80,32 @@ class StagedRow:
     description: str
     missing: list[Label]
     not_applicable: list[Label]
+    options: list[Decision]
     position: int
     raw: StagedRowRaw
     reviewed: bool
     splits: list[RowSplit]
+    state: ReviewState
     statement: int
     status: RowStatus
     suggestions: list[LabelSuggestion]
+    tags: list[str]
     category_id: None | Unset | UUID = UNSET
     counterparty_id: None | Unset | UUID = UNSET
     decision: Decision | None | Unset = UNSET
+    match_kind: MatchKind | None | Unset = UNSET
     match_transaction_id: None | Unset | UUID = UNSET
     native_id: None | str | Unset = UNSET
     purpose_id: None | Unset | UUID = UNSET
     set_description: None | str | Unset = UNSET
     suggested_decision: DecisionSuggestion | None | Unset = UNSET
     transfer_account_id: None | Unset | UUID = UNSET
-    transfer_conflict: None | TransferMatch | Unset = UNSET
-    transfer_match: None | TransferMatch | Unset = UNSET
+    transfer_pair: None | TransferPair | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.decision_suggestion import DecisionSuggestion  # noqa: PLC0415
-        from ..models.transfer_match import TransferMatch  # noqa: PLC0415
+        from ..models.transfer_pair import TransferPair  # noqa: PLC0415
 
         amount = self.amount
 
@@ -120,6 +130,11 @@ class StagedRow:
             not_applicable_item = not_applicable_item_data.value
             not_applicable.append(not_applicable_item)
 
+        options = []
+        for options_item_data in self.options:
+            options_item = options_item_data.value
+            options.append(options_item)
+
         position = self.position
 
         raw = self.raw.to_dict()
@@ -131,6 +146,8 @@ class StagedRow:
             splits_item = splits_item_data.to_dict()
             splits.append(splits_item)
 
+        state = self.state.value
+
         statement = self.statement
 
         status = self.status.value
@@ -139,6 +156,8 @@ class StagedRow:
         for suggestions_item_data in self.suggestions:
             suggestions_item = suggestions_item_data.to_dict()
             suggestions.append(suggestions_item)
+
+        tags = self.tags
 
         category_id: None | str | Unset
         if isinstance(self.category_id, Unset):
@@ -163,6 +182,14 @@ class StagedRow:
             decision = self.decision.value
         else:
             decision = self.decision
+
+        match_kind: None | str | Unset
+        if isinstance(self.match_kind, Unset):
+            match_kind = UNSET
+        elif isinstance(self.match_kind, MatchKind):
+            match_kind = self.match_kind.value
+        else:
+            match_kind = self.match_kind
 
         match_transaction_id: None | str | Unset
         if isinstance(self.match_transaction_id, Unset):
@@ -208,21 +235,13 @@ class StagedRow:
         else:
             transfer_account_id = self.transfer_account_id
 
-        transfer_conflict: dict[str, Any] | None | Unset
-        if isinstance(self.transfer_conflict, Unset):
-            transfer_conflict = UNSET
-        elif isinstance(self.transfer_conflict, TransferMatch):
-            transfer_conflict = self.transfer_conflict.to_dict()
+        transfer_pair: dict[str, Any] | None | Unset
+        if isinstance(self.transfer_pair, Unset):
+            transfer_pair = UNSET
+        elif isinstance(self.transfer_pair, TransferPair):
+            transfer_pair = self.transfer_pair.to_dict()
         else:
-            transfer_conflict = self.transfer_conflict
-
-        transfer_match: dict[str, Any] | None | Unset
-        if isinstance(self.transfer_match, Unset):
-            transfer_match = UNSET
-        elif isinstance(self.transfer_match, TransferMatch):
-            transfer_match = self.transfer_match.to_dict()
-        else:
-            transfer_match = self.transfer_match
+            transfer_pair = self.transfer_pair
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -235,13 +254,16 @@ class StagedRow:
                 "description": description,
                 "missing": missing,
                 "not_applicable": not_applicable,
+                "options": options,
                 "position": position,
                 "raw": raw,
                 "reviewed": reviewed,
                 "splits": splits,
+                "state": state,
                 "statement": statement,
                 "status": status,
                 "suggestions": suggestions,
+                "tags": tags,
             }
         )
         if category_id is not UNSET:
@@ -250,6 +272,8 @@ class StagedRow:
             field_dict["counterparty_id"] = counterparty_id
         if decision is not UNSET:
             field_dict["decision"] = decision
+        if match_kind is not UNSET:
+            field_dict["match_kind"] = match_kind
         if match_transaction_id is not UNSET:
             field_dict["match_transaction_id"] = match_transaction_id
         if native_id is not UNSET:
@@ -262,10 +286,8 @@ class StagedRow:
             field_dict["suggested_decision"] = suggested_decision
         if transfer_account_id is not UNSET:
             field_dict["transfer_account_id"] = transfer_account_id
-        if transfer_conflict is not UNSET:
-            field_dict["transfer_conflict"] = transfer_conflict
-        if transfer_match is not UNSET:
-            field_dict["transfer_match"] = transfer_match
+        if transfer_pair is not UNSET:
+            field_dict["transfer_pair"] = transfer_pair
 
         return field_dict
 
@@ -275,7 +297,7 @@ class StagedRow:
         from ..models.label_suggestion import LabelSuggestion  # noqa: PLC0415
         from ..models.row_split import RowSplit  # noqa: PLC0415
         from ..models.staged_row_raw import StagedRowRaw  # noqa: PLC0415
-        from ..models.transfer_match import TransferMatch  # noqa: PLC0415
+        from ..models.transfer_pair import TransferPair  # noqa: PLC0415
 
         d = dict(src_dict)
         amount = d.pop("amount")
@@ -307,6 +329,13 @@ class StagedRow:
 
             not_applicable.append(not_applicable_item)
 
+        options = []
+        _options = d.pop("options")
+        for options_item_data in _options:
+            options_item = Decision(options_item_data)
+
+            options.append(options_item)
+
         position = d.pop("position")
 
         raw = StagedRowRaw.from_dict(d.pop("raw"))
@@ -320,6 +349,8 @@ class StagedRow:
 
             splits.append(splits_item)
 
+        state = ReviewState(d.pop("state"))
+
         statement = d.pop("statement")
 
         status = RowStatus(d.pop("status"))
@@ -330,6 +361,8 @@ class StagedRow:
             suggestions_item = LabelSuggestion.from_dict(suggestions_item_data)
 
             suggestions.append(suggestions_item)
+
+        tags = cast(list[str], d.pop("tags"))
 
         def _parse_category_id(data: object) -> None | Unset | UUID:
             if data is None:
@@ -381,6 +414,23 @@ class StagedRow:
             return cast(Decision | None | Unset, data)
 
         decision = _parse_decision(d.pop("decision", UNSET))
+
+        def _parse_match_kind(data: object) -> MatchKind | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                match_kind_type_0 = MatchKind(data)
+
+                return match_kind_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(MatchKind | None | Unset, data)
+
+        match_kind = _parse_match_kind(d.pop("match_kind", UNSET))
 
         def _parse_match_transaction_id(data: object) -> None | Unset | UUID:
             if data is None:
@@ -468,7 +518,7 @@ class StagedRow:
 
         transfer_account_id = _parse_transfer_account_id(d.pop("transfer_account_id", UNSET))
 
-        def _parse_transfer_conflict(data: object) -> None | TransferMatch | Unset:
+        def _parse_transfer_pair(data: object) -> None | TransferPair | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -476,31 +526,14 @@ class StagedRow:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                transfer_conflict_type_0 = TransferMatch.from_dict(data)
+                transfer_pair_type_0 = TransferPair.from_dict(data)
 
-                return transfer_conflict_type_0
+                return transfer_pair_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(None | TransferMatch | Unset, data)
+            return cast(None | TransferPair | Unset, data)
 
-        transfer_conflict = _parse_transfer_conflict(d.pop("transfer_conflict", UNSET))
-
-        def _parse_transfer_match(data: object) -> None | TransferMatch | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, dict):
-                    raise TypeError()
-                transfer_match_type_0 = TransferMatch.from_dict(data)
-
-                return transfer_match_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(None | TransferMatch | Unset, data)
-
-        transfer_match = _parse_transfer_match(d.pop("transfer_match", UNSET))
+        transfer_pair = _parse_transfer_pair(d.pop("transfer_pair", UNSET))
 
         staged_row = cls(
             amount=amount,
@@ -510,24 +543,27 @@ class StagedRow:
             description=description,
             missing=missing,
             not_applicable=not_applicable,
+            options=options,
             position=position,
             raw=raw,
             reviewed=reviewed,
             splits=splits,
+            state=state,
             statement=statement,
             status=status,
             suggestions=suggestions,
+            tags=tags,
             category_id=category_id,
             counterparty_id=counterparty_id,
             decision=decision,
+            match_kind=match_kind,
             match_transaction_id=match_transaction_id,
             native_id=native_id,
             purpose_id=purpose_id,
             set_description=set_description,
             suggested_decision=suggested_decision,
             transfer_account_id=transfer_account_id,
-            transfer_conflict=transfer_conflict,
-            transfer_match=transfer_match,
+            transfer_pair=transfer_pair,
         )
 
         staged_row.additional_properties = d

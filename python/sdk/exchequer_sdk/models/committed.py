@@ -21,40 +21,32 @@ class Committed:
     """What a commit did.
 
     Attributes:
+        added (int): New transactions.
         balance_checks (list[BalanceCheck]): One per statement with a ledger balance: the bank's balance against
             the ledger's.
-        created (int): New transactions.
-        matched (int): Rows recorded as already in the ledger (duplicates, near-duplicates,
-            transfer duplicates).
-        replaced (int): Existing transactions replaced by their rows.
-        skipped (int):
-        transfers (int): Of them, transfers made of a transfer match: two rows, one
+        not_added (int): Rows not added: duplicates recorded as what they matched, and rows
+            left out.
+        transfers (int): Of them, transfers made of a transfer pair: two rows, one
             transaction.
         import_batch_id (None | Unset | UUID): The batch the new transactions are in; absent if there were none.
     """
 
+    added: int
     balance_checks: list[BalanceCheck]
-    created: int
-    matched: int
-    replaced: int
-    skipped: int
+    not_added: int
     transfers: int
     import_batch_id: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        added = self.added
+
         balance_checks = []
         for balance_checks_item_data in self.balance_checks:
             balance_checks_item = balance_checks_item_data.to_dict()
             balance_checks.append(balance_checks_item)
 
-        created = self.created
-
-        matched = self.matched
-
-        replaced = self.replaced
-
-        skipped = self.skipped
+        not_added = self.not_added
 
         transfers = self.transfers
 
@@ -70,11 +62,9 @@ class Committed:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "added": added,
                 "balance_checks": balance_checks,
-                "created": created,
-                "matched": matched,
-                "replaced": replaced,
-                "skipped": skipped,
+                "not_added": not_added,
                 "transfers": transfers,
             }
         )
@@ -88,6 +78,8 @@ class Committed:
         from ..models.balance_check import BalanceCheck  # noqa: PLC0415
 
         d = dict(src_dict)
+        added = d.pop("added")
+
         balance_checks = []
         _balance_checks = d.pop("balance_checks")
         for balance_checks_item_data in _balance_checks:
@@ -95,13 +87,7 @@ class Committed:
 
             balance_checks.append(balance_checks_item)
 
-        created = d.pop("created")
-
-        matched = d.pop("matched")
-
-        replaced = d.pop("replaced")
-
-        skipped = d.pop("skipped")
+        not_added = d.pop("not_added")
 
         transfers = d.pop("transfers")
 
@@ -123,11 +109,9 @@ class Committed:
         import_batch_id = _parse_import_batch_id(d.pop("import_batch_id", UNSET))
 
         committed = cls(
+            added=added,
             balance_checks=balance_checks,
-            created=created,
-            matched=matched,
-            replaced=replaced,
-            skipped=skipped,
+            not_added=not_added,
             transfers=transfers,
             import_batch_id=import_batch_id,
         )

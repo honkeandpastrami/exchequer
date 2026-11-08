@@ -12,8 +12,7 @@
 		ref,
 		id,
 		label,
-		skip,
-		offer
+		skip
 	}: {
 		leg: LegDraft;
 		set: (l: LegDraft) => void;
@@ -22,8 +21,6 @@
 		label: string;
 		/** An account not offered: the bank's own. */
 		skip?: string;
-		/** A suggestion, offered first: picking it applies it. */
-		offer?: { label: string; apply: () => void };
 	} = $props();
 
 	/** Text being typed; `null` while not editing, showing the side. */
@@ -42,16 +39,12 @@
 		const out: Choice[] = [];
 		const hit = (t: string) =>
 			!query.trim() || t.toLowerCase().includes(query.trim().toLowerCase());
-		if (offer && hit(offer.label))
-			out.push({ text: offer.label, note: 'suggested', pick: offer.apply });
 		for (const c of sideChoices(query, ref, skip))
-			if (c.text !== offer?.label)
-				out.push({ text: c.text, note: c.kind === 'account' ? 'account' : '', pick: to(c.text) });
+			out.push({ text: c.text, note: c.kind === 'account' ? 'account' : '', pick: to(c.text) });
 		const exact = out.some((c) => c.text.toLowerCase() === query.trim().toLowerCase());
 		if (query.trim() && !exact)
 			out.push({ text: query.trim(), note: 'new counterparty', pick: to(query) });
-		if (offer?.label !== UNKNOWN && hit(UNKNOWN))
-			out.push({ text: UNKNOWN, note: 'outside the household', pick: to(UNKNOWN) });
+		if (hit(UNKNOWN)) out.push({ text: UNKNOWN, note: 'outside the household', pick: to(UNKNOWN) });
 		return out;
 	});
 
@@ -172,9 +165,7 @@
 		background: var(--color-surface-alt);
 	}
 	.text {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		overflow-wrap: anywhere;
 	}
 	.note {
 		flex: none;

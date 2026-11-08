@@ -10,18 +10,19 @@ from typer.testing import CliRunner
 
 from exchequer_cli import config
 from exchequer_cli.cli import app
-from exchequer_cli.imports import Names, decisions_for, row_line, statement_line
+from exchequer_cli.imports import Names, choice, row_line, statement_line
 from exchequer_sdk.models import (
     Decision,
     LedgerBalance,
-    RowCounts,
+    ReviewState,
     RowSplit,
     RowStatus,
     SkippedLine,
     StagedRow,
     StagedRowRaw,
     StagedStatement,
-    TransferMatch,
+    StateCounts,
+    TransferPair,
 )
 
 CARD = UUID(int=1)
@@ -52,14 +53,9 @@ def test_a_statement_shows_its_account_counts_and_balance():
     names = Names(accounts={CARD: "Alex · Card"})
     s = StagedStatement(
         commodity_id=UUID(int=9),
-        counts=RowCounts(
-            new=3,
-            duplicate=1,
-            near_duplicate=0,
-            transfer_match=0,
-            transfer_duplicate=0,
-            needs_account=0,
-        ),
+        rows=StateCounts(needs_you=0, to_review=2, ready=3, not_added=1),
+        state=ReviewState.READY,
+        reviewed=False,
         position=0,
         skipped=[SkippedLine(line=4, reason="unreadable date")],
         account_id=CARD,
@@ -68,11 +64,11 @@ def test_a_statement_shows_its_account_counts_and_balance():
         ledger=LedgerBalance(amount="-50.00", date=datetime.date(2026, 3, 31)),
     )
     assert statement_line(s, names) == (
-        "  …2222 → Alex · Card: 3 new, 1 duplicate; bank balance -50.00 on 2026-03-31; "
-        "1 unreadable lines"
+        "  …2222 → Alex · Card: 2 to review, 3 ready, 1 not added; bank balance -50.00 on "
+        "2026-03-31; 1 unreadable lines"
     )
-    s.account_suggested = True
-    assert statement_line(s, names).startswith("  …2222 → Alex · Card (suggested): ")
+    s.state = ReviewState.TO_REVIEW
+    assert statement_line(s, names).startswith("  …2222 → Alex · Card, to review: ")
     s.account_id = None
     s.number_last4 = None
     assert statement_line(s, names).startswith("  no number → NO ACCOUNT YET")
@@ -88,7 +84,10 @@ def test_a_row_and_what_it_can_become():
         position=0,
         raw=StagedRowRaw(),
         statement=0,
-        status=RowStatus.NEAR_DUPLICATE,
+        status=RowStatus.POSSIBLE_DUPLICATE,
+        options=[Decision.ADD, Decision.DONT_ADD],
+        state=ReviewState.NOT_ADDED,
+        tags=[],
         chosen=[],
         suggestions=[],
         missing=[],
@@ -96,11 +95,13 @@ def test_a_row_and_what_it_can_become():
         splits=[],
     )
     assert row_line(r, "2026-03-01 'Groceries'") == (
-        "2026-03-02        -80.00  GROCER" + " " * 34 + "  near duplicate of 2026-03-01 'Groceries'"
+        "2026-03-02        -80.00  GROCER"
+        + " " * 34
+        + "  possible duplicate of 2026-03-01 'Groceries'"
     )
-    # A transfer match names its other side.
-    r.status = RowStatus.TRANSFER_MATCH
-    r.transfer_match = TransferMatch(
+    # A transfer pair names its other side.
+    r.status = RowStatus.TRANSFER_PAIR
+    r.transfer_pair = TransferPair(
         import_id=UUID(int=5),
         statement=0,
         position=3,
@@ -109,25 +110,18 @@ def test_a_row_and_what_it_can_become():
         description="PAYMENT",
     )
     assert row_line(r, None, Names(accounts={CARD: "Alex · Card"})).endswith(
-        "transfer match with Alex · Card: 2026-03-01 'PAYMENT'"
-    )
-    # A transfer conflict names the row in the other account.
-    r.status = RowStatus.NEW
-    r.transfer_conflict = r.transfer_match
-    r.transfer_match = None
-    assert row_line(r, None, Names(accounts={CARD: "Alex · Card"})).endswith(
-        "new, conflicts with Alex · Card: 2026-03-01 'PAYMENT'"
+        "transfer pair with Alex · Card: 2026-03-01 'PAYMENT'"
     )
     # A split row says so.
-    r.transfer_conflict = None
+    r.status = RowStatus.NEW
+    r.transfer_pair = None
     r.splits = [RowSplit(amount="50.00"), RowSplit(amount="30.00")]
     assert row_line(r).endswith("new, split 2 ways")
-    assert decisions_for(RowStatus.NEW) == [Decision.NEW, Decision.SKIP]
-    assert decisions_for(RowStatus.DUPLICATE)[0] == Decision.MATCH
-    assert Decision.NEW not in decisions_for(RowStatus.DUPLICATE)
-    assert decisions_for(RowStatus.TRANSFER_MATCH)[0] == Decision.MATCH
-    assert Decision.REPLACE in decisions_for(RowStatus.NEAR_DUPLICATE)
-    assert Decision.REPLACE not in decisions_for(RowStatus.TRANSFER_MATCH)
+    # Choices in words: a transfer pair is added as one transfer.
+    assert choice(RowStatus.NEW, Decision.ADD) == "add"
+    assert choice(RowStatus.TRANSFER_PAIR, Decision.ADD) == "add as one transfer"
+    assert choice(RowStatus.TRANSFER_PAIR, Decision.ADD_SEPARATELY) == "add separately"
+    assert choice(RowStatus.DUPLICATE, Decision.DONT_ADD) == "don't add"
 
 
 def test_accounts_are_found_by_full_or_short_name():

@@ -57,8 +57,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Import | Problem]:
-    """Get one staged import, with its statements and how many rows have each
-    status.
+    """Get one staged import, with its statements and its rows by state.
 
     Args:
         id (UUID):
@@ -87,8 +86,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Import | Problem | None:
-    """Get one staged import, with its statements and how many rows have each
-    status.
+    """Get one staged import, with its statements and its rows by state.
 
     Args:
         id (UUID):
@@ -112,8 +110,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Import | Problem]:
-    """Get one staged import, with its statements and how many rows have each
-    status.
+    """Get one staged import, with its statements and its rows by state.
 
     Args:
         id (UUID):
@@ -140,8 +137,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Import | Problem | None:
-    """Get one staged import, with its statements and how many rows have each
-    status.
+    """Get one staged import, with its statements and its rows by state.
 
     Args:
         id (UUID):

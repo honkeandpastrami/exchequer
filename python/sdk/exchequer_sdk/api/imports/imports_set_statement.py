@@ -88,14 +88,19 @@ def sync_detailed(
     body: StatementUpdate,
     if_match: str,
 ) -> Response[Import | Problem]:
-    """Set the account a statement is for; its rows' statuses are worked out
-    again, and their labels suggested again (yours stay).
+    """Set the account a statement is for, or tick its suggested account as
+    reviewed; either remembers the file's account number for the account.
+    Its rows' labels are worked out again, and their suggestions made again
+    (yours stay).
 
     Args:
         id (UUID):
         position (int):
         if_match (str):
-        body (StatementUpdate):
+        body (StatementUpdate): One of the two: pick the account, or tick or untick its
+            suggestion.
+            Picking an account, or ticking its suggestion, also adds the file's
+            account number to it, so its next files resolve by themselves.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -127,14 +132,19 @@ def sync(
     body: StatementUpdate,
     if_match: str,
 ) -> Import | Problem | None:
-    """Set the account a statement is for; its rows' statuses are worked out
-    again, and their labels suggested again (yours stay).
+    """Set the account a statement is for, or tick its suggested account as
+    reviewed; either remembers the file's account number for the account.
+    Its rows' labels are worked out again, and their suggestions made again
+    (yours stay).
 
     Args:
         id (UUID):
         position (int):
         if_match (str):
-        body (StatementUpdate):
+        body (StatementUpdate): One of the two: pick the account, or tick or untick its
+            suggestion.
+            Picking an account, or ticking its suggestion, also adds the file's
+            account number to it, so its next files resolve by themselves.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -161,14 +171,19 @@ async def asyncio_detailed(
     body: StatementUpdate,
     if_match: str,
 ) -> Response[Import | Problem]:
-    """Set the account a statement is for; its rows' statuses are worked out
-    again, and their labels suggested again (yours stay).
+    """Set the account a statement is for, or tick its suggested account as
+    reviewed; either remembers the file's account number for the account.
+    Its rows' labels are worked out again, and their suggestions made again
+    (yours stay).
 
     Args:
         id (UUID):
         position (int):
         if_match (str):
-        body (StatementUpdate):
+        body (StatementUpdate): One of the two: pick the account, or tick or untick its
+            suggestion.
+            Picking an account, or ticking its suggestion, also adds the file's
+            account number to it, so its next files resolve by themselves.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -198,14 +213,19 @@ async def asyncio(
     body: StatementUpdate,
     if_match: str,
 ) -> Import | Problem | None:
-    """Set the account a statement is for; its rows' statuses are worked out
-    again, and their labels suggested again (yours stay).
+    """Set the account a statement is for, or tick its suggested account as
+    reviewed; either remembers the file's account number for the account.
+    Its rows' labels are worked out again, and their suggestions made again
+    (yours stay).
 
     Args:
         id (UUID):
         position (int):
         if_match (str):
-        body (StatementUpdate):
+        body (StatementUpdate): One of the two: pick the account, or tick or untick its
+            suggestion.
+            Picking an account, or ticking its suggestion, also adds the file's
+            account number to it, so its next files resolve by themselves.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

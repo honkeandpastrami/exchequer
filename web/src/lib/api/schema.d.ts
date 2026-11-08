@@ -503,10 +503,7 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/**
-		 * Get one staged import, with its statements and how many rows have each
-		 *     status.
-		 */
+		/** Get one staged import, with its statements and its rows by state. */
 		get: operations['imports_get'];
 		put?: never;
 		post?: never;
@@ -527,16 +524,16 @@ export interface paths {
 		get?: never;
 		put?: never;
 		/**
-		 * Commit the import: all or nothing. Every row's status is worked out
-		 *     again first; if any changed (the ledger moved on since), nothing is
-		 *     committed and the import comes back with a 409 to review again. Then each
-		 *     row's decision is carried out: new transactions go into one `file`
-		 *     import batch; transfer matches turn the matched transaction into a
-		 *     transfer; every row that's now in the ledger is recorded as imported, so
-		 *     the same row is a duplicate next time, and what this file says about it is
-		 *     kept with its transaction (once per file, whatever its name). Each
-		 *     statement's ledger balance becomes a balance check. The staged import is
-		 *     then gone.
+		 * Commit the import: all or nothing. Every row's label is worked out again
+		 *     first; if any changed (the ledger moved on since), nothing is committed
+		 *     and the import comes back with a 409 to review again. Then each row's
+		 *     choice is carried out: new transactions go into one `file` import
+		 *     batch, a transfer pair added as one becomes one transfer, and every row
+		 *     that's now in the ledger is recorded as imported, so the same row is a
+		 *     duplicate next time, and what this file says about it is kept with its
+		 *     transaction (once per file, whatever its name). Each statement's ledger
+		 *     balance becomes a balance check. The staged import is then gone. Rows to
+		 *     review don't stop it; rows that need you do.
 		 */
 		post: operations['imports_commit'];
 		delete?: never;
@@ -555,10 +552,10 @@ export interface paths {
 		get?: never;
 		put?: never;
 		/**
-		 * Work an import out again without uploading it again: its rows' statuses
+		 * Work an import out again without uploading it again: its rows' labels
 		 *     against the ledger, the suggestions that aren't confident (the
 		 *     statement's account, then each row's labels; yours and confident ones
-		 *     stay) and transfer matches across every staged import.
+		 *     stay) and transfer pairs across every staged import.
 		 */
 		post: operations['imports_refresh'];
 		delete?: never;
@@ -577,10 +574,10 @@ export interface paths {
 		get?: never;
 		put?: never;
 		/**
-		 * Tick rows as reviewed, or untick them (design §6.7): a ticked row's AI
-		 *     suggestions count as yours, so an import whose rows you ticked is ready
-		 *     to commit. A row that needs a label or a decision isn't ticked. Each
-		 *     tick goes by itself when its row changes under it.
+		 * Tick rows as reviewed, or untick them (design §6.7): what a ticked row
+		 *     takes counts as yours, so an import whose rows you ticked is ready to
+		 *     commit. A row that needs you, or isn't added, isn't ticked. Each tick
+		 *     goes by itself when its row changes under it.
 		 */
 		post: operations['imports_review'];
 		delete?: never;
@@ -620,7 +617,7 @@ export interface paths {
 		options?: never;
 		head?: never;
 		/**
-		 * Decide what committing does with a row, and label the transaction it
+		 * Choose what committing does with a row, and label the transaction it
 		 *     will become.
 		 */
 		patch: operations['imports_set_row'];
@@ -640,8 +637,10 @@ export interface paths {
 		options?: never;
 		head?: never;
 		/**
-		 * Set the account a statement is for; its rows' statuses are worked out
-		 *     again, and their labels suggested again (yours stay).
+		 * Set the account a statement is for, or tick its suggested account as
+		 *     reviewed; either remembers the file's account number for the account.
+		 *     Its rows' labels are worked out again, and their suggestions made again
+		 *     (yours stay).
 		 */
 		patch: operations['imports_set_statement'];
 		trace?: never;
@@ -1649,15 +1648,15 @@ export interface components {
 		/** @description What a commit did. */
 		Committed: {
 			/**
+			 * Format: int64
+			 * @description New transactions.
+			 */
+			added: number;
+			/**
 			 * @description One per statement with a ledger balance: the bank's balance against
 			 *     the ledger's.
 			 */
 			balance_checks: components['schemas']['BalanceCheck'][];
-			/**
-			 * Format: int64
-			 * @description New transactions.
-			 */
-			created: number;
 			/**
 			 * Format: uuid
 			 * @description The batch the new transactions are in; absent if there were none.
@@ -1665,20 +1664,13 @@ export interface components {
 			import_batch_id?: string | null;
 			/**
 			 * Format: int64
-			 * @description Rows recorded as already in the ledger (duplicates, near-duplicates,
-			 *     transfer duplicates).
+			 * @description Rows not added: duplicates recorded as what they matched, and rows
+			 *     left out.
 			 */
-			matched: number;
+			not_added: number;
 			/**
 			 * Format: int64
-			 * @description Existing transactions replaced by their rows.
-			 */
-			replaced: number;
-			/** Format: int64 */
-			skipped: number;
-			/**
-			 * Format: int64
-			 * @description Of them, transfers made of a transfer match: two rows, one
+			 * @description Of them, transfers made of a transfer pair: two rows, one
 			 *     transaction.
 			 */
 			transfers: number;
@@ -1736,18 +1728,15 @@ export interface components {
 		 * @description What committing does with a row.
 		 * @enum {string}
 		 */
-		Decision: 'match' | 'new' | 'skip' | 'replace';
-		/** @description What matching suggests committing does with a row. */
+		Decision: 'add' | 'add_separately' | 'dont_add';
+		/** @description What matching suggests choosing for a row: the label's default. */
 		DecisionSuggestion: {
 			/**
 			 * Format: int32
 			 * @description Per mille: 900 is 0.9.
 			 */
 			confidence: number;
-			/**
-			 * @description Whether it's confident enough (at least 900) to be committed unless
-			 *     you choose otherwise. A near duplicate never is.
-			 */
+			/** @description Whether it's confident (at least 900). */
 			confident: boolean;
 			decision: components['schemas']['Decision'];
 			reason: string;
@@ -2093,10 +2082,7 @@ export interface components {
 			 * @description Per mille: 900 is 0.9.
 			 */
 			confidence: number;
-			/**
-			 * @description Whether it's confident enough (at least 900) to be committed unless
-			 *     you choose otherwise.
-			 */
+			/** @description Whether it's confident (at least 900): the level below isn't asked. */
 			confident: boolean;
 			label: components['schemas']['Label'];
 			reason: string;
@@ -2148,6 +2134,11 @@ export interface components {
 		};
 		/** @enum {string} */
 		LineKind: 'claim' | 'payment';
+		/**
+		 * @description How a duplicate or possible duplicate was found.
+		 * @enum {string}
+		 */
+		MatchKind: 'bank_id' | 'transfer' | 'amount';
 		/** @description Who is signed in, and the session making the request. */
 		Me: {
 			session?: components['schemas']['Session'] | null;
@@ -2549,25 +2540,25 @@ export interface components {
 				/**
 				 * Format: uuid
 				 * @description The labels below are what a new transaction gets: your choice, else a
-				 *     confident suggestion. For a new transaction: who's on the outside
-				 *     side (unknown if absent and there's no `transfer_account_id`).
+				 *     suggestion. For a new transaction: who's on the outside side
+				 *     (unknown if absent and there's no `transfer_account_id`).
 				 */
 				counterparty_id?: string | null;
 				/** Format: date */
 				date: string;
-				/** @description Whether `decision` is the client's choice rather than the default. */
+				/** @description Whether `decision` is your choice rather than the default. */
 				decided: boolean;
 				decision?: components['schemas']['Decision'] | null;
 				description: string;
+				match_kind?: components['schemas']['MatchKind'] | null;
 				/**
 				 * Format: uuid
-				 * @description The existing transaction a duplicate or transfer duplicate is of.
+				 * @description The existing transaction a duplicate or possible duplicate may be.
 				 */
 				match_transaction_id?: string | null;
 				/**
-				 * @description For a row that will be a new transaction: the labels that are
-				 *     neither yours nor confidently suggested. Commit refuses while any row
-				 *     has some.
+				 * @description For a row that will be added: the labels with neither your choice
+				 *     nor a suggestion. Commit refuses while any row has some.
 				 */
 				missing: components['schemas']['Label'][];
 				/** @description The bank's own ID for the row, if it has one. */
@@ -2577,6 +2568,12 @@ export interface components {
 				 *     §3.2).
 				 */
 				not_applicable: components['schemas']['Label'][];
+				/**
+				 * @description The choices the row has, in the order shown: `add` and `dont_add`,
+				 *     and for a transfer pair `add` (one transfer), `add_separately` and
+				 *     `dont_add`. None while the statement has no account.
+				 */
+				options: components['schemas']['Decision'][];
 				/** Format: int32 */
 				position: number;
 				/**
@@ -2588,33 +2585,37 @@ export interface components {
 				raw: Record<string, never>;
 				/**
 				 * @description Whether you ticked the row as reviewed, and it still shows what you
-				 *     saw then: the AI suggestions it takes count as yours.
+				 *     saw then: what it takes counts as yours.
 				 */
 				reviewed: boolean;
 				/** @description The new transaction's description, if not the bank's. */
 				set_description?: string | null;
 				/**
 				 * @description The row split into parts, each a split of the new transaction; empty
-				 *     if it isn't split. A split row is added as new, and its labels are
-				 *     the parts': the row's own, and its suggestions, don't apply.
+				 *     if it isn't split. A split row is added, and its labels are the
+				 *     parts': the row's own, and its suggestions, don't apply.
 				 */
 				splits: components['schemas']['RowSplit'][];
+				/** @description Its colour: what it needs. */
+				state: components['schemas']['ReviewState'];
 				/** Format: int32 */
 				statement: number;
+				/** @description What matching found: the row's label. */
 				status: components['schemas']['RowStatus'];
 				suggested_decision?: components['schemas']['DecisionSuggestion'] | null;
 				/** @description At most one per label, confident or not. */
 				suggestions: components['schemas']['LabelSuggestion'][];
+				/** @description The new transaction's tags. */
+				tags: string[];
 				/**
 				 * Format: uuid
 				 * @description The other side when it's one of your accounts: the row is a transfer,
 				 *     whose category and purpose don't apply (unless one account is liquid
-				 *     and the other isn't: an expense or income).
-				 *     A transfer match's is its other side's account.
+				 *     and the other isn't: an expense or income). A transfer pair added as
+				 *     one transfer has its other row's account.
 				 */
 				transfer_account_id?: string | null;
-				transfer_conflict?: components['schemas']['TransferMatch'] | null;
-				transfer_match?: components['schemas']['TransferMatch'] | null;
+				transfer_pair?: components['schemas']['TransferPair'] | null;
 			}[];
 			/** @description Pass as `cursor` to get the next page; absent on the last page. */
 			next_cursor?: string | null;
@@ -2781,47 +2782,36 @@ export interface components {
 		QueryResult: {
 			rows: components['schemas']['Row'][];
 		};
-		/** @description An import's readiness, and why. */
+		/** @description How close an import is to committing (design §6.7). */
 		Readiness: {
 			/**
 			 * Format: int32
-			 * @description Statements with no account. Needs work.
-			 */
-			no_account: number;
-			state: components['schemas']['ReadinessState'];
-			/**
-			 * Format: int32
-			 * @description Statements whose account is a confident suggestion short of 100%,
-			 *     not yet chosen.
-			 */
-			suggested_accounts: number;
-			/**
-			 * Format: int32
-			 * @description Rows that would take a confident AI suggestion short of 100%, not
+			 * @description Statements whose account is a suggestion short of certain, not
 			 *     ticked as reviewed.
 			 */
-			suggested_rows: number;
+			accounts_to_review: number;
 			/**
 			 * Format: int32
-			 * @description Rows whose decision is neither yours nor confidently suggested (a
-			 *     near duplicate never is). Needs work.
+			 * @description Transactions a commit would add now: a transfer pair added as one
+			 *     transfer is one.
 			 */
-			undecided: number;
+			adds: number;
 			/**
 			 * Format: int32
-			 * @description New rows with a label neither chosen nor confidently suggested.
-			 *     Needs work.
+			 * @description Statements with no account.
 			 */
-			unlabeled: number;
+			no_account: number;
+			/**
+			 * @description Its rows by state; a statement without an account counts its rows
+			 *     as needing you.
+			 */
+			rows: components['schemas']['StateCounts'];
+			/**
+			 * @description Needs you if a statement or a row does; else to review if one is;
+			 *     else ready. Never not added.
+			 */
+			state: components['schemas']['ReviewState'];
 		};
-		/**
-		 * @description How close an import is to committing (design §6.7): `ready` commits as
-		 *     shown, with nothing left to a guess (a rule's suggestion is yours);
-		 *     `suggested` would commit too, on confident AI suggestions you haven't
-		 *     confirmed; `needs_work` needs you first.
-		 * @enum {string}
-		 */
-		ReadinessState: 'ready' | 'suggested' | 'needs_work';
 		ReadyCommitted: {
 			/** @description Oldest import first. */
 			results: components['schemas']['ReadyOutcome'][];
@@ -2873,13 +2863,19 @@ export interface components {
 		/** @description Rows to tick as reviewed, or untick. */
 		Review: {
 			/**
-			 * @description `true` ticks the rows that don't need a label or a decision (the
-			 *     others stay as they are); `false` unticks them all.
+			 * @description `true` ticks the rows that can be (not those that need you or
+			 *     aren't added; they stay as they are); `false` unticks them all.
 			 */
 			reviewed: boolean;
 			/** @description The rows, as you saw them; at most 500. */
 			rows: components['schemas']['RowRef'][];
 		};
+		/**
+		 * @description What a row, a statement or an import needs (design §6.7), shown as its
+		 *     colour.
+		 * @enum {string}
+		 */
+		ReviewState: 'needs_you' | 'to_review' | 'ready' | 'not_added';
 		/** @description What `POST /revoke-all` did. */
 		RevokedAll: {
 			/** @description How many tokens were still working. */
@@ -2911,21 +2907,6 @@ export interface components {
 			/** Format: uuid */
 			purpose_id?: string | null;
 			tag?: string | null;
-		};
-		/** @description How many rows have each status. */
-		RowCounts: {
-			/** Format: int64 */
-			duplicate: number;
-			/** Format: int64 */
-			near_duplicate: number;
-			/** Format: int64 */
-			needs_account: number;
-			/** Format: int64 */
-			new: number;
-			/** Format: int64 */
-			transfer_duplicate: number;
-			/** Format: int64 */
-			transfer_match: number;
 		};
 		/** @description A staged row of the import. */
 		RowRef: {
@@ -2971,16 +2952,10 @@ export interface components {
 			transfer_account_id?: string | null;
 		};
 		/**
-		 * @description What a row would become.
+		 * @description What matching found for a row (design §6.6): its label.
 		 * @enum {string}
 		 */
-		RowStatus:
-			| 'new'
-			| 'duplicate'
-			| 'near_duplicate'
-			| 'transfer_match'
-			| 'transfer_duplicate'
-			| 'needs_account';
+		RowStatus: 'new' | 'duplicate' | 'possible_duplicate' | 'transfer_pair' | 'no_account';
 		/** @description Fields to change; omitted ones stay as they are, `null` clears one. */
 		RowUpdate: {
 			/** Format: uuid */
@@ -2997,20 +2972,25 @@ export interface components {
 			revert?: components['schemas']['Label'][];
 			/**
 			 * @description `true` ticks the row as reviewed, as it is after this change: you
-			 *     agree with what it shows, so the AI suggestions it takes count as
-			 *     yours. Not for a row that needs a label or a decision. `false`
-			 *     unticks it. The tick goes by itself when the row changes under it: a
-			 *     new suggestion, or a transfer match made or undone.
+			 *     agree with what it shows, so what it takes counts as yours. Not for
+			 *     a row that needs you or isn't added. `false` unticks it. The tick
+			 *     goes by itself when the row changes under it: a new suggestion, a
+			 *     new label, a transfer pair made or undone.
 			 */
 			reviewed?: boolean | null;
 			set_description?: string | null;
 			/**
 			 * @description Split the row into these parts (two or more, adding up to its
 			 *     amount), each a split of the new transaction; `null` or `[]`: not
-			 *     split. Only for a row added as new that isn't a transfer match; a
-			 *     split row can't change its decision until the parts are cleared.
+			 *     split. Only for a row that's added and isn't a transfer pair; a split
+			 *     row can't change its decision until the parts are cleared.
 			 */
 			splits?: components['schemas']['RowSplit'][] | null;
+			/**
+			 * @description The new transaction's tags, by name (1-100 characters each; new ones
+			 *     are created on commit), replacing the row's.
+			 */
+			tags?: string[] | null;
 			/**
 			 * Format: uuid
 			 * @description One of your accounts as the other side: the row is a transfer. It
@@ -3203,25 +3183,25 @@ export interface components {
 			/**
 			 * Format: uuid
 			 * @description The labels below are what a new transaction gets: your choice, else a
-			 *     confident suggestion. For a new transaction: who's on the outside
-			 *     side (unknown if absent and there's no `transfer_account_id`).
+			 *     suggestion. For a new transaction: who's on the outside side
+			 *     (unknown if absent and there's no `transfer_account_id`).
 			 */
 			counterparty_id?: string | null;
 			/** Format: date */
 			date: string;
-			/** @description Whether `decision` is the client's choice rather than the default. */
+			/** @description Whether `decision` is your choice rather than the default. */
 			decided: boolean;
 			decision?: components['schemas']['Decision'] | null;
 			description: string;
+			match_kind?: components['schemas']['MatchKind'] | null;
 			/**
 			 * Format: uuid
-			 * @description The existing transaction a duplicate or transfer duplicate is of.
+			 * @description The existing transaction a duplicate or possible duplicate may be.
 			 */
 			match_transaction_id?: string | null;
 			/**
-			 * @description For a row that will be a new transaction: the labels that are
-			 *     neither yours nor confidently suggested. Commit refuses while any row
-			 *     has some.
+			 * @description For a row that will be added: the labels with neither your choice
+			 *     nor a suggestion. Commit refuses while any row has some.
 			 */
 			missing: components['schemas']['Label'][];
 			/** @description The bank's own ID for the row, if it has one. */
@@ -3231,6 +3211,12 @@ export interface components {
 			 *     §3.2).
 			 */
 			not_applicable: components['schemas']['Label'][];
+			/**
+			 * @description The choices the row has, in the order shown: `add` and `dont_add`,
+			 *     and for a transfer pair `add` (one transfer), `add_separately` and
+			 *     `dont_add`. None while the statement has no account.
+			 */
+			options: components['schemas']['Decision'][];
 			/** Format: int32 */
 			position: number;
 			/**
@@ -3242,48 +3228,51 @@ export interface components {
 			raw: Record<string, never>;
 			/**
 			 * @description Whether you ticked the row as reviewed, and it still shows what you
-			 *     saw then: the AI suggestions it takes count as yours.
+			 *     saw then: what it takes counts as yours.
 			 */
 			reviewed: boolean;
 			/** @description The new transaction's description, if not the bank's. */
 			set_description?: string | null;
 			/**
 			 * @description The row split into parts, each a split of the new transaction; empty
-			 *     if it isn't split. A split row is added as new, and its labels are
-			 *     the parts': the row's own, and its suggestions, don't apply.
+			 *     if it isn't split. A split row is added, and its labels are the
+			 *     parts': the row's own, and its suggestions, don't apply.
 			 */
 			splits: components['schemas']['RowSplit'][];
+			/** @description Its colour: what it needs. */
+			state: components['schemas']['ReviewState'];
 			/** Format: int32 */
 			statement: number;
+			/** @description What matching found: the row's label. */
 			status: components['schemas']['RowStatus'];
 			suggested_decision?: components['schemas']['DecisionSuggestion'] | null;
 			/** @description At most one per label, confident or not. */
 			suggestions: components['schemas']['LabelSuggestion'][];
+			/** @description The new transaction's tags. */
+			tags: string[];
 			/**
 			 * Format: uuid
 			 * @description The other side when it's one of your accounts: the row is a transfer,
 			 *     whose category and purpose don't apply (unless one account is liquid
-			 *     and the other isn't: an expense or income).
-			 *     A transfer match's is its other side's account.
+			 *     and the other isn't: an expense or income). A transfer pair added as
+			 *     one transfer has its other row's account.
 			 */
 			transfer_account_id?: string | null;
-			transfer_conflict?: components['schemas']['TransferMatch'] | null;
-			transfer_match?: components['schemas']['TransferMatch'] | null;
+			transfer_pair?: components['schemas']['TransferPair'] | null;
 		};
 		/** @description One account's part of the file. */
 		StagedStatement: {
 			/**
 			 * Format: uuid
 			 * @description The account the rows are worked out against: the one the file's
-			 *     number belongs to, or the client's choice, else a confident suggestion
-			 *     (`account_suggested`). `null` until there is one.
+			 *     number belongs to, or the one you picked, else a confident
+			 *     suggestion (`account_suggested`). `null` until there is one.
 			 */
 			account_id?: string | null;
 			/** @description Whether `account_id` is the suggestion's, not yet the statement's own. */
 			account_suggested: boolean;
 			/** Format: uuid */
 			commodity_id: string;
-			counts: components['schemas']['RowCounts'];
 			kind?: components['schemas']['StatementKind'] | null;
 			ledger?: components['schemas']['LedgerBalance'] | null;
 			/**
@@ -3293,7 +3282,19 @@ export interface components {
 			number_last4?: string | null;
 			/** Format: int32 */
 			position: number;
+			/**
+			 * @description Whether you ticked the suggested account as reviewed, making it the
+			 *     statement's own.
+			 */
+			reviewed: boolean;
+			/** @description Its rows by state. */
+			rows: components['schemas']['StateCounts'];
 			skipped: components['schemas']['SkippedLine'][];
+			/**
+			 * @description Needs you without an account; to review while the account is a
+			 *     suggestion short of certain; else ready.
+			 */
+			state: components['schemas']['ReviewState'];
 			suggested_account?: components['schemas']['AccountSuggestion'] | null;
 		};
 		StartDevice: {
@@ -3308,6 +3309,17 @@ export interface components {
 		StartRegistration: {
 			/** @description The invite's code. */
 			invite: string;
+		};
+		/** @description How many rows are in each state. */
+		StateCounts: {
+			/** Format: int32 */
+			needs_you: number;
+			/** Format: int32 */
+			not_added: number;
+			/** Format: int32 */
+			ready: number;
+			/** Format: int32 */
+			to_review: number;
 		};
 		/** @description The statement for one month (design §4.3). */
 		Statement: {
@@ -3328,6 +3340,11 @@ export interface components {
 		};
 		/** @enum {string} */
 		StatementKind: 'bank' | 'credit_card';
+		/**
+		 * @description One of the two: pick the account, or tick or untick its suggestion.
+		 *     Picking an account, or ticking its suggestion, also adds the file's
+		 *     account number to it, so its next files resolve by themselves.
+		 */
 		StatementUpdate: {
 			/**
 			 * Format: uuid
@@ -3335,10 +3352,10 @@ export interface components {
 			 */
 			account_id?: string | null;
 			/**
-			 * @description Also add the file's account number to the account, so its next
-			 *     files resolve by themselves.
+			 * @description `true` ticks the suggested account as reviewed: it becomes the
+			 *     statement's own. `false` unticks it: back to the suggestion.
 			 */
-			remember_number?: boolean;
+			reviewed?: boolean | null;
 		};
 		/** @description What the Household owes a person for the month. */
 		Stipend: {
@@ -3412,8 +3429,8 @@ export interface components {
 			splits: components['schemas']['Split'][];
 			tags: string[];
 		};
-		/** @description A transfer match's other side. */
-		TransferMatch: {
+		/** @description A transfer pair's other row. */
+		TransferPair: {
 			/** Format: uuid */
 			account_id: string;
 			/** Format: date */
@@ -5308,7 +5325,7 @@ export interface operations {
 					'application/problem+json': components['schemas']['Problem'];
 				};
 			};
-			/** @description A statement has no account, a row's status changed, or a month is closed */
+			/** @description A statement has no account, a row needs a label, a row's label changed, or a month is closed */
 			409: {
 				headers: {
 					[name: string]: unknown;
@@ -5443,7 +5460,7 @@ export interface operations {
 			query?: {
 				/** @description Only this statement's rows. */
 				statement?: number;
-				/** @description Only rows with this status. */
+				/** @description Only rows with this label. */
 				status?: components['schemas']['RowStatus'];
 				/** @description Items per page (default 100, max 500). */
 				limit?: number;

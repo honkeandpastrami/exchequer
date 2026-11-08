@@ -1,67 +1,62 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..models.readiness_state import ReadinessState
+from ..models.review_state import ReviewState
+
+if TYPE_CHECKING:
+    from ..models.state_counts import StateCounts
+
 
 T = TypeVar("T", bound="Readiness")
 
 
 @_attrs_define
 class Readiness:
-    """An import's readiness, and why.
+    """How close an import is to committing (design §6.7).
 
     Attributes:
-        no_account (int): Statements with no account. Needs work.
-        state (ReadinessState): How close an import is to committing (design §6.7): `ready` commits as
-            shown, with nothing left to a guess (a rule's suggestion is yours);
-            `suggested` would commit too, on confident AI suggestions you haven't
-            confirmed; `needs_work` needs you first.
-        suggested_accounts (int): Statements whose account is a confident suggestion short of 100%,
-            not yet chosen.
-        suggested_rows (int): Rows that would take a confident AI suggestion short of 100%, not
+        accounts_to_review (int): Statements whose account is a suggestion short of certain, not
             ticked as reviewed.
-        undecided (int): Rows whose decision is neither yours nor confidently suggested (a
-            near duplicate never is). Needs work.
-        unlabeled (int): New rows with a label neither chosen nor confidently suggested.
-            Needs work.
+        adds (int): Transactions a commit would add now: a transfer pair added as one
+            transfer is one.
+        no_account (int): Statements with no account.
+        rows (StateCounts): How many rows are in each state.
+        state (ReviewState): What a row, a statement or an import needs (design §6.7), shown as its
+            colour.
     """
 
+    accounts_to_review: int
+    adds: int
     no_account: int
-    state: ReadinessState
-    suggested_accounts: int
-    suggested_rows: int
-    undecided: int
-    unlabeled: int
+    rows: StateCounts
+    state: ReviewState
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        accounts_to_review = self.accounts_to_review
+
+        adds = self.adds
+
         no_account = self.no_account
 
+        rows = self.rows.to_dict()
+
         state = self.state.value
-
-        suggested_accounts = self.suggested_accounts
-
-        suggested_rows = self.suggested_rows
-
-        undecided = self.undecided
-
-        unlabeled = self.unlabeled
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "accounts_to_review": accounts_to_review,
+                "adds": adds,
                 "no_account": no_account,
+                "rows": rows,
                 "state": state,
-                "suggested_accounts": suggested_accounts,
-                "suggested_rows": suggested_rows,
-                "undecided": undecided,
-                "unlabeled": unlabeled,
             }
         )
 
@@ -69,26 +64,25 @@ class Readiness:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.state_counts import StateCounts  # noqa: PLC0415
+
         d = dict(src_dict)
+        accounts_to_review = d.pop("accounts_to_review")
+
+        adds = d.pop("adds")
+
         no_account = d.pop("no_account")
 
-        state = ReadinessState(d.pop("state"))
+        rows = StateCounts.from_dict(d.pop("rows"))
 
-        suggested_accounts = d.pop("suggested_accounts")
-
-        suggested_rows = d.pop("suggested_rows")
-
-        undecided = d.pop("undecided")
-
-        unlabeled = d.pop("unlabeled")
+        state = ReviewState(d.pop("state"))
 
         readiness = cls(
+            accounts_to_review=accounts_to_review,
+            adds=adds,
             no_account=no_account,
+            rows=rows,
             state=state,
-            suggested_accounts=suggested_accounts,
-            suggested_rows=suggested_rows,
-            undecided=undecided,
-            unlabeled=unlabeled,
         )
 
         readiness.additional_properties = d
