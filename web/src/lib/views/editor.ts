@@ -1,6 +1,6 @@
 // The transaction editor: a draft the form binds to, converted to and from
 // the API's shape. The server checks every ledger rule; the preview here only
-// decides which fields to show, mirroring `domain::transaction`.
+// decides which fields to show, mirroring `ledger::transaction`.
 
 import type { Schemas } from '../api/client';
 import { sum } from '../money';

@@ -6,8 +6,8 @@ use axum::Extension;
 use axum::extract::State;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use domain::valuation::{self, Source, Valuation};
-use domain::{CommodityId, Rate};
+use ledger::valuation::{self, Source, Valuation};
+use ledger::{CommodityId, Rate};
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use store::audit::Action;
@@ -22,8 +22,8 @@ use crate::AppState;
 use crate::auth::Principal;
 use crate::common::{audit, write_error};
 use crate::conventions::{IfMatch, Page, etag};
-use crate::pricing::{Need, Refresh, same, to_domain};
 use crate::problem::{Json, Path, Problem, Query};
+use crate::valuation_prices::{Need, Refresh, same, to_ledger};
 
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -226,7 +226,7 @@ pub struct ValuationOut {
 }
 
 impl ValuationOut {
-    /// IDs aren't part of a domain price: they're looked up by what is.
+    /// IDs aren't part of a ledger price: they're looked up by what is.
     pub fn new(v: &Valuation, rows: &[PriceRow]) -> Self {
         let id = |p: &valuation::Price| {
             rows.iter()
@@ -415,9 +415,9 @@ async fn update(
             "a fetched price can't be changed; enter a manual price for that day instead",
         ));
     }
-    let mut domain_price = to_domain(&before)?;
-    domain_price.rate = req.rate.clone();
-    checked(&domain_price)?;
+    let mut ledger_price = to_ledger(&before)?;
+    ledger_price.rate = req.rate.clone();
+    checked(&ledger_price)?;
     let before = Price::try_from(before)?;
     let saved = store::prices::set_rate(&mut *tx, id, &req.rate.to_string())
         .await

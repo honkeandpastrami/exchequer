@@ -10,8 +10,8 @@ description = "Dev tool: compare ofx-rs parsing of real bank files against a ref
 workspace = true
 
 [dependencies]
+bank-import = { path = "../bank-import" }
 csv = "1.4"
-import = { path = "../import" }
 ofx-rs = "0.2"
 rust_decimal = "1.43"
 time = "0.3.55"

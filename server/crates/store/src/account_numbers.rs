@@ -1,7 +1,7 @@
 //! Account numbers bank files name accounts by (design §6.2). Full numbers
 //! go in and out of here only as `AccountNumber`, which masks itself.
 
-use domain::AccountNumber;
+use ledger::AccountNumber;
 use sqlx::PgExecutor;
 use uuid::Uuid;
 

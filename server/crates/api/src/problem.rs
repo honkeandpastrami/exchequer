@@ -89,7 +89,7 @@ impl Problem {
     }
 
     /// A change to a closed month (design §4.4).
-    pub fn month_closed(month: domain::Month) -> Self {
+    pub fn month_closed(month: ledger::Month) -> Self {
         Self::new(StatusCode::CONFLICT, "month-closed", "The month is closed")
             .detail(format!("{month} is closed; reopen it to edit"))
     }

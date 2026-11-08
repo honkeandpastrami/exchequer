@@ -46,13 +46,13 @@ impl CommodityKind {
         }
     }
 
-    const fn to_domain(self) -> domain::CommodityKind {
+    const fn to_ledger(self) -> ledger::CommodityKind {
         match self {
-            Self::Fiat => domain::CommodityKind::Fiat,
-            Self::Security => domain::CommodityKind::Security,
-            Self::Fund => domain::CommodityKind::Fund,
-            Self::Crypto => domain::CommodityKind::Crypto,
-            Self::Other => domain::CommodityKind::Other,
+            Self::Fiat => ledger::CommodityKind::Fiat,
+            Self::Security => ledger::CommodityKind::Security,
+            Self::Fund => ledger::CommodityKind::Fund,
+            Self::Crypto => ledger::CommodityKind::Crypto,
+            Self::Other => ledger::CommodityKind::Other,
         }
     }
 
@@ -93,12 +93,12 @@ impl TryFrom<CommodityRow> for Commodity {
     }
 }
 
-/// Validates through `domain` and builds the row to store.
+/// Validates through `ledger` and builds the row to store.
 fn row(id: Uuid, code: &str, kind: CommodityKind, precision: u32) -> Result<CommodityRow, Problem> {
-    let c = domain::Commodity::new(
-        domain::CommodityId::from_uuid(id),
+    let c = ledger::Commodity::new(
+        ledger::CommodityId::from_uuid(id),
         code,
-        kind.to_domain(),
+        kind.to_ledger(),
         precision,
     )
     .map_err(|e| Problem::invalid(e.to_string()))?;

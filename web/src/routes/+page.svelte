@@ -5,9 +5,9 @@
 	import Failure from '#lib/components/Failure.svelte';
 	import Worth from '#lib/components/Worth.svelte';
 	import { today } from '#lib/dates.ts';
-	import { fetched, latest } from '#lib/fetching.svelte.ts';
+	import { fetched, latest } from '#lib/price-fetching.svelte.ts';
 	import { accountKinds, holdings, partyKinds } from '#lib/labels.ts';
-	import { SETTLEMENT_CODE } from '#lib/usd.ts';
+	import { SETTLEMENT_CODE } from '#lib/settlement-currency.ts';
 	import { groupBalances, mixed } from '#lib/views/accounts.ts';
 
 	let date = $state(today());

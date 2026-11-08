@@ -8,11 +8,11 @@
 	import MonthControls from '#lib/components/MonthControls.svelte';
 	import StatusMark from '#lib/components/StatusMark.svelte';
 	import { addMonths, monthName, thisMonth } from '#lib/dates.ts';
-	import { fetched, latest } from '#lib/fetching.svelte.ts';
+	import { fetched, latest } from '#lib/price-fetching.svelte.ts';
 	import { lineKinds } from '#lib/labels.ts';
 	import { reference } from '#lib/reference.ts';
 	import { transactionsById } from '#lib/transactions.ts';
-	import { SETTLEMENT_CODE } from '#lib/usd.ts';
+	import { SETTLEMENT_CODE } from '#lib/settlement-currency.ts';
 	import { status } from '#lib/views/settlement.ts';
 
 	let month = $derived(page.params.month ?? thisMonth());

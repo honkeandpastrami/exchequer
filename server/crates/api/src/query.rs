@@ -3,15 +3,15 @@
 //! accounts, signed (+ in, − out), carrying the split's derived kind and
 //! (default) purpose. Rows are per commodity: nothing is valued yet (§3.4).
 //!
-//! Splits are classified by `domain`, as everywhere else, so a kind or a
+//! Splits are classified by `ledger`, as everywhere else, so a kind or a
 //! default purpose here can't disagree with the ledger rules.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use axum::extract::State;
-use domain::report::{self, Bucket, Dimension, Key, KindKey, Posting, Value};
-use domain::settlement::SplitRef;
-use domain::{AccountId, Amount, CommodityId, Kind, PartyId, TransactionId};
+use ledger::query::{self, Bucket, Dimension, Key, KindKey, Posting, Value};
+use ledger::settlement::SplitRef;
+use ledger::{AccountId, Amount, CommodityId, Kind, PartyId, TransactionId};
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use time::Date;
@@ -21,9 +21,9 @@ use utoipa_axum::routes;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::ledger::book_for;
+use crate::ledger_from_store::book_for;
 use crate::problem::{Json, Problem};
-use crate::transactions::{domain_split, new_split_from_row};
+use crate::transactions::{ledger_split, new_split_from_row};
 
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new().routes(routes!(query))
@@ -263,7 +263,7 @@ async fn load_postings(
     // Stored splits passed these checks when written; failing now is a bug.
     let splits = rows
         .iter()
-        .map(|r| domain_split(&new_split_from_row(&r.split), 0))
+        .map(|r| ledger_split(&new_split_from_row(&r.split), 0))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| Problem::internal())?;
     let book = book_for(db, &splits).await?;
@@ -296,7 +296,7 @@ async fn load_postings(
             transaction: TransactionId::from_uuid(row.split.transaction_id),
             position: usize::try_from(row.split.position).map_err(|_| Problem::internal())?,
         };
-        for p in report::postings(source, row.date, tx_tags, split, &classified, &book) {
+        for p in query::postings(source, row.date, tx_tags, split, &classified, &book) {
             if keep(req, &p) {
                 out.push(p);
             }
@@ -369,7 +369,7 @@ pub async fn run(db: &mut PgConnection, req: &QueryRequest) -> Result<Vec<Row>, 
     let result = match req.measure {
         Measure::Flow => {
             let postings = load_postings(db, req, req.from, req.to).await?;
-            report::flows(&postings, &dims, bucket)
+            query::flows(&postings, &dims, bucket)
         }
         Measure::Balance => {
             let to = req.to.ok_or_else(Problem::internal)?;
@@ -377,7 +377,7 @@ pub async fn run(db: &mut PgConnection, req: &QueryRequest) -> Result<Vec<Row>, 
             let start = bucket.map_or(from, |b| b.start(from));
             let postings = load_postings(db, req, Some(start), Some(to)).await?;
             let opening = opening(db, req, &dims, start).await?;
-            report::balances(&opening, &postings, &dims, bucket, start, to)
+            query::balances(&opening, &postings, &dims, bucket, start, to)
         }
     }
     .map_err(|_| Problem::internal())?;

@@ -11,16 +11,13 @@ workspace = true
 
 [dependencies]
 axum = { version = "0.8.9", features = ["macros"] }
-domain = { path = "../domain" }
+bank-import = { path = "../bank-import" }
+external-calls = { path = "../external-calls" }
 getrandom = "0.4.3"
-heuristics = { path = "../heuristics" }
-import = { path = "../import" }
 jiff = { version = "0.2", features = ["tzdb-bundle-always"] }
+ledger = { path = "../ledger" }
 # webauthn-rs's, compiled in: the image is one static binary with no system libraries.
 openssl = { version = "0.10", features = ["vendored"] }
-outbound = { path = "../outbound" }
-remote = { path = "../remote" }
-rules = { path = "../rules" }
 rust_decimal = "1.43.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -29,6 +26,9 @@ sqlx = { version = "0.9.0", default-features = false, features = ["macros", "pos
 store = { path = "../store" }
 subtle = "2.6.1"
 suggest = { path = "../suggest" }
+suggest-local-ai = { path = "../suggest-local-ai" }
+suggest-remote-ai = { path = "../suggest-remote-ai" }
+suggest-rules = { path = "../suggest-rules" }
 thiserror = "2.0.21"
 time = { version = "0.3.55", features = ["serde", "formatting", "parsing", "serde-human-readable", "macros"] }
 tokio = { version = "1.53.2", features = ["full"] }

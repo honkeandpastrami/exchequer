@@ -1,7 +1,7 @@
 //! Users, their passkeys and invites (design §10). A passkey is a public key;
 //! an invite is stored as the SHA-256 of its secret.
 
-use domain::{PasskeyId, UserId};
+use ledger::{PasskeyId, UserId};
 use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;

@@ -2,7 +2,7 @@
 //! (stipends, funders), its statement, closing and reopening, and the
 //! history used to validate migrated data (implied stipends).
 //!
-//! Statements are computed by `domain::settlement` from the whole ledger on
+//! Statements are computed by `ledger::settlement` from the whole ledger on
 //! every request; nothing about them is stored.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -11,10 +11,10 @@ use axum::Extension;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use domain::settlement::{
+use ledger::settlement::{
     self as ds, Item, LineKind as DLineKind, MonthParams, SettlementError, SplitRef,
 };
-use domain::{Amount, CommodityId, Month, PartyId, PartyKind, TransactionId};
+use ledger::{Amount, CommodityId, Month, PartyId, PartyKind, TransactionId};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgConnection, PgPool};
 use store::audit::Action;
@@ -29,11 +29,11 @@ use crate::AppState;
 use crate::auth::Principal;
 use crate::common::audit;
 use crate::conventions::{IfMatch, etag};
-use crate::ledger::{book_for, party};
+use crate::ledger_from_store::{book_for, party};
 use crate::prices::ValuationOut;
-use crate::pricing::{Need, Pricing};
 use crate::problem::{Json, Path, Problem, Query};
-use crate::transactions::{domain_split, new_split_from_row};
+use crate::transactions::{ledger_split, new_split_from_row};
+use crate::valuation_prices::{Need, Pricing};
 
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -239,7 +239,7 @@ fn respond(status: StatusCode, s: &Settlement) -> Response {
     (status, etag(s.version), axum::Json(s)).into_response()
 }
 
-fn domain_params(p: &Params) -> MonthParams {
+fn ledger_params(p: &Params) -> MonthParams {
     MonthParams {
         stipends: p
             .stipends
@@ -357,7 +357,7 @@ pub(crate) async fn compute(
     // Stored splits passed these checks when written; failing now is a bug.
     let splits = rows
         .iter()
-        .map(|r| domain_split(&new_split_from_row(&r.split), 0))
+        .map(|r| ledger_split(&new_split_from_row(&r.split), 0))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| Problem::internal())?;
     let book = book_for(db, &splits).await?;
@@ -422,7 +422,7 @@ pub(crate) async fn compute(
     let params: BTreeMap<Month, MonthParams> = all_params(db)
         .await?
         .iter()
-        .map(|(m, p)| (*m, domain_params(p)))
+        .map(|(m, p)| (*m, ledger_params(p)))
         .collect();
     let settlement = ds::Settlement::compute(&parties, &params, &items, through)
         .map_err(|_| Problem::internal())?;

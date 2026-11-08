@@ -7,10 +7,10 @@
 	import Failure from '#lib/components/Failure.svelte';
 	import StatusMark from '#lib/components/StatusMark.svelte';
 	import { monthName, thisMonth } from '#lib/dates.ts';
-	import { fetched, latest } from '#lib/fetching.svelte.ts';
+	import { fetched, latest } from '#lib/price-fetching.svelte.ts';
 	import { hashQuery } from '#lib/query.ts';
 	import { reference } from '#lib/reference.ts';
-	import { SETTLEMENT_CODE } from '#lib/usd.ts';
+	import { SETTLEMENT_CODE } from '#lib/settlement-currency.ts';
 	import { byEdge } from '#lib/views/settlement.ts';
 
 	const current = thisMonth();

@@ -4,8 +4,8 @@
 	import Failure from '#lib/components/Failure.svelte';
 	import RowForm from '#lib/components/RowForm.svelte';
 	import { today } from '#lib/dates.ts';
-	import { referenceState } from '#lib/setup.svelte.ts';
-	import { SETTLEMENT_CODE } from '#lib/usd.ts';
+	import { referenceState } from '#lib/reference-state.svelte.ts';
+	import { SETTLEMENT_CODE } from '#lib/settlement-currency.ts';
 
 	type Price = Schemas['Price'];
 	/** The open form: a new price, or a price's (only a manual one's rate changes). */

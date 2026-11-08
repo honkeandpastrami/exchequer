@@ -192,7 +192,7 @@ from conversion splits after the fact, without a schema change.
    deliberate exception to "a GET never writes": a historical closing price never changes,
    so storing it is caching an external fact.
 3. A price for a day still in progress is *provisional*: refetched when older than
-   [`PROVISIONAL_AGE`](../server/crates/api/src/pricing.rs) and replaced by the close once available.
+   [`PROVISIONAL_AGE`](../server/crates/api/src/valuation_prices.rs) and replaced by the close once available.
 4. If the provider is unreachable or rate-limited, nothing is fetched and answers keep the
    latest stored price, marked stale. Outages degrade answers, never fail them.
 5. `POST /prices/refresh` starts a forced fetch and answers at once (`202`);
@@ -216,10 +216,10 @@ rate-limited or has nothing; the first that answers is recorded (`provider:<name
 source's prices outlive it. A source that answered isn't asked for the same pair and days
 again within an hour (a ticker it doesn't know would otherwise cost a request on every
 page). A source that didn't answer (the network, a timeout, its server's error) is passed
-over for the rest of that fetch and for [`OUTAGE`](../server/crates/api/src/pricing.rs) after, then asked again: a network that's
+over for the rest of that fetch and for [`OUTAGE`](../server/crates/api/src/valuation_prices.rs) after, then asked again: a network that's
 down for a few minutes, as after the machine wakes, costs one failed request per source,
 not one per pair, and prices arrive soon after it's back. A rate-limited source waits
-[`RATE_LIMITED`](../server/crates/api/src/pricing.rs). `POST /prices/refresh` (also on Setup → Prices, and `exchequer prices refresh`)
+[`RATE_LIMITED`](../server/crates/api/src/valuation_prices.rs). `POST /prices/refresh` (also on Setup → Prices, and `exchequer prices refresh`)
 asks anyway. Only
 commodity codes and dates are sent.
 
@@ -239,7 +239,7 @@ computation, AI prompts and clients. A float touching one of these values is a b
 |---|---|---|
 | Bank file parsing | String → decimal directly. `ofx-rs` yields `rust_decimal::Decimal`; the CSV path parses strings straight into `Decimal`. | No float conversion anywhere in parsers or fingerprinting. |
 | Postgres | `NUMERIC`. Quantities are checked against the commodity's precision. Prices and rates use `NUMERIC` with a fixed high scale (e.g. 20). | A schema test fails if any column is `real` or `double precision`. |
-| Server (Rust) | Newtypes: **`Amount`** (wraps `rust_decimal::Decimal`, 28 significant digits) for amounts and quantities; **`Rate`** (wraps `bigdecimal::BigDecimal`, arbitrary precision) for prices and conversion math. Neither has any operation accepting `f32`/`f64`, so mixing is a **compile error**. `Amount` arithmetic is checked: overflow or inexact rescaling is an error, never a silent rounding. | `clippy::float_arithmetic`, `clippy::float_cmp` and `disallowed_types = [f32, f64]` are denied workspace-wide, as a guard for money. Code that needs a float for something else opts out locally (`#[expect(…, reason = …)]`); the `heuristics` crate opts out as a whole. |
+| Server (Rust) | Newtypes: **`Amount`** (wraps `rust_decimal::Decimal`, 28 significant digits) for amounts and quantities; **`Rate`** (wraps `bigdecimal::BigDecimal`, arbitrary precision) for prices and conversion math. Neither has any operation accepting `f32`/`f64`, so mixing is a **compile error**. `Amount` arithmetic is checked: overflow or inexact rescaling is an error, never a silent rounding. | `clippy::float_arithmetic`, `clippy::float_cmp` and `disallowed_types = [f32, f64]` are denied workspace-wide, as a guard for money. Code that needs a float for something else opts out locally (`#[expect(…, reason = …)]`); the `suggest-local-ai` crate opts out as a whole. |
 | API (JSON) | Amounts are **strings** (`"1500.00"`); the OpenAPI schema declares `type: string` with a decimal pattern. | `Amount`'s deserializer accepts only JSON strings; a JSON number is rejected with 422. |
 | CLI (Python) | `decimal.Decimal` end to end; the generated SDK maps amount strings to `Decimal`. | `just python-check` fails on `float(`, `: float` or `-> float` in client code. |
 | Web app | Amounts stay strings; the rare client-side math uses a decimal library. The server returns computed totals. | Lint rule against `Number()`/`parseFloat` on amount fields. Charts map values to pixels internally; labels always come from the strings. |
@@ -279,7 +279,7 @@ The server stores the household's data and shows it to the household. It must no
 data through side channels:
 
 - **Logs.** Account numbers are only ever shown as their last four digits, and tests assert
-  on masked values. `AccountNumber` in `domain` formats itself as `…1234` in `Display` and
+  on masked values. `AccountNumber` in `ledger` formats itself as `…1234` in `Display` and
   `Debug`; getting the full number takes an explicit `.reveal()`, used only by parsers and
   the DB layer. Request and response bodies and raw bank rows are never logged.
 - **Clients.** The API returns account numbers as their last four digits. A client gets a
@@ -287,7 +287,7 @@ data through side channels:
   token; the web app asks only when the signed-in user has chosen to see full numbers
   (`docs/ux.md` §10), a choice kept in that browser and never on the server. Masked or
   not, numbers never go to logs.
-- **Remote AI calls** (§8) go through `outbound` (§15) and carry features, not
+- **Remote AI calls** (§8) go through `external-calls` (§15) and carry features, not
   identifiers: account numbers only as their last four, and descriptions normalized so
   runs of five or more digits (card, reference and trace numbers) are replaced. A request
   the service refuses (e.g. a content filter or PII guardrail its operator configured)
@@ -446,7 +446,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
 1. **Format detection and parsers.** Each format is a plugin behind one Rust trait: CSV with
    a column-alias table, OFX/QFX/QBO via `ofx-rs` (OFX 1.x SGML and 2.x
    XML), and content sniffing for OFX content under unexpected extensions. `ofx-rs` 0.2.0 is
-   wrapped by a hot-patch (`import::ofx`) for three bugs: bank-specific
+   wrapped by a hot-patch (`bank_import::ofx_parsing`) for three bugs: bank-specific
    tags inside a transaction (kept as *extensions*, e.g. a merchant category code, useful
    for classification), dropped entities like `&amp;`, and mangled non-ASCII text in
    OFX 1.x. The patch is removed once upstream fixes them. Dates are the server's local
@@ -471,7 +471,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      a file had them, `imported_row`; with nothing to compare, the ID alone), else a
      *possible duplicate* of the same transaction. Added anyway, it's recorded under the
      ID with the next free suffix (`~2`, `~3`…).
-   - *Near:* same account, commodity and signed amount, date within ±[`NEAR_DAYS`](../server/crates/import/src/params.rs), matched
+   - *Near:* same account, commodity and signed amount, date within ±[`NEAR_DAYS`](../server/crates/bank-import/src/params.rs), matched
      one-to-one: the most similar descriptions first (`pg_trgm`), then the closest dates.
      Similarity only ranks: a transaction typed by hand rarely reads like the bank's text,
      so a low score doesn't clear a row. These are **possible duplicates in staging**,
@@ -493,7 +493,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      without seeing the other side, and the pair, added as one transfer, settles each
      row's other side as the other's account. Staging is reviewed before anything
      commits, so a pair that isn't one costs a click (*Add separately*), while a missed
-     one would be an expense plus an income. Matched one-to-one (`import::matching`):
+     one would be an expense plus an income. Matched one-to-one (`bank_import::matching`):
      pairs you chose on both sides first, then the closest dates. Worked out again across
      all staged imports whenever one changes (upload, a statement's account, a row,
      discard, commit, refresh); a row's choice never changes whether it's paired.
@@ -608,7 +608,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
   (`/reports/household-pool/{month}`), and balances per account and commodity on a date,
   optionally valued (`/reports/balances?value_in=`, §3.4). The web app builds its
   spending, balances and pool reports on these.
-- **Implementation:** splits are classified by `domain`, as everywhere else, so a report
+- **Implementation:** splits are classified by `ledger`, as everywhere else, so a report
   can't disagree with the ledger rules. Household-scale data aggregates in milliseconds;
   nothing is cached.
 
@@ -621,7 +621,7 @@ on commit (§6). The server compares it with the ledger balance on that date.
 
 - **Match:** the account is *verified through D*. Later checks only search the window after
   the last verified date.
-- **Mismatch:** the **discrepancy finder** (`domain::discrepancy`, no AI) searches that
+- **Mismatch:** the **discrepancy finder** (`ledger::discrepancy`, no AI) searches that
   window and returns candidates, most likely first, each saying why: a pair of postings of
   the same amount a few days apart, one equal to the difference (recorded twice); one
   posting equal to the difference (recorded twice, or not yet at the bank); one dated just
@@ -677,7 +677,7 @@ The levels:
    sandboxed (no file system, network or process access) and limited in operations per
    call. The active version is compiled once and runs for each staged row. If/else is the
    rule language. A rule that sets a label is confidence
-   [`CONFIDENCE`](../server/crates/rules/src/params.rs).
+   [`CONFIDENCE`](../server/crates/suggest-rules/src/params.rs).
 
    ```rust
    fn classify(row, s) {
@@ -996,15 +996,15 @@ boundary, so each side uses the language that suits it.
 
 | Crate | Contents | Key dependencies |
 |---|---|---|
-| `domain` | Commodities, accounts, splits, invariants, derived kinds, settlement math (§3, §4), `AccountNumber` (§3.6). Pure logic: no I/O, no async | `rust_decimal`, `bigdecimal`, `time` |
+| `ledger` | Commodities, accounts, splits, invariants, derived kinds, settlement math (§3, §4), `AccountNumber` (§3.6). Pure logic: no I/O, no async | `rust_decimal`, `bigdecimal`, `time` |
 | `store` | Postgres access, compile-time-checked queries, migrations | `sqlx` |
-| `import` | Parsers, dedup and transfer matching (`matching`), staging (§6) | `ofx-rs`, `csv`, `strsim`, `suggest` |
+| `bank-import` | Parsers, dedup and transfer matching (`matching`), staging (§6) | `ofx-rs`, `csv`, `strsim`, `suggest` |
 | `suggest` | The suggestion interface every level implements (`Suggester`, local `Method`), the stack that combines the levels, the backtest (§8) | — |
-| `heuristics` | Local AI methods (`lexical-knn`), text normalization, calibration; the only crate where float lints are allowed | `suggest` |
-| `rules` | Embedded Rhai engine: compile, validate, run the stored script as a `suggest::Suggester` (§8) | `rhai` (`no_float`, `only_i64`, `sync`), `suggest` |
+| `suggest-local-ai` | Local AI methods (`lexical-knn`), text normalization, calibration; the only crate where float lints are allowed | `suggest` |
+| `suggest-rules` | Embedded Rhai engine: compile, validate, run the stored script as a `suggest::Suggester` (§8) | `rhai` (`no_float`, `only_i64`, `sync`), `suggest` |
 | `api` | HTTP handlers, auth middleware, OpenAPI generation | `axum`, `tokio`, `utoipa`, `utoipa-axum`, `serde`, `tracing` |
-| `remote` | Remote AI: the decision model as a `suggest::Suggester`, its questions and what it's shown (§8) | `outbound`, `suggest`, `heuristics` (normalization) |
-| `outbound` | Outbound clients (the decision model, price sources); the only place data leaves the server | `ureq` (blocking, rustls with ring, bundled roots) |
+| `suggest-remote-ai` | Remote AI: the decision model as a `suggest::Suggester`, its questions and what it's shown (§8) | `external-calls`, `suggest`, `suggest-local-ai` (normalization) |
+| `external-calls` | Outbound clients (the decision model, price sources); the only place data leaves the server | `ureq` (blocking, rustls with ring, bundled roots) |
 | `server` | The binary: configuration, wiring, startup migrations | — |
 
 - **OpenAPI:** `utoipa-axum` registers each route together with its spec entry. The spec is
@@ -1062,8 +1062,8 @@ exchequer/
 │   ├── rust-toolchain.toml
 │   ├── clippy.toml                # disallowed-types = f32, f64
 │   ├── crates/
-│   │   ├── domain/  store/  import/  suggest/  heuristics/  rules/
-│   │   ├── remote/  outbound/  api/  server/
+│   │   ├── ledger/  store/  bank-import/  suggest/  suggest-local-ai/
+│   │   ├── suggest-rules/  suggest-remote-ai/  external-calls/  api/  server/
 │   │   └── ofx-check/             # dev tool, not shipped
 │   └── migrations/                # sqlx SQL migrations
 ├── python/                        # uv workspace, one lockfile

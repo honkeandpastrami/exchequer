@@ -17,13 +17,13 @@ workspace = true
 api = { path = "../api" }
 axum = "0.8.9"
 clap = { version = "4.6.7", features = ["derive"] }
-heuristics = { path = "../heuristics" }
+external-calls = { path = "../external-calls" }
 jiff = { version = "0.2", features = ["tzdb-bundle-always"] }
-outbound = { path = "../outbound" }
-remote = { path = "../remote" }
 serde_json = "1.0.154"
 sqlx = { version = "0.9.0", default-features = false, features = ["postgres"] }
 store = { path = "../store" }
+suggest-local-ai = { path = "../suggest-local-ai" }
+suggest-remote-ai = { path = "../suggest-remote-ai" }
 thiserror = "2.0.21"
 tokio = { version = "1.53.2", features = ["full"] }
 tracing = "0.1.44"

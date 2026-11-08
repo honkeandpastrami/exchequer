@@ -1,0 +1,27 @@
+[package]
+name = "bank-import"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Bank file import: parsers and normalization (design §6)"
+
+[lints]
+workspace = true
+
+[dependencies]
+csv = "1.4"
+# The bundled time zone database: the server image has none.
+jiff = { version = "0.2", features = ["tzdb-bundle-always"] }
+ledger = { path = "../ledger" }
+ofx-rs = "0.2"
+rust_decimal = "1.43.0"
+serde_json = "1.0.154"
+sha2 = "0.11.0"
+suggest = { path = "../suggest" }
+thiserror = "2.0.21"
+time = "0.3.55"
+uuid = "1.28.0"
+
+[dev-dependencies]
+time = { version = "0.3.55", features = ["macros"] }

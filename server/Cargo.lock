@@ -86,19 +86,16 @@ name = "api"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "bank-import",
  "base64 0.22.1",
  "ciborium",
- "domain",
+ "external-calls",
  "getrandom 0.4.3",
- "heuristics",
  "http-body-util",
- "import",
  "jiff",
+ "ledger",
  "openssl",
- "outbound",
- "remote",
  "ring",
- "rules",
  "rust_decimal",
  "serde",
  "serde_json",
@@ -107,6 +104,9 @@ dependencies = [
  "store",
  "subtle",
  "suggest",
+ "suggest-local-ai",
+ "suggest-remote-ai",
+ "suggest-rules",
  "thiserror 2.0.21",
  "time",
  "tokio",
@@ -247,6 +247,23 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "bank-import"
+version = "0.0.0"
+dependencies = [
+ "csv",
+ "jiff",
+ "ledger",
+ "ofx-rs",
+ "rust_decimal",
+ "serde_json",
+ "sha2 0.11.0",
+ "suggest",
+ "thiserror 2.0.21",
+ "time",
+ "uuid",
 ]
 
 [[package]]
@@ -726,20 +743,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "domain"
-version = "0.0.0"
-dependencies = [
- "bigdecimal",
- "proptest",
- "rust_decimal",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "time",
- "uuid",
-]
-
-[[package]]
 name = "dotenvy"
 version = "0.15.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -788,6 +791,19 @@ checksum = "5a23add41df1562121a9393cb065eab5146a1242410f23a644851e90cfd669d2"
 dependencies = [
  "parking",
  "pin-project-lite",
+]
+
+[[package]]
+name = "external-calls"
+version = "0.0.0"
+dependencies = [
+ "csv",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "time",
+ "ureq",
 ]
 
 [[package]]
@@ -1007,17 +1023,6 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
-
-[[package]]
-name = "heuristics"
-version = "0.0.0"
-dependencies = [
- "rust_decimal",
- "serde_json",
- "suggest",
- "time",
- "uuid",
-]
 
 [[package]]
 name = "hex"
@@ -1242,23 +1247,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "import"
-version = "0.0.0"
-dependencies = [
- "csv",
- "domain",
- "jiff",
- "ofx-rs",
- "rust_decimal",
- "serde_json",
- "sha2 0.11.0",
- "suggest",
- "thiserror 2.0.21",
- "time",
- "uuid",
-]
-
-[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1353,6 +1341,20 @@ name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
+
+[[package]]
+name = "ledger"
+version = "0.0.0"
+dependencies = [
+ "bigdecimal",
+ "proptest",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "time",
+ "uuid",
+]
 
 [[package]]
 name = "libc"
@@ -1542,8 +1544,8 @@ dependencies = [
 name = "ofx-check"
 version = "0.0.0"
 dependencies = [
+ "bank-import",
  "csv",
- "import",
  "ofx-rs",
  "rust_decimal",
  "time",
@@ -1629,19 +1631,6 @@ dependencies = [
  "openssl-src",
  "pkg-config",
  "vcpkg",
-]
-
-[[package]]
-name = "outbound"
-version = "0.0.0"
-dependencies = [
- "csv",
- "rust_decimal",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "time",
- "ureq",
 ]
 
 [[package]]
@@ -1928,21 +1917,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
-name = "remote"
-version = "0.0.0"
-dependencies = [
- "heuristics",
- "minijinja",
- "outbound",
- "rust_decimal",
- "serde_json",
- "suggest",
- "time",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "rhai"
 version = "1.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1983,18 +1957,6 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "rules"
-version = "0.0.0"
-dependencies = [
- "rhai",
- "rust_decimal",
- "serde_json",
- "suggest",
- "time",
- "uuid",
 ]
 
 [[package]]
@@ -2184,13 +2146,13 @@ dependencies = [
  "api",
  "axum",
  "clap",
- "heuristics",
+ "external-calls",
  "jiff",
- "outbound",
- "remote",
  "serde_json",
  "sqlx",
  "store",
+ "suggest-local-ai",
+ "suggest-remote-ai",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -2504,7 +2466,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 name = "store"
 version = "0.0.0"
 dependencies = [
- "domain",
+ "ledger",
  "rust_decimal",
  "serde_json",
  "sqlx",
@@ -2545,6 +2507,44 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "suggest-local-ai"
+version = "0.0.0"
+dependencies = [
+ "rust_decimal",
+ "serde_json",
+ "suggest",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "suggest-remote-ai"
+version = "0.0.0"
+dependencies = [
+ "external-calls",
+ "minijinja",
+ "rust_decimal",
+ "serde_json",
+ "suggest",
+ "suggest-local-ai",
+ "time",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "suggest-rules"
+version = "0.0.0"
+dependencies = [
+ "rhai",
+ "rust_decimal",
+ "serde_json",
+ "suggest",
  "time",
  "uuid",
 ]

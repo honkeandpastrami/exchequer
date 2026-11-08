@@ -201,7 +201,7 @@ fn new_user_code() -> Result<String, Problem> {
 async fn session(
     tx: &mut sqlx::PgConnection,
     user: store::users::UserRow,
-    passkey: domain::PasskeyId,
+    passkey: ledger::PasskeyId,
     client: &store::tokens::Client,
 ) -> Result<SignedIn, Problem> {
     let expires_at = OffsetDateTime::now_utc() + SESSION_LIFE;
@@ -357,7 +357,7 @@ async fn finish_register(
     };
     let passkey = store::users::insert_passkey(
         &mut *tx,
-        domain::PasskeyId::new(),
+        ledger::PasskeyId::new(),
         user.id,
         credential.cred_id().as_ref(),
         &name,
@@ -372,7 +372,7 @@ async fn finish_register(
         }
     })?;
     let session = session(&mut tx, user, passkey.id, &client).await?;
-    let token = auth::id_of(auth::Kind::Token, &session.token).map(domain::TokenId::from_uuid);
+    let token = auth::id_of(auth::Kind::Token, &session.token).map(ledger::TokenId::from_uuid);
     audit::record(
         &mut *tx,
         audit::Entry {

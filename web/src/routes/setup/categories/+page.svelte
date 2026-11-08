@@ -2,7 +2,7 @@
 	import { categories } from '#lib/api/resources.ts';
 	import Failure from '#lib/components/Failure.svelte';
 	import NamedList from '#lib/components/NamedList.svelte';
-	import { referenceState } from '#lib/setup.svelte.ts';
+	import { referenceState } from '#lib/reference-state.svelte.ts';
 
 	const { state: s, reload } = referenceState();
 </script>

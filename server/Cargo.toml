@@ -18,7 +18,7 @@ debug = "line-tables-only"
 debug = false
 
 # Money is never floating point (docs/design.md §3.5). Only the future
-# `heuristics` crate (local AI) opts out of these lints as a whole.
+# `suggest-local-ai` crate opts out of these lints as a whole.
 [workspace.lints.clippy]
 float_arithmetic = "deny"
 float_cmp = "deny"

@@ -167,10 +167,10 @@ async fn token_of(pool: &PgPool, new: store::tokens::NewToken<'_>) -> (String, S
     let secret = api::auth::generate(api::auth::Kind::Token).unwrap();
     store::tokens::insert(
         pool,
-        domain::TokenId::from_uuid(secret.id),
+        ledger::TokenId::from_uuid(secret.id),
         new,
         &secret.hash,
-        domain::UserId::from_uuid(user),
+        ledger::UserId::from_uuid(user),
         time::OffsetDateTime::now_utc() + time::Duration::days(30),
     )
     .await

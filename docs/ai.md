@@ -43,7 +43,7 @@ transfer, never an expense plus an income.
   Suggestions don't count; added as one transfer, the pair settles each row's other side
   as the other's account, whatever was suggested. It's committed as one transfer, by
   whichever file is committed first, with both bank rows. The pairing is logic
-  (`import::matching`): one-to-one, rows you chose on both sides first, then the closest
+  (`bank_import::matching`): one-to-one, rows you chose on both sides first, then the closest
   dates; adding them as one transfer is matching's default, as sure as the dates are
   close. *Add separately* makes each row a transaction of its own; *Don't add* leaves both
   out. The two rows share one choice.
@@ -66,12 +66,12 @@ as what it found:
 
 | Row | Suggests | Confidence |
 |---|---|---|
-| New: nothing like it | *Add* | [`SURE`](../server/crates/import/src/params.rs) |
-| Duplicate: the same bank row, unchanged since it was imported | *Don't add* | [`SURE`](../server/crates/import/src/params.rs) |
-| Possible duplicate: the same bank row, changed since | *Don't add* | [`CHANGED`](../server/crates/import/src/params.rs) |
-| Transfer pair, or a recorded transfer | *Add as one transfer* / *Don't add* | [`SURE`](../server/crates/import/src/params.rs), less [`TRANSFER_DAY`](../server/crates/import/src/params.rs) a day apart |
-| Possible duplicate: the same amount a few days apart | *Don't add* | the descriptions' likeness, less [`NEAR_DAY`](../server/crates/import/src/params.rs) a day apart; **never above [`NEAR_MOST`](../server/crates/import/src/params.rs)** |
-| Transfer pair your choice disagrees with | *Add separately* | [`DISAGREES`](../server/crates/import/src/params.rs) |
+| New: nothing like it | *Add* | [`SURE`](../server/crates/bank-import/src/params.rs) |
+| Duplicate: the same bank row, unchanged since it was imported | *Don't add* | [`SURE`](../server/crates/bank-import/src/params.rs) |
+| Possible duplicate: the same bank row, changed since | *Don't add* | [`CHANGED`](../server/crates/bank-import/src/params.rs) |
+| Transfer pair, or a recorded transfer | *Add as one transfer* / *Don't add* | [`SURE`](../server/crates/bank-import/src/params.rs), less [`TRANSFER_DAY`](../server/crates/bank-import/src/params.rs) a day apart |
+| Possible duplicate: the same amount a few days apart | *Don't add* | the descriptions' likeness, less [`NEAR_DAY`](../server/crates/bank-import/src/params.rs) a day apart; **never above [`NEAR_MOST`](../server/crates/bank-import/src/params.rs)** |
+| Transfer pair your choice disagrees with | *Add separately* | [`DISAGREES`](../server/crates/bank-import/src/params.rs) |
 
 A default short of certain ([`CERTAIN`](../server/crates/suggest/src/params.rs)) on a row that's added makes it to review. Choosing any option makes it yours. Calibrating matching is a new version of it (`matching` v2 now).
 
@@ -107,8 +107,8 @@ interface, so a level can be replaced without touching the rest.
 
 Each level's tunable parameters (thresholds, weights, how much it's shown) are
 constants in its crate's `params` module: `suggest::params` (shared: the
-threshold, the transfer window), `rules::params`, `heuristics::params` (local AI),
-`remote::params`, `import::params` (matching), plus `api::params` (backtest and
+threshold, the transfer window), `suggest_rules::params`, `suggest_local_ai::params` (local AI),
+`suggest_remote_ai::params`, `bank_import::params` (matching), plus `api::params` (backtest and
 dry-run sizes).
 
 ## Rules
@@ -233,7 +233,7 @@ and no training step to run: it's trained when needed, on the ledger as it is, a
 until the ledger changes.
 
 **Methods are interchangeable.** A local method is a `suggest::Method` in the
-`heuristics` crate: it trains from the history into a suggester. The server runs one,
+`suggest-local-ai` crate: it trains from the history into a suggester. The server runs one,
 chosen by `EXCHEQUER_LOCAL_AI`:
 
 | Value | Method |
@@ -268,7 +268,7 @@ Version 2 learns transfers (version 1 didn't see them).
    accounts they're in (only accounts that aren't archived, and of the statement's kind
    when the file says: a credit card statement for a credit card). Transfers don't vote:
    a transfer's text is one bank's, not necessarily this account's.
-6. **Calibration.** On training, the method suggests its latest [`CALIBRATION_ROWS`](../server/crates/heuristics/src/params.rs) transactions again,
+6. **Calibration.** On training, the method suggests its latest [`CALIBRATION_ROWS`](../server/crates/suggest-local-ai/src/params.rs) transactions again,
    each from only the ones before it, and each of the latest account-months as a
    statement, from the months before. Each score is then mapped to how often it was right
    (isotonic regression, smoothed so that thin evidence stays unsure). A confidence of *p*
@@ -302,9 +302,9 @@ asked too, as on upload: shown only what's before the month, about what the meth
 unsure. The scores are then the final suggestions', and `levels` says, per level, how
 many of them it made and how right they were. Its requests are real ones, and billed.
 
-For trying a method on a copy of a ledger's history outside the server, the `heuristics`
+For trying a method on a copy of a ledger's history outside the server, the `suggest-local-ai`
 crate has a dev tool reading the same history as a JSON file:
-`cargo run --release -p heuristics --example backtest -- history.json 2026-01 2026-08`
+`cargo run --release -p suggest-local-ai --example backtest -- history.json 2026-01 2026-08`
 (`BACKTEST_DUMP=out.json` also writes each row's guesses).
 
 ## Remote AI
@@ -324,7 +324,7 @@ question per open label, sharing one state; one request per statement without an
 
 | Question | Options |
 |---|---|
-| `counterparty` | The row's other side: the accounts of its potential transfer matches (a transfer), then the other sides of its similar past transactions and of those with the same text, at most [`CANDIDATES`](../server/crates/remote/src/params.rs) — never the whole list — plus *none of these* and *cannot tell* |
+| `counterparty` | The row's other side: the accounts of its potential transfer matches (a transfer), then the other sides of its similar past transactions and of those with the same text, at most [`CANDIDATES`](../server/crates/suggest-remote-ai/src/params.rs) — never the whole list — plus *none of these* and *cannot tell* |
 | `category` | Every category, plus *cannot tell* |
 | `purpose` | Every party, plus *cannot tell* |
 | `account` | Every account that isn't archived and fits the file's kind, plus *none of these* and *cannot tell* |
@@ -340,7 +340,7 @@ An answer that isn't one of the options is dropped.
 
 The wording (each question's instructions, how descriptions are phrased, the names of the
 fixed options) is in Jinja templates in
-[`server/crates/remote/resources/`](../server/crates/remote/resources/), built into the
+[`server/crates/suggest-remote-ai/resources/`](../server/crates/suggest-remote-ai/resources/), built into the
 server; the code only computes what fills them.
 
 **What it's shown,** per row:
@@ -349,9 +349,9 @@ server; the code only computes what fills them.
   bank's own fields saying what kind of transaction it is (a `Type` or `Category` column,
   a merchant category code), whether the same amount recurred in recent months, and the
   accounts where the same amount moved the other way (its potential transfer matches);
-- its account: name, kind, owner, and its purposes and top categories over [`USAGE`](../server/crates/remote/src/params.rs);
+- its account: name, kind, owner, and its purposes and top categories over [`USAGE`](../server/crates/suggest-remote-ai/src/params.rs);
 - the labels already settled, as facts;
-- the [`SIMILAR`](../server/crates/remote/src/params.rs) most similar past transactions, from local AI, with their labels.
+- the [`SIMILAR`](../server/crates/suggest-remote-ai/src/params.rs) most similar past transactions, from local AI, with their labels.
 
 For a statement: its file name, the last four digits of the number it names, its kind,
 dates and a few rows.
@@ -379,9 +379,9 @@ version: measure it with the backtest before using it.
 | `EXCHEQUER_REMOTE_AI_CONCURRENCY` | Requests at once (default and range in [`config.rs`](../server/crates/server/src/config.rs)) |
 
 Requests go to `<endpoint>/providers/microsoft/v1/systemone` over HTTPS, with the key in
-the `api-key` header, each taking at most [`TIMEOUT`](../server/crates/outbound/src/decision.rs); a busy
-service (`429`, `5xx`) is tried up to [`ATTEMPTS`](../server/crates/outbound/src/decision.rs) times, after what `Retry-After` says (at most
-[`MAX_WAIT`](../server/crates/outbound/src/decision.rs)). Remote AI runs while a file is uploaded (or a statement's
+the `api-key` header, each taking at most [`TIMEOUT`](../server/crates/external-calls/src/decision.rs); a busy
+service (`429`, `5xx`) is tried up to [`ATTEMPTS`](../server/crates/external-calls/src/decision.rs) times, after what `Retry-After` says (at most
+[`MAX_WAIT`](../server/crates/external-calls/src/decision.rs)). Remote AI runs while a file is uploaded (or a statement's
 account is changed), so a large statement takes a while: one request per unsure row. A
 deployment type that keeps inference within a data zone, rather than a global one, keeps
 the data in that zone.
