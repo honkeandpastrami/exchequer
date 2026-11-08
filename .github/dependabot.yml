@@ -11,3 +11,12 @@ updates:
       actions:
         patterns: ["*"]
     labels: [dependencies, patch, tools/deployment]
+  # The Containerfile's base images, pinned by digest so CI's layer cache holds.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      images:
+        patterns: ["*"]
+    labels: [dependencies, patch, tools/deployment]
