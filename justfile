@@ -66,12 +66,15 @@ check: sweep
 sweep:
     #!/usr/bin/env bash
     set -euo pipefail
-    cd "{{justfile_directory()}}/server"
-    if [ -d target/debug/incremental ]; then
-        find target/debug/incremental -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {} +
+    server="{{justfile_directory()}}/server"
+    # Only ever cargo's own cache directory.
+    [ -f "$server/target/CACHEDIR.TAG" ] || exit 0
+    if [ -d "$server/target/debug/incremental" ]; then
+        find "$server/target/debug/incremental" -mindepth 1 -maxdepth 1 \
+            -type d -name '*-*' -mtime +3 -exec rm -rf {} +
     fi
     if command -v cargo-sweep > /dev/null; then
-        cargo sweep --maxsize 20GB > /dev/null
+        cargo sweep --maxsize 20GB "$server" > /dev/null
     fi
 
 # Dump a scratch database with deploy/exchequer-backup and restore it into
