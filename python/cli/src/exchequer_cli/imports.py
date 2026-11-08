@@ -30,10 +30,12 @@ from exchequer_sdk.models import (
     Decision,
     Import,
     Problem,
+    ReviewState,
     RowStatus,
     RowUpdate,
     StagedRow,
     StagedStatement,
+    StateCounts,
     StatementUpdate,
 )
 from exchequer_sdk.types import UNSET, File, Response, Unset
@@ -41,19 +43,26 @@ from exchequer_sdk.types import UNSET, File, Response, Unset
 STATUS = {
     RowStatus.NEW: "new",
     RowStatus.DUPLICATE: "duplicate",
-    RowStatus.NEAR_DUPLICATE: "near duplicate",
-    RowStatus.TRANSFER_MATCH: "transfer match",
-    RowStatus.TRANSFER_DUPLICATE: "transfer already recorded",
-    RowStatus.NEEDS_ACCOUNT: "needs account",
+    RowStatus.POSSIBLE_DUPLICATE: "possible duplicate",
+    RowStatus.TRANSFER_PAIR: "transfer pair",
+    RowStatus.NO_ACCOUNT: "no account",
 }
-# The letter that picks each decision in a prompt.
-KEYS = {Decision.MATCH: "m", Decision.NEW: "n", Decision.REPLACE: "r", Decision.SKIP: "d"}
-LABELS = {
-    Decision.MATCH: "match",
-    Decision.NEW: "new",
-    Decision.REPLACE: "replace",
-    Decision.SKIP: "do not import",
-}
+# Rows by state, in order, as "2 need you".
+STATES = [
+    ("needs_you", "need you"),
+    ("to_review", "to review"),
+    ("ready", "ready"),
+    ("not_added", "not added"),
+]
+# The letter that picks each choice in a prompt.
+KEYS = {Decision.ADD: "a", Decision.ADD_SEPARATELY: "s", Decision.DONT_ADD: "d"}
+
+
+def choice(status: RowStatus, d: Decision) -> str:
+    """A choice in words: a transfer pair is added as one transfer."""
+    if d == Decision.ADD:
+        return "add as one transfer" if status == RowStatus.TRANSFER_PAIR else "add"
+    return "add separately" if d == Decision.ADD_SEPARATELY else "don't add"
 
 
 class ApiError(RuntimeError):
@@ -129,14 +138,18 @@ def _all(fetch: Callable[[str | Unset], Response[Any]]) -> Iterator[Any]:
 # ----------------------------------------------------------------- Views ----
 
 
+def counted(rows: StateCounts) -> str:
+    """Rows by state, those that aren't zero: "2 need you, 38 ready"."""
+    n = rows.to_dict()
+    return ", ".join(f"{n[k]} {words}" for k, words in STATES if n.get(k))
+
+
 def statement_line(s: StagedStatement, names: Names) -> str:
     number = f"…{s.number_last4}" if isinstance(s.number_last4, str) else "no number"
     account = names.accounts.get(s.account_id, "?") if isinstance(s.account_id, UUID) else None
-    if account and s.account_suggested:
-        account += " (suggested)"
-    counts = s.counts.to_dict()
-    shown = ", ".join(f"{counts[k.value]} {STATUS[k]}" for k in STATUS if counts.get(k.value))
-    text = f"  {number} → {account or 'NO ACCOUNT YET'}: {shown or 'no rows'}"
+    if account and s.state == ReviewState.TO_REVIEW:
+        account += ", to review"
+    text = f"  {number} → {account or 'NO ACCOUNT YET'}: {counted(s.rows) or 'no rows'}"
     if s.ledger and not isinstance(s.ledger, Unset):
         text += f"; bank balance {s.ledger.amount} on {s.ledger.date}"
     if s.skipped:
@@ -149,35 +162,17 @@ def row_line(r: StagedRow, matched: str | None = None, names: Names | None = Non
     text = f"{r.date}  {r.amount:>12}  {description[:40]:<40}  {STATUS[r.status]}"
     if matched:
         text += f" of {matched}"
-    m = r.transfer_match
+    m = r.transfer_pair
     if not isinstance(m, Unset) and m is not None:
         account = names.accounts.get(m.account_id, "?") if names else str(m.account_id)
         text += f" with {account}: {m.date} {m.description!r}"
-    c = r.transfer_conflict
-    if not isinstance(c, Unset) and c is not None:
-        account = names.accounts.get(c.account_id, "?") if names else str(c.account_id)
-        text += f", conflicts with {account}: {c.date} {c.description!r}"
     if r.splits:
         text += f", split {len(r.splits)} ways"
     return text
 
 
-def decisions_for(status: RowStatus) -> list[Decision]:
-    """What a row with this status can become, the default first."""
-    if status == RowStatus.NEW:
-        return [Decision.NEW, Decision.SKIP]
-    if status == RowStatus.DUPLICATE:
-        return [Decision.MATCH, Decision.REPLACE, Decision.SKIP]
-    if status == RowStatus.NEAR_DUPLICATE:
-        return [Decision.MATCH, Decision.REPLACE, Decision.NEW, Decision.SKIP]
-    return [Decision.MATCH, Decision.NEW, Decision.SKIP]
-
-
 def committed_lines(c: Committed, names: Names) -> list[str]:
-    out = [
-        f"  {c.created} new ({c.transfers} transfers with their match), {c.matched} already there, "
-        f"{c.replaced} replaced, {c.skipped} not imported"
-    ]
+    out = [f"  {c.added} added ({c.transfers} transfers of a pair), {c.not_added} not added"]
     for b in c.balance_checks:
         account = names.accounts.get(b.account_id, "?")
         if b.matches:
@@ -231,6 +226,7 @@ class Importer:
             imp, tag = self.read(staged.id)
             for s in imp.statements:
                 self.ui.say(statement_line(s, self.names))
+            unreviewed = imp.readiness.rows.to_review + imp.readiness.accounts_to_review
             if not self.yes:
                 action = self.ui.key(
                     "  [c]ommit, [r]eview rows, [l]eave staged, [d]iscard?", "crld", "c"
@@ -249,6 +245,10 @@ class Importer:
                 if action == "r":
                     self.review(imp.id)
                     continue
+                if unreviewed and not self.ui.confirm(
+                    f"  {unreviewed} take suggestions you haven't reviewed; commit as shown?", False
+                ):
+                    continue
             r = imports_commit.sync_detailed(
                 imp.id, client=self.client, if_match=self.read(imp.id)[1]
             )
@@ -262,16 +262,7 @@ class Importer:
             if (
                 r.status_code == 409
                 and isinstance(r.parsed, Problem)
-                and r.parsed.type_.endswith(":decisions-missing")
-                and not self.yes
-            ):
-                # A near duplicate or transfer match waits for your decision.
-                self.ui.say(f"  {r.parsed.detail}; [r]eview the rows to decide")
-                continue
-            if (
-                r.status_code == 409
-                and isinstance(r.parsed, Problem)
-                and r.parsed.type_.endswith((":labels-missing", ":decisions-missing"))
+                and r.parsed.type_.endswith(":labels-missing")
             ):
                 # Labels are chosen in the web app's review (design §8).
                 self.ui.say(f"  left staged ({imp.id}): {r.parsed.detail}")
@@ -300,16 +291,14 @@ class Importer:
             if pick is None:
                 return False
             account = self.names.choices[pick][0]
-            remember = bool(last4) and self.ui.confirm(
-                f"  Remember …{last4} as {self.names.choices[pick][1]}?", True
-            )
+            # The file's number is remembered for the account.
             _, tag = self.read(staged.id)
             ok(
                 imports_set_statement.sync_detailed(
                     staged.id,
                     s.position,
                     client=self.client,
-                    body=StatementUpdate(account_id=account, remember_number=remember),
+                    body=StatementUpdate(account_id=account),
                     if_match=tag,
                 ),
                 "set the account",
@@ -323,40 +312,54 @@ class Importer:
         return self._matched[id]
 
     def review(self, id: UUID) -> None:
-        """Asks about every row but exact duplicates."""
+        """Asks about every row but duplicates; taking a row to review as it
+        is ticks it reviewed."""
         rows: list[StagedRow] = list(
             _all(lambda c: imports_rows.sync_detailed(id, client=self.client, limit=500, cursor=c))
         )
         for r in rows:
-            if r.status in (RowStatus.DUPLICATE, RowStatus.NEEDS_ACCOUNT):
+            if r.status in (RowStatus.DUPLICATE, RowStatus.NO_ACCOUNT):
                 continue
             match = r.match_transaction_id if isinstance(r.match_transaction_id, UUID) else None
             self.ui.say(row_line(r, self.matched(match) if match else None, self.names))
             if r.splits:
-                # Added as new, as its parts: changed in the web app.
-                self.ui.say("    added as new; change its splits in the web app")
+                # Added as its parts: changed in the web app.
+                self.ui.say("    added; change its splits in the web app")
                 continue
-            options = decisions_for(r.status)
+            options = r.options
             current = r.decision if isinstance(r.decision, Decision) else options[0]
-            prompt = "    " + ", ".join(f"[{KEYS[d]}]{LABELS[d][1:]}" for d in options) + "?"
+            prompt = (
+                "    "
+                + ", ".join(
+                    f"[{KEYS[d]}]{choice(r.status, d)[1:]}"
+                    if choice(r.status, d).startswith(KEYS[d])
+                    else f"[{KEYS[d]}] {choice(r.status, d)}"
+                    for d in options
+                )
+                + "?"
+            )
             picked = self.ui.key(prompt, "".join(KEYS[d] for d in options), KEYS[current])
             decision = next(d for d in options if KEYS[d] == picked)
-            # Taking the default is a decision too: a guess needs one.
-            if decision != current or not r.decided:
-                try:
-                    ok(
-                        imports_set_row.sync_detailed(
-                            id,
-                            r.statement,
-                            r.position,
-                            client=self.client,
-                            body=RowUpdate(decision=decision),
-                            if_match=self.read(id)[1],
-                        ),
-                        "set a row's decision",
-                    )
-                except ApiError as e:
-                    # E.g. a transaction a bank row can't replace.
-                    if e.status != 422:
-                        raise
-                    self.ui.say(f"    kept {LABELS[current]}: {e}")
+            if decision != current:
+                body = RowUpdate(decision=decision)
+            elif r.state == ReviewState.TO_REVIEW:
+                body = RowUpdate(reviewed=True)
+            else:
+                continue
+            try:
+                ok(
+                    imports_set_row.sync_detailed(
+                        id,
+                        r.statement,
+                        r.position,
+                        client=self.client,
+                        body=body,
+                        if_match=self.read(id)[1],
+                    ),
+                    "set a row's choice",
+                )
+            except ApiError as e:
+                # E.g. a row that needs a label before it can be ticked.
+                if e.status != 422:
+                    raise
+                self.ui.say(f"    kept {choice(r.status, current)}: {e}")

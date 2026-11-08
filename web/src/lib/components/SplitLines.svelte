@@ -1,18 +1,17 @@
 <script lang="ts" module>
-	/** A field a suggestion can be for. */
+	/** A field a bank row's label can be for. */
 	export type Field = 'other' | 'category' | 'purpose';
-	/** A suggestion a field's dropdown offers: picking it applies it. Its
-	 * `value` (a category's or purpose's option) isn't offered again. */
-	export type Offer = { label: string; value?: string; apply: () => void };
 </script>
 
 <script lang="ts">
-	// A transaction's splits, one line each (ux.md §10). Fields a split can't
-	// have stay in their place, disabled (see `preview`); a conversion's
-	// received amount and a settled month go on a second line, under ⋯.
-	// Staged bank rows use it too: their account's side is fixed, the amount
-	// is the bank's until split, and each field may offer a suggestion and
-	// say where its value came from.
+	// A transaction's splits (ux.md §10): one field per line, in the order
+	// from, to, amount, category, For, note; with two or more, each split is
+	// a numbered block. Fields a split can't have stay in their place,
+	// disabled (see `preview`); the rarer ones (another commodity received, a
+	// settled month) open under More fields. Staged bank rows use it too:
+	// their account's side is fixed, the amount is the bank's until split,
+	// and each field may have a badge and a line saying where its value came
+	// from.
 	import type { Snippet } from 'svelte';
 	import { kinds, partyKinds, rank } from '../labels';
 	import { minus, sign } from '../money';
@@ -29,6 +28,7 @@
 		type SplitDraft
 	} from '../views/editor';
 	import Amount from './Amount.svelte';
+	import FieldLine from './Field.svelte';
 	import Mark from './Mark.svelte';
 	import SidePicker from './SidePicker.svelte';
 
@@ -40,7 +40,7 @@
 		expected,
 		canAdd = true,
 		more: withMore = true,
-		offers,
+		badge,
 		status
 	}: {
 		splits: SplitDraft[];
@@ -54,16 +54,13 @@
 		expected?: string;
 		/** Whether Add split is offered. */
 		canAdd?: boolean;
-		/** Whether ⋯ (another commodity, a settled month) is offered. */
+		/** Whether More fields (another commodity, a settled month) is offered. */
 		more?: boolean;
-		/** The suggestions split `i`'s fields offer. */
-		offers?: (i: number) => Partial<Record<Field, Offer>>;
+		/** Split `i`'s field's badge: how sure its suggestion is. */
+		badge?: Snippet<[number, Field]>;
 		/** A line under split `i`'s field: where its value came from. */
 		status?: Snippet<[number, Field]>;
 	} = $props();
-
-	/** The select value of an offered suggestion. */
-	const SUGGESTED = 'suggested';
 
 	let more: boolean[] = $state([]);
 	// Several forms may be open at once.
@@ -99,12 +96,6 @@
 		return preview(fixed.side === 'from' ? { ...s, to: outside } : { ...s, from: outside }, ref);
 	}
 
-	function pick(i: number, field: Field, value: string, set: (v: string) => void) {
-		const offer = offers?.(i)[field];
-		if (value === SUGGESTED && offer) offer.apply();
-		else set(value);
-	}
-
 	function add() {
 		splits.push(blankSplit(commodity, splits.at(-1)));
 	}
@@ -118,197 +109,163 @@
 
 {#snippet side(label: string, s: SplitDraft, l: LegDraft, i: number)}
 	{@const n = i + 1}
-	{@const offer = offers?.(i).other}
-	<div class="field side {label === 'From' ? 'f-from' : 'f-to'}">
-		<label for="{uid}-{i}-{label}">{label}</label>
-		{#if fixed && l !== otherOf(s)}
-			{@const a = ref.accounts.get(fixed.account)}
-			<span class="fixed" id="{uid}-{i}-{label}">{a ? accountLabel(a, ref) : '?'}</span>
-		{:else}
+	{@const id = `${uid}-${i}-${label}`}
+	{#snippet sideBadge()}{@render badge?.(i, 'other')}{/snippet}
+	{#snippet sideStatus()}{@render status?.(i, 'other')}{/snippet}
+	{#if fixed && l !== otherOf(s)}
+		{@const a = ref.accounts.get(fixed.account)}
+		<FieldLine {label}><span class="fixed">{a ? accountLabel(a, ref) : '?'}</span></FieldLine>
+	{:else}
+		<FieldLine {label} {id} badge={sideBadge} status={status ? sideStatus : undefined}>
 			<SidePicker
 				leg={l}
 				set={(v) => Object.assign(l, v)}
 				{ref}
-				id="{uid}-{i}-{label}"
+				{id}
 				label="Split {n}: {label}"
 				skip={fixed?.account}
-				{offer}
 			/>
-			{#if status}<div class="status">{@render status(i, 'other')}</div>{/if}
-		{/if}
-	</div>
+		</FieldLine>
+	{/if}
 {/snippet}
 
-<div class="lines">
-	<!-- Wide enough: one line per split under one set of headings. -->
-	<div class="heads" aria-hidden="true">
-		<span></span><span>From</span><span></span><span>To</span><span>Amount</span><span
-			>Category</span
-		><span>For</span><span>Note</span><span class="tools-space"></span>
-	</div>
-	<ol class="splits">
-		{#each splits as split, i (i)}
-			{@const p = previewOf(split)}
-			{@const n = i + 1}
-			{@const k = p.kind ? kinds[p.kind].toLowerCase() : ''}
-			{@const notFor = k
-				? `Not for ${/^[aeiou]/.test(k) ? 'an' : 'a'} ${k}`
-				: 'Choose both sides first'}
-			{@const offer = offers?.(i) ?? {}}
-			{@const whole = expected !== undefined && splits.length === 1}
-			<li class="split">
-				<div class="line">
-					<span class="n" aria-hidden="true">{n}</span>
-					{@render side('From', split, split.from, i)}
-					<span class="arrow" aria-hidden="true">→</span>
-					{@render side('To', split, split.to, i)}
-					<label class="field f-amount">
-						<span>Amount</span>
+<div class="splits">
+	{#each splits as split, i (i)}
+		{@const p = previewOf(split)}
+		{@const n = i + 1}
+		{@const k = p.kind ? kinds[p.kind].toLowerCase() : ''}
+		{@const notFor = k
+			? `Not for ${/^[aeiou]/.test(k) ? 'an' : 'a'} ${k}`
+			: 'Choose both sides first'}
+		{@const whole = expected !== undefined && splits.length === 1}
+		{#snippet categoryBadge()}{#if p.category}{@render badge?.(i, 'category')}{/if}{/snippet}
+		{#snippet categoryStatus()}{@render status?.(i, 'category')}{/snippet}
+		{#snippet purposeBadge()}{#if p.purpose}{@render badge?.(i, 'purpose')}{/if}{/snippet}
+		{#snippet purposeStatus()}{@render status?.(i, 'purpose')}{/snippet}
+		<section class="split" aria-label={splits.length > 1 ? `Split ${n}` : undefined}>
+			{#if splits.length > 1}<h4 class="head">Split {n}</h4>{/if}
+			{@render side('From', split, split.from, i)}
+			{@render side('To', split, split.to, i)}
+			<FieldLine label="Amount" id="{uid}-{i}-amount">
+				<span class="money">
+					<input
+						id="{uid}-{i}-amount"
+						class="qty"
+						inputmode="decimal"
+						bind:value={split.quantity}
+						placeholder="0.00"
+						disabled={whole}
+						aria-label="Split {n}: amount"
+					/>
+					<select bind:value={split.commodity} disabled={!!fixed} aria-label="Split {n}: commodity">
+						{#each commodities as c (c.id)}<option value={c.id}>{c.code}</option>{/each}
+					</select>
+				</span>
+			</FieldLine>
+			<FieldLine
+				label="Category"
+				id="{uid}-{i}-category"
+				badge={categoryBadge}
+				status={p.category && status ? categoryStatus : undefined}
+			>
+				{#if p.category}
+					<!-- Required where a purpose is (design §4.1). -->
+					{@const unset = split.category === UNSET || (p.purpose && !split.category)}
+					<select
+						id="{uid}-{i}-category"
+						value={unset ? UNSET : split.category}
+						onchange={(e) => (split.category = e.currentTarget.value)}
+						aria-label="Split {n}: category"
+					>
+						{#if unset}<option value={UNSET} disabled>Choose…</option>{/if}
+						{#if !p.purpose}<option value="">None</option>{/if}
+						{#each sorted(ref.categories) as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
+					</select>
+				{:else}
+					<select id="{uid}-{i}-category" disabled title={notFor} aria-label="Split {n}: category"
+						><option>Doesn't apply</option></select
+					>
+				{/if}
+			</FieldLine>
+			<FieldLine
+				label="For"
+				id="{uid}-{i}-purpose"
+				badge={purposeBadge}
+				status={p.purpose && status ? purposeStatus : undefined}
+			>
+				{#if p.purpose}
+					{@const unset = !split.purpose || split.purpose === UNSET}
+					<select
+						id="{uid}-{i}-purpose"
+						value={unset ? UNSET : split.purpose}
+						onchange={(e) => (split.purpose = e.currentTarget.value)}
+						aria-label="Split {n}: for"
+					>
+						{#if unset}<option value={UNSET} disabled>Choose…</option>{/if}
+						{#each owners as o (o.id)}<option value={o.id}>{o.name}</option>{/each}
+					</select>
+				{:else}
+					<select id="{uid}-{i}-purpose" disabled title={notFor} aria-label="Split {n}: for"
+						><option>Doesn't apply</option></select
+					>
+				{/if}
+			</FieldLine>
+			<FieldLine label="Note" id="{uid}-{i}-note">
+				<input id="{uid}-{i}-note" bind:value={split.description} aria-label="Split {n}: note" />
+			</FieldLine>
+			{#if withMore && (more[i] || split.converted || split.settles)}
+				<FieldLine label="Received">
+					<label class="choice">
+						<input type="checkbox" bind:checked={split.converted} /> A different commodity
+					</label>
+				</FieldLine>
+				{#if split.converted}
+					<FieldLine label="Amount received" id="{uid}-{i}-received">
 						<span class="money">
 							<input
+								id="{uid}-{i}-received"
 								class="qty"
 								inputmode="decimal"
-								bind:value={split.quantity}
+								bind:value={split.toQuantity}
 								placeholder="0.00"
-								disabled={whole}
-								aria-label="Split {n}: amount"
+								aria-label="Split {n}: received"
 							/>
-							<select
-								bind:value={split.commodity}
-								disabled={!!fixed}
-								aria-label="Split {n}: commodity"
-							>
+							<select bind:value={split.toCommodity} aria-label="Split {n}: received commodity">
 								{#each commodities as c (c.id)}<option value={c.id}>{c.code}</option>{/each}
 							</select>
 						</span>
-					</label>
-					<div class="field f-category">
-						<label for="{uid}-{i}-category">Category</label>
-						{#if p.category}
-							<!-- Required where a purpose is (design §4.1). -->
-							{@const unset = split.category === UNSET || (p.purpose && !split.category)}
-							<select
-								id="{uid}-{i}-category"
-								class="pick"
-								value={unset ? UNSET : split.category}
-								onchange={(e) =>
-									pick(i, 'category', e.currentTarget.value, (v) => (split.category = v))}
-								aria-label="Split {n}: category"
-							>
-								{#if unset}<option value={UNSET} disabled>Choose…</option>{/if}
-								{#if offer.category}<option value={SUGGESTED}
-										>{offer.category.label} (suggested)</option
-									>{/if}
-								{#if !p.purpose && offer.category?.value !== ''}<option value="">None</option>{/if}
-								{#each sorted(ref.categories) as c (c.id)}<option value={c.id}>{c.name}</option
-									>{/each}
-							</select>
-							{#if status}<div class="status">{@render status(i, 'category')}</div>{/if}
-						{:else}
-							<select
-								id="{uid}-{i}-category"
-								class="pick"
-								disabled
-								title={notFor}
-								aria-label="Split {n}: category"><option>Doesn't apply</option></select
-							>
-						{/if}
-					</div>
-					<div class="field f-purpose">
-						<label for="{uid}-{i}-purpose">For</label>
-						{#if p.purpose}
-							{@const unset = !split.purpose || split.purpose === UNSET}
-							<select
-								id="{uid}-{i}-purpose"
-								class="pick"
-								value={unset ? UNSET : split.purpose}
-								onchange={(e) =>
-									pick(i, 'purpose', e.currentTarget.value, (v) => (split.purpose = v))}
-								aria-label="Split {n}: for"
-							>
-								{#if unset}<option value={UNSET} disabled>Choose…</option>{/if}
-								{#if offer.purpose}<option value={SUGGESTED}
-										>{offer.purpose.label} (suggested)</option
-									>{/if}
-								{#each owners as o (o.id)}{#if o.id !== offer.purpose?.value}<option value={o.id}
-											>{o.name}</option
-										>{/if}{/each}
-							</select>
-							{#if status}<div class="status">{@render status(i, 'purpose')}</div>{/if}
-						{:else}
-							<select
-								id="{uid}-{i}-purpose"
-								class="pick"
-								disabled
-								title={notFor}
-								aria-label="Split {n}: for"><option>Doesn't apply</option></select
-							>
-						{/if}
-					</div>
-					<label class="field grow f-note">
-						<span>Note</span>
-						<input bind:value={split.description} aria-label="Split {n}: note" />
-					</label>
-					<span class="tools">
-						{#if withMore}
-							<button
-								type="button"
-								class="quiet"
-								title="More: another commodity, a settled month"
-								aria-label="More for split {n}"
-								aria-expanded={more[i] || split.converted || !!split.settles}
-								onclick={() => (more[i] = !more[i])}>⋯</button
-							>
-						{/if}
+					</FieldLine>
+				{/if}
+				<FieldLine label="Settles month" id="{uid}-{i}-settles">
+					<input
+						id="{uid}-{i}-settles"
+						bind:value={split.settles}
+						placeholder="YYYY-MM"
+						disabled={!p.settles}
+						aria-label="Split {n}: settles month"
+					/>
+				</FieldLine>
+				{#if p.kind}<FieldLine label="Kind"><span class="fixed">{kinds[p.kind]}</span></FieldLine
+					>{/if}
+			{/if}
+			{#if (withMore && !split.converted && !split.settles) || splits.length > 1}
+				<div class="tools">
+					{#if withMore && !split.converted && !split.settles}
 						<button
 							type="button"
 							class="quiet"
-							disabled={splits.length === 1}
-							aria-label="Remove split {n}"
-							onclick={() => remove(i)}>✕</button
+							aria-expanded={!!more[i]}
+							onclick={() => (more[i] = !more[i])}
+							>{more[i] ? 'Fewer fields' : 'More fields'}</button
 						>
-					</span>
+					{/if}
+					{#if splits.length > 1}
+						<button type="button" class="quiet" onclick={() => remove(i)}>Remove split</button>
+					{/if}
 				</div>
-				{#if withMore && (more[i] || split.converted || split.settles)}
-					<div class="line extra">
-						<label class="check">
-							<input type="checkbox" bind:checked={split.converted} /> Received a different commodity
-						</label>
-						{#if split.converted}
-							<label class="field">
-								<span>Received</span>
-								<span class="money">
-									<input
-										class="qty"
-										inputmode="decimal"
-										bind:value={split.toQuantity}
-										placeholder="0.00"
-										aria-label="Split {n}: received"
-									/>
-									<select bind:value={split.toCommodity} aria-label="Split {n}: received commodity">
-										{#each commodities as c (c.id)}<option value={c.id}>{c.code}</option>{/each}
-									</select>
-								</span>
-							</label>
-						{/if}
-						<label class="field">
-							<span>Settles month</span>
-							<input
-								class="month"
-								bind:value={split.settles}
-								placeholder="YYYY-MM"
-								disabled={!p.settles}
-								aria-label="Split {n}: settles month"
-							/>
-						</label>
-						{#if p.kind}
-							<span class="kind">{kinds[p.kind]}</span>
-						{/if}
-					</div>
-				{/if}
-			</li>
-		{/each}
-	</ol>
+			{/if}
+		</section>
+	{/each}
 </div>
 <div class="foot">
 	{#if canAdd}
@@ -341,223 +298,41 @@
 </div>
 
 <style>
-	.lines {
-		container-type: inline-size;
-	}
-	.splits {
-		margin: 0;
-		padding: 0;
-		list-style: none;
-	}
 	.split {
 		padding: var(--space-2) 0;
 		border-top: var(--border-width) solid var(--color-border);
 	}
-	.heads {
-		display: none;
-	}
-	/* Narrow: each split's fields wrap, each with its label. */
-	.line {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: flex-end;
-		gap: var(--space-2) var(--space-3);
-	}
-	.extra {
-		margin-top: var(--space-2);
-		padding-left: calc(var(--space-2) + 1ch);
-	}
-	.n {
-		align-self: center;
-		min-width: 1ch;
-		color: var(--color-text-muted);
-		font-variant-numeric: var(--numeric);
-	}
-	.field {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-	}
-	.field > span:first-child,
-	.field > label:first-child,
-	.heads,
-	.check,
-	.kind {
+	.head {
+		margin: 0 0 var(--space-1);
+		font-family: var(--font-ui);
 		font-size: var(--text-sm);
-		color: var(--color-text-muted);
-	}
-	.side > :global(.picker) {
-		width: 11rem;
-	}
-	.pick {
-		width: 9rem;
-	}
-	.grow {
-		flex: 1;
-		min-width: 6rem;
-	}
-	.arrow {
-		padding-bottom: var(--space-2);
-		color: var(--color-text-muted);
 	}
 	.money {
 		display: flex;
 		gap: var(--space-1);
 	}
 	.qty {
-		width: 7rem;
+		flex: 1;
+		min-width: 0;
 		text-align: right;
 		font-variant-numeric: var(--numeric);
-	}
-	.month {
-		width: 7rem;
-	}
-	.check {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding-bottom: var(--space-2);
-	}
-	.kind {
-		padding-bottom: var(--space-2);
-	}
-	.tools {
-		display: flex;
-		gap: var(--space-1);
-	}
-	/* The headings' last cell, as wide as a line's two buttons. */
-	.tools-space {
-		width: calc(2 * 2.75rem + var(--space-1));
-	}
-	.tools button {
-		width: 2.75rem;
-		padding-inline: 0;
-	}
-	/* Wide: a grid, the headings once, a counterparty under its side. */
-	/* A phone: a split's fields in a small grid, each with its label. */
-	@container (max-width: 36rem) {
-		.line {
-			display: grid;
-			grid-template-columns: 1.5ch minmax(0, 1fr) minmax(0, 1fr);
-			grid-template-areas:
-				'n from from'
-				'n to to'
-				'n amount amount'
-				'n category purpose'
-				'n note tools';
-			align-items: end;
-		}
-		.n {
-			grid-area: n;
-			align-self: start;
-			padding-top: var(--space-5);
-		}
-		.arrow {
-			display: none;
-		}
-		.f-from {
-			grid-area: from;
-		}
-		.f-to {
-			grid-area: to;
-		}
-		.f-amount {
-			grid-area: amount;
-		}
-		.f-category {
-			grid-area: category;
-		}
-		.f-purpose {
-			grid-area: purpose;
-		}
-		.f-note {
-			grid-area: note;
-		}
-		.tools {
-			grid-area: tools;
-			justify-content: flex-end;
-		}
-		.side > :global(.picker),
-		.pick,
-		.f-note input {
-			width: 100%;
-			min-width: 0;
-		}
-		.money {
-			width: 100%;
-		}
-		.qty {
-			flex: 1;
-			width: auto;
-			min-width: 0;
-		}
-		.extra {
-			padding-left: calc(1.5ch + var(--space-2));
-		}
-	}
-	@container (min-width: 66rem) {
-		.heads,
-		.line {
-			display: grid;
-			grid-template-columns: 1ch 11rem 1rem 11rem 11.5rem 9rem 9rem minmax(4rem, 1fr) max-content;
-			gap: var(--space-2);
-			align-items: start;
-		}
-		.heads {
-			padding-bottom: var(--space-1);
-		}
-		.line > .field > span:first-child,
-		.line > .field > label:first-child {
-			position: absolute;
-			width: 1px;
-			height: 1px;
-			overflow: hidden;
-			clip-path: inset(50%);
-			white-space: nowrap;
-		}
-		.n,
-		.arrow {
-			align-self: start;
-			padding: var(--space-2) 0 0;
-		}
-		.side {
-			gap: var(--space-1);
-		}
-		.money {
-			width: 100%;
-		}
-		.qty {
-			flex: 1;
-			width: auto;
-			min-width: 0;
-		}
-	}
-	/* Where a field's value came from: one line, always there. */
-	.status {
-		min-height: calc(var(--text-xs) * var(--leading));
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: var(--text-xs);
-		color: var(--color-text-muted);
-	}
-	.status > :global(* + *) {
-		margin-left: var(--space-1);
 	}
 	.fixed {
 		display: block;
 		padding: var(--space-2) 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		overflow-wrap: anywhere;
 	}
-	.side {
-		min-width: 0;
+	.tools {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: var(--space-2);
+		padding-top: var(--space-1);
 	}
 	.foot {
 		display: flex;
 		flex-wrap: wrap;
-		align-items: baseline;
+		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-3);
 		padding-top: var(--space-2);

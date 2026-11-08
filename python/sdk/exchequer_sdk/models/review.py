@@ -17,8 +17,8 @@ class Review:
     """Rows to tick as reviewed, or untick.
 
     Attributes:
-        reviewed (bool): `true` ticks the rows that don't need a label or a decision (the
-            others stay as they are); `false` unticks them all.
+        reviewed (bool): `true` ticks the rows that can be (not those that need you or
+            aren't added; they stay as they are); `false` unticks them all.
         rows (list[RowRef]): The rows, as you saw them; at most 500.
     """
 

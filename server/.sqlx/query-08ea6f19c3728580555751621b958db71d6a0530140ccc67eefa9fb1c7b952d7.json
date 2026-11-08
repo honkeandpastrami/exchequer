@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.fp AS \"asked!\", f.fingerprint, f.transaction_id,\n                  coalesce(array_agg(r.raw ORDER BY r.imported_at)\n                               FILTER (WHERE r.raw IS NOT NULL), '{}') AS \"raws!\"\n           FROM unnest($2::text[]) AS u(fp)\n           JOIN import_fingerprint f\n             ON f.account_id = $1\n            AND (f.fingerprint = u.fp OR starts_with(f.fingerprint, u.fp || '~'))\n           LEFT JOIN imported_row r\n             ON r.account_id = f.account_id AND r.fingerprint = f.fingerprint\n           GROUP BY u.fp, f.fingerprint, f.transaction_id\n           ORDER BY u.fp, f.fingerprint",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "asked!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "import_fingerprint",
+            "name": "fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "transaction_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "import_fingerprint",
+            "name": "transaction_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "raws!",
+        "type_info": "JsonbArray",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "08ea6f19c3728580555751621b958db71d6a0530140ccc67eefa9fb1c7b952d7"
+}

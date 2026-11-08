@@ -152,8 +152,6 @@ struct Vote {
     score: f32,
     /// The heaviest neighbor agreeing.
     like: u32,
-    agree: usize,
-    of: usize,
 }
 
 /// What alias memory says about one label.
@@ -555,8 +553,6 @@ impl Model {
                     value,
                     score: agreeing.iter().map(|a| a.1).sum::<f32>() / (total + PRIOR),
                     like: agreeing.first()?.0,
-                    agree: agreeing.len(),
-                    of: near.len(),
                 })
             });
             votes.insert(l, vote);
@@ -680,10 +676,7 @@ impl Suggester for Model {
                                 || Curve::default().apply(v.score),
                                 |c| c.apply(v.score),
                             ),
-                            reason: format!(
-                                "like {} “{}” ({} of {} similar)",
-                                e.date, e.shown, v.agree, v.of
-                            ),
+                            reason: format!("like {} “{}”", e.date, e.shown),
                         }
                     });
                     let by_alias = aliases[&l].as_ref().map(|a| Guess {

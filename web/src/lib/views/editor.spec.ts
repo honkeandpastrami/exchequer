@@ -137,7 +137,7 @@ describe('editor totals', () => {
 
 describe('editor request', () => {
 	it('drops fields the split cannot have and resolves names', () => {
-		const d = { ...blankDraft('usd', '2026-03-01'), description: ' Lunch ', tags: 'a, b,,' };
+		const d = { ...blankDraft('usd', '2026-03-01'), description: ' Lunch ', tags: ['a', ' b', ''] };
 		d.splits = [
 			split('alex', 'grocer', { quantity: '1,000.00', category: 'food', purpose: 'p-sam' }),
 			split('alex', 'alex2', { category: 'food', settles: '2026-02' })

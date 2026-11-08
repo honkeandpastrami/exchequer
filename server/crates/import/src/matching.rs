@@ -1,5 +1,5 @@
 //! Matching staged rows (design §6.3-§6.4): to transactions already in the
-//! ledger (duplicates), and to each other (transfer matches). Each match is
+//! ledger (duplicates), and to each other (transfer pairs). Each match is
 //! one-to-one.
 
 use std::cmp::Reverse;
@@ -14,13 +14,13 @@ use uuid::Uuid;
 use crate::params::{NEAR_DAY, NEAR_LIKENESS, NEAR_MOST, TRANSFER_DAY, UNMEASURED};
 
 /// How sure matching is, per mille, that two sides of a transfer `days`
-/// apart are one transfer (a transfer match, or a transfer duplicate).
+/// apart are one transfer (a transfer pair, or a recorded transfer).
 #[must_use]
 pub fn transfer_confidence(days: Option<i32>) -> i32 {
     days.map_or(UNMEASURED, |d| (1000 - TRANSFER_DAY * d).max(0))
 }
 
-/// How sure matching is, per mille, that a near duplicate is the
+/// How sure matching is, per mille, that a possible duplicate by amount is the
 /// transaction it's like: never sure ([`NEAR_MOST`]).
 #[must_use]
 pub fn near_confidence(days: i32, similarity: i32) -> i32 {
@@ -88,11 +88,9 @@ pub struct Staged<K> {
     /// Signed: positive into the account.
     pub amount: Decimal,
     pub side: Side,
-    /// Whether it may be matched: a row that will become a new transaction
-    /// (not a duplicate, not skipped).
+    /// Whether it may be matched: a new row (not a duplicate), whatever
+    /// its choice, so choosing never changes what it is.
     pub eligible: bool,
-    /// Whether you made a decision on it.
-    pub decided: bool,
 }
 
 /// Whether `b` may be the other side of `a`'s transfer: in another account,
@@ -174,14 +172,14 @@ pub fn transfer_matches<K: Copy + Ord + Hash>(rows: &[Staged<K>]) -> HashMap<K, 
 /// Transfer conflicts among the rows [`transfer_matches`] left unpaired:
 /// a row you chose as a transfer to one account, and a row in another of
 /// your accounts that fits it and would take it (not chosen, or chosen as
-/// the transfer back). Neither pairs; you settle it by choosing again or by
-/// deciding either row. One-to-one, the closest dates first.
+/// the transfer back). They're a transfer pair whose default keeps your
+/// choice. One-to-one, the closest dates first.
 #[must_use]
 pub fn transfer_conflicts<K: Copy + Ord + Hash>(
     rows: &[Staged<K>],
     pairs: &HashMap<K, K>,
 ) -> HashMap<K, K> {
-    let free = |r: &Staged<K>| !r.decided && !pairs.contains_key(&r.key);
+    let free = |r: &Staged<K>| !pairs.contains_key(&r.key);
     let clash = |a: &Staged<K>, b: &Staged<K>| {
         matches!(a.side, Side::Transfer(to) if to != b.account) && allows(b, a)
     };
@@ -210,7 +208,7 @@ mod tests {
             .map(transfer_confidence)
             .collect();
         assert_eq!(transfer, [1000, 970, 910, 850, 500]);
-        // A near duplicate never reaches confident, however alike.
+        // A possible duplicate never reaches confident, however alike.
         assert_eq!(near_confidence(0, 1000), 890);
         assert_eq!(near_confidence(1, 1000), 830);
         assert_eq!(near_confidence(2, 300), 147);
@@ -256,7 +254,6 @@ mod tests {
             amount: Decimal::new(cents, 2),
             side,
             eligible: true,
-            decided: false,
         }
     }
 
@@ -303,7 +300,7 @@ mod tests {
         let got = transfer_matches(&rows);
         // 1 takes the one left.
         assert_eq!(got, HashMap::from([(3, 4), (4, 3), (1, 2), (2, 1)]));
-        // A row that can't be matched (a duplicate, or skipped) isn't.
+        // A row that can't be matched (a duplicate, or split) isn't.
         let mut rows = rows;
         rows[2].eligible = false;
         rows[3].eligible = false;
@@ -316,12 +313,9 @@ mod tests {
             // You chose savings, but the card holds the other side.
             staged(1, CHECKING, 13, -100_429, Side::Transfer(SAVINGS)),
             staged(2, CARD, 10, 100_429, Side::Open),
-            // Settled already: you decided one of them.
+            // Another, the same day.
             staged(3, CHECKING, 13, -2000, Side::Transfer(SAVINGS)),
-            Staged {
-                decided: true,
-                ..staged(4, CARD, 13, 2000, Side::Open)
-            },
+            staged(4, CARD, 13, 2000, Side::Open),
             // Paired with the account you chose: no conflict with the card.
             staged(5, CHECKING, 13, -300, Side::Transfer(SAVINGS)),
             staged(6, SAVINGS, 13, 300, Side::Open),
@@ -331,7 +325,7 @@ mod tests {
         assert_eq!(pairs, HashMap::from([(5, 6), (6, 5)]));
         assert_eq!(
             transfer_conflicts(&rows, &pairs),
-            HashMap::from([(1, 2), (2, 1)])
+            HashMap::from([(1, 2), (2, 1), (3, 4), (4, 3)])
         );
     }
 }

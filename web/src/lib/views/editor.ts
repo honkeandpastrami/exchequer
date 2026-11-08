@@ -35,8 +35,8 @@ export type Draft = {
 	date: string;
 	description: string;
 	notes: string;
-	/** Comma-separated. */
-	tags: string;
+	/** By name. */
+	tags: string[];
 	splits: SplitDraft[];
 	/** Kept as they are: the editor doesn't change them. */
 	externalRefs: Schemas['ExternalRef'][];
@@ -75,7 +75,7 @@ export function blankDraft(commodity: string, date: string): Draft {
 		date,
 		description: '',
 		notes: '',
-		tags: '',
+		tags: [],
 		splits: [blankSplit(commodity)],
 		externalRefs: []
 	};
@@ -91,7 +91,7 @@ export function fromTransaction(tx: Schemas['Transaction'], ref: Reference): Dra
 		date: tx.date,
 		description: tx.description,
 		notes: tx.notes ?? '',
-		tags: tx.tags.join(', '),
+		tags: [...tx.tags],
 		externalRefs: tx.external_refs,
 		splits: tx.splits.map((s) => ({
 			from: legDraft(s.from, ref),
@@ -277,10 +277,7 @@ export function toRequest(d: Draft, ref: Reference): Schemas['NewTransaction'] {
 		date: d.date,
 		description: d.description.trim(),
 		notes: d.notes.trim() || null,
-		tags: d.tags
-			.split(',')
-			.map((t) => t.trim())
-			.filter(Boolean),
+		tags: d.tags.map((t) => t.trim()).filter(Boolean),
 		external_refs: d.externalRefs,
 		splits: d.splits.map((s) => {
 			const p = preview(s, ref);

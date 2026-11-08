@@ -49,9 +49,12 @@ const row = (more: Partial<Schemas['StagedRow']> = {}): Schemas['StagedRow'] => 
 	amount: '-1900.00',
 	description: 'MORTGAGE PMT',
 	status: 'new',
+	options: ['add', 'dont_add'],
 	decided: false,
 	reviewed: false,
-	decision: 'new',
+	state: 'to_review',
+	decision: 'add',
+	tags: [],
 	raw: {},
 	chosen: [],
 	suggestions: [],
@@ -62,11 +65,12 @@ const row = (more: Partial<Schemas['StagedRow']> = {}): Schemas['StagedRow'] => 
 });
 
 describe('a bank row as a form', () => {
-	it('shows yours and confident suggestions, and leaves the rest to choose', () => {
+	it('shows yours and suggestions, and leaves the rest to choose', () => {
 		const r = row({
 			chosen: ['purpose'],
 			purpose_id: 'home',
-			suggestions: [suggestion('counterparty', 'lender', true), suggestion('category', 'x', false)]
+			suggestions: [suggestion('counterparty', 'lender', false)],
+			missing: ['category']
 		});
 		const d = rowDraft(r, bank, ref);
 		expect(d.splits).toHaveLength(1);
@@ -76,19 +80,39 @@ describe('a bank row as a form', () => {
 		expect([s.quantity, s.category, s.purpose]).toEqual(['1900.00', UNSET, 'home']);
 	});
 
-	it('sends only what you changed, so a suggestion stays one', () => {
-		const r = row({ suggestions: [suggestion('counterparty', 'lender', true)] });
-		const before = rowDraft(r, bank, ref);
-		const after = structuredClone(before);
-		expect(rowUpdate(r, before, after, ref)).toEqual({});
+	it('sends everything it shows, so it is all yours', () => {
+		const r = row({
+			suggestions: [suggestion('counterparty', 'lender', true)],
+			counterparty_id: 'lender',
+			tags: ['trip']
+		});
+		const after = rowDraft(r, bank, ref);
+		expect(rowUpdate(r, after, ref)).toEqual({ tags: ['trip'], counterparty_id: 'lender' });
 		after.splits[0].category = 'principal';
 		after.description = ' Monthly payment ';
-		expect(rowUpdate(r, before, after, ref)).toEqual({
+		after.tags.push('home ');
+		expect(rowUpdate(r, after, ref)).toEqual({
 			set_description: 'Monthly payment',
+			tags: ['trip', 'home'],
+			counterparty_id: 'lender',
 			category_id: 'principal'
 		});
 		after.splits[0].to = { account: 'escrow', outside: '' };
-		expect(rowUpdate(r, before, after, ref)).toMatchObject({ transfer_account_id: 'escrow' });
+		expect(rowUpdate(r, after, ref)).toMatchObject({ transfer_account_id: 'escrow' });
+		// A transfer pair added as one: its other side is the pair's.
+		const paired = row({
+			status: 'transfer_pair',
+			transfer_account_id: 'escrow',
+			transfer_pair: {
+				import_id: 'i',
+				statement: 0,
+				position: 1,
+				account_id: 'escrow',
+				date: '2026-10-01',
+				description: 'x'
+			}
+		});
+		expect(rowUpdate(paired, rowDraft(paired, bank, ref), ref)).toEqual({ tags: [] });
 	});
 
 	it('splits into parts that must add up to the bank amount', () => {
@@ -113,7 +137,8 @@ describe('a bank row as a form', () => {
 		]);
 		after.splits[2].quantity = '200.00';
 		expect(rowProblems(r, after, ref)).toEqual([]);
-		expect(rowUpdate(r, before, after, ref)).toEqual({
+		expect(rowUpdate(r, after, ref)).toEqual({
+			tags: [],
 			splits: [
 				{
 					amount: '1200.00',
@@ -163,7 +188,8 @@ describe('a bank row as a form', () => {
 		]);
 		const after = structuredClone(before);
 		after.splits.pop();
-		expect(rowUpdate(r, before, after, ref)).toEqual({
+		expect(rowUpdate(r, after, ref)).toEqual({
+			tags: [],
 			splits: null,
 			counterparty_id: 'lender',
 			category_id: 'principal',

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE staged_row SET transfer_account_id = $4, counterparty_id = NULL,\n                               chosen = CASE WHEN 'counterparty' = ANY(chosen) THEN chosen\n                                             ELSE chosen || 'counterparty'::text END\n         WHERE import_id = $1 AND statement = $2 AND position = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int2",
+        "Int4",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e8cb2325b9828c7f7f666a0120ea346e8a0f9173f9e1cabf91ba0dd03e5e2cbc"
+}

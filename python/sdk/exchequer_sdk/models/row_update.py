@@ -29,15 +29,17 @@ class RowUpdate:
         revert (list[Label] | Unset): Labels to stop choosing, so their suggestions apply again. Setting a
             label (to a value or `null`) makes it your choice.
         reviewed (bool | None | Unset): `true` ticks the row as reviewed, as it is after this change: you
-            agree with what it shows, so the AI suggestions it takes count as
-            yours. Not for a row that needs a label or a decision. `false`
-            unticks it. The tick goes by itself when the row changes under it: a
-            new suggestion, or a transfer match made or undone.
+            agree with what it shows, so what it takes counts as yours. Not for
+            a row that needs you or isn't added. `false` unticks it. The tick
+            goes by itself when the row changes under it: a new suggestion, a
+            new label, a transfer pair made or undone.
         set_description (None | str | Unset):
         splits (list[RowSplit] | None | Unset): Split the row into these parts (two or more, adding up to its
             amount), each a split of the new transaction; `null` or `[]`: not
-            split. Only for a row added as new that isn't a transfer match; a
-            split row can't change its decision until the parts are cleared.
+            split. Only for a row that's added and isn't a transfer pair; a split
+            row can't change its decision until the parts are cleared.
+        tags (list[str] | None | Unset): The new transaction's tags, by name (1-100 characters each; new ones
+            are created on commit), replacing the row's.
         transfer_account_id (None | Unset | UUID): One of your accounts as the other side: the row is a transfer. It
             sets the counterparty label (as yours), so not with
             `counterparty_id`; `null` is the same as `counterparty_id: null`.
@@ -51,6 +53,7 @@ class RowUpdate:
     reviewed: bool | None | Unset = UNSET
     set_description: None | str | Unset = UNSET
     splits: list[RowSplit] | None | Unset = UNSET
+    tags: list[str] | None | Unset = UNSET
     transfer_account_id: None | Unset | UUID = UNSET
 
     def to_dict(self) -> dict[str, Any]:
@@ -117,6 +120,15 @@ class RowUpdate:
         else:
             splits = self.splits
 
+        tags: list[str] | None | Unset
+        if isinstance(self.tags, Unset):
+            tags = UNSET
+        elif isinstance(self.tags, list):
+            tags = self.tags
+
+        else:
+            tags = self.tags
+
         transfer_account_id: None | str | Unset
         if isinstance(self.transfer_account_id, Unset):
             transfer_account_id = UNSET
@@ -144,6 +156,8 @@ class RowUpdate:
             field_dict["set_description"] = set_description
         if splits is not UNSET:
             field_dict["splits"] = splits
+        if tags is not UNSET:
+            field_dict["tags"] = tags
         if transfer_account_id is not UNSET:
             field_dict["transfer_account_id"] = transfer_account_id
 
@@ -272,6 +286,23 @@ class RowUpdate:
 
         splits = _parse_splits(d.pop("splits", UNSET))
 
+        def _parse_tags(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                tags_type_0 = cast(list[str], data)
+
+                return tags_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        tags = _parse_tags(d.pop("tags", UNSET))
+
         def _parse_transfer_account_id(data: object) -> None | Unset | UUID:
             if data is None:
                 return data
@@ -298,6 +329,7 @@ class RowUpdate:
             reviewed=reviewed,
             set_description=set_description,
             splits=splits,
+            tags=tags,
             transfer_account_id=transfer_account_id,
         )
 

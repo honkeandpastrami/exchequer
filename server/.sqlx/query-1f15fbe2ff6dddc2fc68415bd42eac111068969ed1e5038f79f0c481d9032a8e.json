@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT fingerprint FROM import_fingerprint\n         WHERE account_id = $1 AND (fingerprint = $2 OR starts_with(fingerprint, $2 || '~'))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "import_fingerprint",
+            "name": "fingerprint"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1f15fbe2ff6dddc2fc68415bd42eac111068969ed1e5038f79f0c481d9032a8e"
+}

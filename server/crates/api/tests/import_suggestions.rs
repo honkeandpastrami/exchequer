@@ -129,7 +129,7 @@ async fn a_suggested_account_counts_only_when_confident(pool: PgPool) {
             &s["suggested_account"]["account_id"],
             &s["suggested_account"]["confident"],
             &s["suggested_account"]["suggester"]["kind"],
-            &s["counts"]["needs_account"]
+            &s["rows"]["needs_you"]
         ),
         (
             &json!(h.alex_checking),
@@ -152,20 +152,41 @@ async fn a_suggested_account_counts_only_when_confident(pool: PgPool) {
     .await;
     let s = &r.body["statements"][0];
     assert_eq!(
-        (
-            &s["account_id"],
-            &s["account_suggested"],
-            &s["counts"]["new"]
-        ),
-        (&json!(h.alex_checking), &json!(true), &json!(2))
+        (&s["account_id"], &s["account_suggested"], &s["state"]),
+        (&json!(h.alex_checking), &json!(true), &json!("to_review"))
     );
-    assert_eq!(r.body["readiness"]["suggested_accounts"], json!(1));
+    assert_eq!(r.body["readiness"]["accounts_to_review"], json!(1));
     // At 100% it's as sure as your own choice.
     suggest(1000).await;
     let r = read(&pool, &h, &id).await;
-    assert_eq!(r.body["readiness"]["suggested_accounts"], json!(0));
+    assert_eq!(r.body["readiness"]["accounts_to_review"], json!(0));
     suggest(950).await;
-    // Picking it makes it the statement's own.
+    // Ticking it as reviewed makes it the statement's own; unticking, a
+    // suggestion again.
+    let statement = |r: &Response| {
+        let s = &r.body["statements"][0];
+        (
+            s["account_suggested"].clone(),
+            s["reviewed"].clone(),
+            s["state"].clone(),
+        )
+    };
+    let path = format!("/api/v1/imports/{id}/statements/0");
+    let r = patch(&pool, &h, path.clone(), json!({ "reviewed": true })).await;
+    assert_eq!(statement(&r), (json!(false), json!(true), json!("ready")));
+    let r = patch(&pool, &h, path.clone(), json!({ "reviewed": false })).await;
+    assert_eq!(
+        statement(&r),
+        (json!(true), json!(false), json!("to_review"))
+    );
+    let r = call(&pool, "PATCH", &path)
+        .token(&h.t)
+        .if_match(&read(&pool, &h, &id).await.etag())
+        .json(json!({ "account_id": h.alex_checking, "reviewed": true }))
+        .send()
+        .await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
+    // Picking it makes it the statement's own too.
     let r = patch(
         &pool,
         &h,
@@ -173,7 +194,7 @@ async fn a_suggested_account_counts_only_when_confident(pool: PgPool) {
         json!({ "account_id": h.alex_checking }),
     )
     .await;
-    assert_eq!(r.body["statements"][0]["account_suggested"], json!(false));
+    assert_eq!(statement(&r), (json!(false), json!(false), json!("ready")));
     // Taken as shown on commit, and recorded.
     patch(
         &pool,
@@ -212,7 +233,7 @@ async fn a_suggested_account_counts_only_when_confident(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
-async fn confident_labels_are_committed_unless_you_choose(pool: PgPool) {
+async fn suggested_labels_are_committed_unless_you_choose(pool: PgPool) {
     let h = H::new(&pool).await;
     let groceries = create(
         &pool,
@@ -250,8 +271,9 @@ async fn confident_labels_are_committed_unless_you_choose(pool: PgPool) {
             label(0, "counterparty", Some(&h.store), rule, 1000),
             label(0, "category", Some(&dining), rule, 1000),
             label(0, "purpose", Some(&h.alex), rule, 1000),
-            // The grocer: a confident counterparty, an unsure category, and
-            // a purpose of "none", which names no one: missing.
+            // The grocer: a confident counterparty, an unsure category
+            // (taken, to review), and a purpose of "none", which names no
+            // one: missing.
             label(1, "counterparty", Some(&h.store), remote, 930),
             label(1, "category", Some(&groceries), remote, 610),
             label(1, "purpose", None, rule, 1000),
@@ -296,10 +318,16 @@ async fn confident_labels_are_committed_unless_you_choose(pool: PgPool) {
     assert_eq!(
         (
             &all[1]["counterparty_id"],
-            all[1].get("category_id"),
-            &all[1]["missing"]
+            &all[1]["category_id"],
+            &all[1]["missing"],
+            &all[1]["state"]
         ),
-        (&json!(h.store), None, &json!(["category", "purpose"]))
+        (
+            &json!(h.store),
+            &json!(groceries),
+            &json!(["purpose"]),
+            &json!("needs_you")
+        )
     );
     let r = commit(&pool, &h, &id).await;
     assert_eq!(r.status, StatusCode::CONFLICT, "{}", r.body);
@@ -307,19 +335,22 @@ async fn confident_labels_are_committed_unless_you_choose(pool: PgPool) {
         r.body["detail"]
             .as_str()
             .unwrap()
-            .contains("statement 0 row 1 (category, purpose)"),
+            .contains("statement 0 row 1 (purpose)"),
         "{}",
         r.body
     );
-    // A skipped row needs nothing.
+    // A row not added needs nothing.
     let r = patch(
         &pool,
         &h,
         format!("/api/v1/imports/{id}/rows/0/1"),
-        json!({ "decision": "skip" }),
+        json!({ "decision": "dont_add" }),
     )
     .await;
-    assert_eq!(r.body["missing"], json!([]));
+    assert_eq!(
+        (&r.body["missing"], &r.body["state"]),
+        (&json!([]), &json!("not_added"))
+    );
     patch(
         &pool,
         &h,
@@ -394,7 +425,7 @@ async fn confident_labels_are_committed_unless_you_choose(pool: PgPool) {
             ("category".into(), 1000, false),
             ("counterparty".into(), 930, true),
             ("counterparty".into(), 1000, true),
-            // Matching's: both rows added as new, as suggested.
+            // Matching's: both rows added, as suggested.
             ("decision".into(), 1000, true),
             ("decision".into(), 1000, true),
             ("purpose".into(), 1000, false),
@@ -495,14 +526,14 @@ async fn local_ai_suggests_the_account_and_the_labels(pool: PgPool) {
             &s["account_suggested"],
             &s["suggested_account"]["confident"],
             &s["suggested_account"]["suggester"]["name"],
-            &s["counts"]["new"],
+            &s["state"],
         ),
         (
             &json!(h.alex_credit),
             &json!(true),
             &json!(true),
             &json!("lexical-knn"),
-            &json!(3)
+            &json!("to_review")
         ),
         "{s}"
     );
@@ -530,13 +561,17 @@ async fn local_ai_suggests_the_account_and_the_labels(pool: PgPool) {
         (&json!("local"), &json!("2"))
     );
     assert!(local["details"]["snapshot"].is_string(), "{local}");
-    // A stranger: nothing confident.
-    assert_eq!(
-        all[2]["missing"],
-        json!(["counterparty", "category", "purpose"]),
+    // A stranger: nothing confident, so it isn't ready.
+    assert!(
+        all[2]["suggestions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|s| s["confident"] == json!(false)),
         "{}",
         all[2]
     );
+    assert_ne!(all[2]["state"], json!("ready"), "{}", all[2]);
 
     // A label you choose stays yours when the account changes and the rows
     // are suggested again.
@@ -639,7 +674,7 @@ async fn a_backtest_measures_local_ai_on_past_months(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
-async fn confident_ai_suggestions_make_an_import_suggested(pool: PgPool) {
+async fn ai_suggestions_short_of_certain_are_to_review(pool: PgPool) {
     let h = H::new(&pool).await;
     let r = call(
         &pool,
@@ -685,18 +720,19 @@ async fn confident_ai_suggestions_make_an_import_suggested(pool: PgPool) {
         read(&pool, &h, &id).await.body["readiness"]["state"],
         json!("ready")
     );
-    // A confident AI suggestion would commit too, but you haven't seen it.
+    // An AI suggestion would commit too, but you haven't seen it.
     set([rule, remote], 950).await;
     let ready = read(&pool, &h, &id).await.body["readiness"].clone();
     assert_eq!(
-        (&ready["state"], &ready["suggested_rows"]),
-        (&json!("suggested"), &json!(1))
+        (&ready["state"], &ready["rows"]["to_review"]),
+        (&json!("to_review"), &json!(1))
     );
+    assert_eq!(rows(&pool, &h, &id).await[1]["state"], json!("to_review"));
     // One at 100% is as sure as your own choice: ready.
     set([rule, remote], 1000).await;
     let ready = read(&pool, &h, &id).await.body["readiness"].clone();
     assert_eq!(
-        (&ready["state"], &ready["suggested_rows"]),
+        (&ready["state"], &ready["rows"]["to_review"]),
         (&json!("ready"), &json!(0))
     );
     set([rule, remote], 950).await;
@@ -763,7 +799,7 @@ async fn ticked_rows_make_an_import_ready_until_they_change(pool: PgPool) {
             .send()
             .await;
         let ready = &r.body["readiness"];
-        (ready["state"].clone(), ready["suggested_rows"].clone())
+        (ready["state"].clone(), ready["rows"]["to_review"].clone())
     };
     let review = |rows: Value, reviewed: bool| {
         let (pool, id, t) = (pool.clone(), id.clone(), h.t.clone());
@@ -783,7 +819,7 @@ async fn ticked_rows_make_an_import_ready_until_they_change(pool: PgPool) {
     };
     let state = || readiness(pool.clone(), id.clone(), h.t.clone());
     set([&h.alex, &h.alex]).await;
-    assert_eq!(state().await, (json!("suggested"), json!(2)));
+    assert_eq!(state().await, (json!("to_review"), json!(2)));
 
     // You read one row's suggestions and agree: it counts as yours.
     let r = patch(
@@ -794,7 +830,7 @@ async fn ticked_rows_make_an_import_ready_until_they_change(pool: PgPool) {
     )
     .await;
     assert_eq!(r.body["reviewed"], json!(true));
-    assert_eq!(state().await, (json!("suggested"), json!(1)));
+    assert_eq!(state().await, (json!("to_review"), json!(1)));
     // Both, at once: ready.
     let both = json!([{ "statement": 0, "position": 0 }, { "statement": 0, "position": 1 }]);
     let r = review(both.clone(), true).await;
@@ -803,7 +839,7 @@ async fn ticked_rows_make_an_import_ready_until_they_change(pool: PgPool) {
 
     // A suggestion that changes under a tick undoes it.
     set([&h.alex, &h.household]).await;
-    assert_eq!(state().await, (json!("suggested"), json!(1)));
+    assert_eq!(state().await, (json!("to_review"), json!(1)));
     let all = rows(&pool, &h, &id).await;
     assert_eq!(
         (&all[0]["reviewed"], &all[1]["reviewed"]),
@@ -812,7 +848,7 @@ async fn ticked_rows_make_an_import_ready_until_they_change(pool: PgPool) {
     // A tick can be taken back.
     let r = review(both.clone(), false).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
-    assert_eq!(state().await, (json!("suggested"), json!(2)));
+    assert_eq!(state().await, (json!("to_review"), json!(2)));
 
     // A row that needs a label can't be ticked: nothing to agree with.
     {
@@ -832,7 +868,7 @@ async fn ticked_rows_make_an_import_ready_until_they_change(pool: PgPool) {
     // Ticking many leaves such rows as they are.
     let r = review(both, true).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
-    assert_eq!(r.body["readiness"]["state"], json!("needs_work"));
+    assert_eq!(r.body["readiness"]["state"], json!("needs_you"));
     assert_eq!(rows(&pool, &h, &id).await[0]["reviewed"], json!(false));
     // Rows not in the import are refused.
     let r = review(json!([{ "statement": 0, "position": 9 }]), true).await;

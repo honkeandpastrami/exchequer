@@ -1,5 +1,5 @@
 //! `/api/v1/imports`: uploading bank files, resolving their accounts, and
-//! what each row would become. Needs `just db-up`.
+//! each row's label. Needs `just db-up`.
 
 mod common;
 
@@ -84,12 +84,13 @@ async fn files_that_cant_be_staged(pool: PgPool) {
     .await;
     assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
     // The file's number, once known, must agree with the account given.
+    // Picking the account remembers the number.
     let id = r.id();
     let path = format!("/api/v1/imports/{id}/statements/0");
     let r = call(&pool, "PATCH", &path)
         .token(&h.t)
         .if_match(&r.etag())
-        .json(json!({ "account_id": h.alex_checking, "remember_number": true }))
+        .json(json!({ "account_id": h.alex_checking }))
         .send()
         .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
@@ -132,10 +133,14 @@ async fn an_unknown_number_waits_for_its_account(pool: PgPool) {
         s["ledger"],
         json!({ "amount": "-50.00", "date": "2026-03-31" })
     );
-    assert_eq!(s["counts"]["needs_account"], json!(2));
+    assert_eq!(
+        (&s["state"], &s["rows"]["needs_you"]),
+        (&json!("needs_you"), &json!(2))
+    );
     let id = r.id();
     let all = rows(&pool, &h, &id, "").await;
-    assert_eq!(statuses(&all), ["needs_account", "needs_account"]);
+    assert_eq!(statuses(&all), ["no_account", "no_account"]);
+    assert_eq!(all[0]["options"], json!([]));
     assert_eq!(
         (
             all[0]["amount"].as_str(),
@@ -146,7 +151,7 @@ async fn an_unknown_number_waits_for_its_account(pool: PgPool) {
     );
     assert_eq!(all[0]["raw"]["FITID"], json!("F1"));
 
-    // Setting the account, and remembering the number for next time.
+    // Setting the account remembers the number for next time.
     let path = format!("/api/v1/imports/{id}/statements/0");
     let r = call(&pool, "PATCH", &path)
         .token(&h.t)
@@ -162,11 +167,12 @@ async fn an_unknown_number_waits_for_its_account(pool: PgPool) {
     let r = call(&pool, "PATCH", &path)
         .token(&h.t)
         .if_match(&etag)
-        .json(json!({ "account_id": h.alex_credit, "remember_number": true }))
+        .json(json!({ "account_id": h.alex_credit }))
         .send()
         .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
-    assert_eq!(r.body["statements"][0]["counts"]["new"], json!(2));
+    assert_eq!(r.body["statements"][0]["state"], json!("ready"));
+    assert_eq!(statuses(&rows(&pool, &h, &id, "").await), ["new", "new"]);
     assert_ne!(r.etag(), etag);
     let card = h
         .send(
@@ -217,13 +223,14 @@ async fn a_csv_without_an_account_waits_for_one(pool: PgPool) {
         (&s["account_id"], s.get("number_last4")),
         (&Value::Null, None)
     );
-    assert_eq!(s["counts"]["needs_account"], json!(3));
-    let path = format!("/api/v1/imports/{}/statements/0", r.id());
-    // There's no number to remember.
+    assert_eq!(s["rows"]["needs_you"], json!(3));
+    let id = r.id();
+    let path = format!("/api/v1/imports/{id}/statements/0");
+    // No suggested account to tick.
     let bad = call(&pool, "PATCH", &path)
         .token(&h.t)
         .if_match(&r.etag())
-        .json(json!({ "account_id": h.alex_checking, "remember_number": true }))
+        .json(json!({ "reviewed": true }))
         .send()
         .await;
     assert_eq!(bad.status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -233,7 +240,11 @@ async fn a_csv_without_an_account_waits_for_one(pool: PgPool) {
         .json(json!({ "account_id": h.alex_checking }))
         .send()
         .await;
-    assert_eq!(r.body["statements"][0]["counts"]["new"], json!(3));
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(
+        statuses(&rows(&pool, &h, &id, "").await),
+        ["new", "new", "new"]
+    );
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
@@ -242,7 +253,6 @@ async fn rows_already_imported_are_duplicates(pool: PgPool) {
     let r = upload(&pool, &h, &format!("?account_id={}", h.alex_checking), CSV).await;
     assert_eq!(r.status, StatusCode::CREATED, "{}", r.body);
     let s = &r.body["statements"][0];
-    assert_eq!(s["counts"]["new"], json!(3));
     assert_eq!(
         s["skipped"],
         json!([{ "line": 5, "reason": "unreadable date" }])
@@ -280,15 +290,76 @@ async fn rows_already_imported_are_duplicates(pool: PgPool) {
         .await
         .unwrap();
 
+    // Nothing to compare it with: the bank's ID alone makes it a
+    // duplicate, not added.
     let r = upload(&pool, &h, &format!("?account_id={}", h.alex_checking), CSV).await;
     let id = r.id();
-    assert_eq!(r.body["statements"][0]["counts"]["duplicate"], json!(1));
+    assert_eq!(r.body["statements"][0]["rows"]["not_added"], json!(1));
     let all = rows(&pool, &h, &id, "").await;
     assert_eq!(statuses(&all), ["new", "duplicate", "new"]);
-    assert_eq!(all[1]["match_transaction_id"], json!(t));
+    assert_eq!(
+        (
+            &all[1]["match_transaction_id"],
+            &all[1]["match_kind"],
+            &all[1]["decision"],
+            &all[1]["state"],
+            &all[1]["options"]
+        ),
+        (
+            &json!(t),
+            &json!("bank_id"),
+            &json!("dont_add"),
+            &json!("not_added"),
+            &json!(["add", "dont_add"])
+        )
+    );
     // The same rows in another account aren't duplicates.
     let r = upload(&pool, &h, &format!("?account_id={}", h.joint_savings), CSV).await;
-    assert_eq!(r.body["statements"][0]["counts"]["new"], json!(3));
+    assert_eq!(
+        statuses(&rows(&pool, &h, &r.id(), "").await),
+        ["new", "new", "new"]
+    );
+
+    // The bank's row as a file had it: the same, a duplicate; changed since,
+    // a possible duplicate of the same transaction.
+    let mut last = String::new();
+    for (raw, status) in [
+        (coffee.clone(), "duplicate"),
+        (
+            json!({ "Date": "03/02/2026", "Description": "COFFEE SHOP" }),
+            "possible_duplicate",
+        ),
+    ] {
+        sqlx::query("DELETE FROM imported_row")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO imported_row VALUES ($1::uuid, $2, $3, $4)")
+            .bind(&h.alex_checking)
+            .bind(&fingerprint)
+            .bind("a".repeat(64))
+            .bind(&raw)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let r = upload(&pool, &h, &format!("?account_id={}", h.alex_checking), CSV).await;
+        last = r.id();
+        let all = rows(&pool, &h, &last, "").await;
+        assert_eq!(
+            (all[1]["status"].as_str(), &all[1]["match_transaction_id"]),
+            (Some(status), &json!(t))
+        );
+    }
+    let all = rows(&pool, &h, &last, "").await;
+    let s = &all[1]["suggested_decision"];
+    assert_eq!(
+        (&s["decision"], &s["confidence"], &s["reason"]),
+        (
+            &json!("dont_add"),
+            &json!(890),
+            &json!("the same bank ID, changed since it was imported")
+        )
+    );
 
     // Paging and filtering.
     let page = h
@@ -308,7 +379,7 @@ async fn rows_already_imported_are_duplicates(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
-async fn rows_like_recorded_transactions_are_near_duplicates(pool: PgPool) {
+async fn rows_like_recorded_transactions_are_possible_duplicates(pool: PgPool) {
     let h = H::new(&pool).await;
     // With someone outside, it's income or an expense: Shopping, for the
     // Household.
@@ -368,14 +439,15 @@ async fn rows_like_recorded_transactions_are_near_duplicates(pool: PgPool) {
     let all = rows(&pool, &h, &r.id(), "").await;
     // Two identical coffees, one recorded: only the one on the same day is
     // flagged.
-    assert_eq!(statuses(&all), ["new", "near_duplicate", "near_duplicate"]);
+    assert_eq!(
+        statuses(&all),
+        ["new", "possible_duplicate", "possible_duplicate"]
+    );
     assert_eq!(all[1]["match_transaction_id"], json!(made[0]));
     assert_eq!(all[2]["match_transaction_id"], json!(made[1]));
-    assert_eq!(
-        r.body["statements"][0]["counts"]["near_duplicate"],
-        json!(2)
-    );
-    // A near duplicate is never sure: the same text on the same day is 89%.
+    assert_eq!(all[1]["match_kind"], json!("amount"));
+    // A possible duplicate is never sure: the same text on the same day is
+    // 89%.
     let s = &all[1]["suggested_decision"];
     assert_eq!(
         (
@@ -385,17 +457,22 @@ async fn rows_like_recorded_transactions_are_near_duplicates(pool: PgPool) {
             &s["reason"]
         ),
         (
-            &json!("match"),
+            &json!("dont_add"),
             &json!(890),
             &json!(false),
             &json!("the same amount, the same day, descriptions 100% alike")
         )
     );
-    // Whether they're the same is yours to say; the new row needs labels.
+    // Not added by default, so nothing to review; the new row takes
+    // suggestions short of certain.
     let ready = &r.body["readiness"];
     assert_eq!(
-        (&ready["state"], &ready["undecided"], &ready["unlabeled"]),
-        (&json!("needs_work"), &json!(2), &json!(1))
+        (&ready["state"], &ready["rows"], &ready["adds"]),
+        (
+            &json!("to_review"),
+            &json!({ "needs_you": 0, "to_review": 1, "ready": 0, "not_added": 2 }),
+            &json!(1)
+        )
     );
 }
 
@@ -454,16 +531,17 @@ async fn rows_whose_transfer_is_already_recorded(pool: PgPool) {
     }
     let r = upload(&pool, &h, &format!("?account_id={}", h.alex_checking), CSV).await;
     let all = rows(&pool, &h, &r.id(), "").await;
-    assert_eq!(
-        statuses(&all),
-        ["transfer_duplicate", "new", "transfer_duplicate"]
-    );
+    // The same day, a duplicate; three days apart, a possible one.
+    assert_eq!(statuses(&all), ["duplicate", "new", "possible_duplicate"]);
     assert_eq!(all[0]["match_transaction_id"], json!(made[1]));
     assert_eq!(all[2]["match_transaction_id"], json!(made[0]));
-    assert_eq!(all[0]["decision"], json!("match"));
     assert_eq!(
-        r.body["statements"][0]["counts"]["transfer_duplicate"],
-        json!(2)
+        (&all[0]["match_kind"], &all[0]["decision"]),
+        (&json!("transfer"), &json!("dont_add"))
+    );
+    assert_eq!(
+        all[2]["suggested_decision"]["reason"],
+        json!("the transfer is already recorded, 3 days apart")
     );
 }
 

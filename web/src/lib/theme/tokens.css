@@ -35,6 +35,10 @@
 	--border-width: 1px;
 	--layout-max: 76rem;
 	--gutter: var(--space-4);
+	/* A control's smallest height: a finger's width (docs/ux.md §9). */
+	--target: 2.75rem;
+	/* A checkbox or radio's box, drawn larger than the browser's. */
+	--check-size: 1.25rem;
 
 	/* Color. */
 	--color-bg: #f6f4ef;
@@ -51,6 +55,8 @@
 	--color-warning: #9a6700;
 	--color-warning-bg: #fff4d6;
 	--color-error-bg: #fde8e6;
+	/* Not added: out of the way, but there (docs/ux.md §6). */
+	--color-smoke: #b9b3a6;
 	--color-focus: #2f81f7;
 	--shadow-1: 0 1px 2px rgb(0 0 0 / 0.06);
 
@@ -93,12 +99,12 @@
 		--color-warning: #e3b341;
 		--color-warning-bg: #3a2f12;
 		--color-error-bg: #3d1d1a;
+		--color-smoke: #4d555d;
 		--color-focus: #58a6ff;
 		--shadow-1: none;
 		--color-suggest-rule: #a68ae8;
 		--color-suggest-local: #6aa6e8;
 		--color-suggest-remote: #e06aa8;
-		--color-suggest-match: #4fc1b5;
 		--color-suggest-match: #4fc1b5;
 		--color-on-suggest: #0c1612;
 		--chart-1: #5cb595;
@@ -129,11 +135,13 @@
 	--color-warning: #e3b341;
 	--color-warning-bg: #3a2f12;
 	--color-error-bg: #3d1d1a;
+	--color-smoke: #4d555d;
 	--color-focus: #58a6ff;
 	--shadow-1: none;
 	--color-suggest-rule: #a68ae8;
 	--color-suggest-local: #6aa6e8;
 	--color-suggest-remote: #e06aa8;
+	--color-suggest-match: #4fc1b5;
 	--color-on-suggest: #0c1612;
 	--chart-1: #5cb595;
 	--chart-2: #e0a84a;

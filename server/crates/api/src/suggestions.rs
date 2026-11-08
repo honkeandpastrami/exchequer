@@ -258,8 +258,8 @@ pub(crate) async fn candidates(
         .iter()
         .filter(|r| {
             r.commodity_id == commodity
-                && matches!(r.status.as_str(), "new" | "transfer_match")
-                && r.decision.as_deref() != Some("skip")
+                && matches!(r.status.as_str(), "new" | "transfer_pair")
+                && r.decision.as_deref() != Some("dont_add")
         })
         .filter_map(|r| Some((r.account_id?, r.date, r.amount)))
         .collect();

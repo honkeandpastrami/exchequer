@@ -68,10 +68,10 @@ def sync_detailed(
     client: AuthenticatedClient,
     if_match: str,
 ) -> Response[Import | Problem]:
-    """Work an import out again without uploading it again: its rows' statuses
+    """Work an import out again without uploading it again: its rows' labels
     against the ledger, the suggestions that aren't confident (the
     statement's account, then each row's labels; yours and confident ones
-    stay) and transfer matches across every staged import.
+    stay) and transfer pairs across every staged import.
 
     Args:
         id (UUID):
@@ -103,10 +103,10 @@ def sync(
     client: AuthenticatedClient,
     if_match: str,
 ) -> Import | Problem | None:
-    """Work an import out again without uploading it again: its rows' statuses
+    """Work an import out again without uploading it again: its rows' labels
     against the ledger, the suggestions that aren't confident (the
     statement's account, then each row's labels; yours and confident ones
-    stay) and transfer matches across every staged import.
+    stay) and transfer pairs across every staged import.
 
     Args:
         id (UUID):
@@ -133,10 +133,10 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     if_match: str,
 ) -> Response[Import | Problem]:
-    """Work an import out again without uploading it again: its rows' statuses
+    """Work an import out again without uploading it again: its rows' labels
     against the ledger, the suggestions that aren't confident (the
     statement's account, then each row's labels; yours and confident ones
-    stay) and transfer matches across every staged import.
+    stay) and transfer pairs across every staged import.
 
     Args:
         id (UUID):
@@ -166,10 +166,10 @@ async def asyncio(
     client: AuthenticatedClient,
     if_match: str,
 ) -> Import | Problem | None:
-    """Work an import out again without uploading it again: its rows' statuses
+    """Work an import out again without uploading it again: its rows' labels
     against the ledger, the suggestions that aren't confident (the
     statement's account, then each row's labels; yours and confident ones
-    stay) and transfer matches across every staged import.
+    stay) and transfer pairs across every staged import.
 
     Args:
         id (UUID):

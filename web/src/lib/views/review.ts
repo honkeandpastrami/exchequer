@@ -1,8 +1,7 @@
 // A bank row's form in import review (ux.md §10): the row as splits, like
 // any transaction's, with the bank account's side fixed. Unsplit, it's one
-// split whose fields are the row's labels: yours, or a confident
-// suggestion's, or not chosen yet. Saving sends only what changed, so an
-// untouched suggestion stays a suggestion.
+// split whose fields are the row's labels: yours, a suggestion's, or not
+// chosen yet. Saving makes everything the form shows yours.
 
 import type { Schemas } from '../api/client';
 import { negate, sign, sum } from '../money';
@@ -20,7 +19,7 @@ import { labelState } from './imports';
 
 type Row = Schemas['StagedRow'];
 
-export type RowDraft = { description: string; splits: SplitDraft[] };
+export type RowDraft = { description: string; tags: string[]; splits: SplitDraft[] };
 
 /** Where a bank row is: its statement's account and commodity. */
 export type Bank = { account: string; commodity: string };
@@ -50,7 +49,7 @@ function line(row: Row, bank: Bank, other: LegDraft, more: Partial<SplitDraft>):
 		: { ...s, from: other, to: mine };
 }
 
-/** What a label shows: yours, a confident suggestion's, or `undefined`. */
+/** What a label shows: yours, a suggestion's, or `undefined`. */
 function shown(row: Row, label: Schemas['Label']): { value: string | null } | undefined {
 	const st = labelState(row, label);
 	if (st.kind === 'yours') {
@@ -62,16 +61,18 @@ function shown(row: Row, label: Schemas['Label']): { value: string | null } | un
 					: row.purpose_id;
 		return { value: v ?? null };
 	}
-	if (st.kind === 'confident') return { value: st.suggestion.value ?? null };
+	if (st.kind === 'suggested') return { value: st.suggestion.value ?? null };
 	return undefined;
 }
 
 /** The row's form as it is now. */
 export function rowDraft(row: Row, bank: Bank, ref: Reference): RowDraft {
 	const description = row.set_description ?? '';
+	const tags = [...row.tags];
 	if (row.splits.length)
 		return {
 			description,
+			tags,
 			splits: row.splits.map((p) =>
 				line(row, bank, otherLeg(ref, p.transfer_account_id, p.counterparty_id), {
 					quantity: p.amount,
@@ -93,6 +94,7 @@ export function rowDraft(row: Row, bank: Bank, ref: Reference): RowDraft {
 	};
 	return {
 		description,
+		tags,
 		splits: [
 			line(row, bank, other, {
 				quantity: whole(row),
@@ -116,23 +118,16 @@ function sideUpdate(
 	return { counterparty_id: l.outside.trim() ? (ids.get(key(l.outside)) ?? null) : null };
 }
 
-const same = (a: LegDraft, b: LegDraft) =>
-	a.account === b.account && (a.account !== OUTSIDE || key(a.outside) === key(b.outside));
-
 /**
- * What to send for `after`, given the form as it opened (`before`):
- * counterparty names must all exist in `ref` (create them first).
+ * What to send for `after`: everything the form shows, so it's all yours.
+ * Counterparty names must all exist in `ref` (create them first).
  */
-export function rowUpdate(
-	row: Row,
-	before: RowDraft,
-	after: RowDraft,
-	ref: Reference
-): Schemas['RowUpdate'] {
+export function rowUpdate(row: Row, after: RowDraft, ref: Reference): Schemas['RowUpdate'] {
 	const ids = new Map([...ref.counterparties.values()].map((c) => [key(c.name), c.id]));
 	const out: Schemas['RowUpdate'] = {};
 	const description = after.description.trim();
 	if (description !== (row.set_description ?? '')) out.set_description = description || null;
+	out.tags = after.tags.map((t) => t.trim()).filter(Boolean);
 	const value = (v: string) => (v === UNSET ? undefined : v || null);
 	if (after.splits.length > 1) {
 		out.splits = after.splits.map((s) => {
@@ -153,18 +148,16 @@ export function rowUpdate(
 		});
 		return out;
 	}
-	// One split: the row's own labels, those you changed (all, if it was split).
-	const unsplit = row.splits.length > 0;
-	if (unsplit) out.splits = null;
-	const [a, b] = [after.splits[0], before.splits[0]];
+	// One split: the row's own labels, each one shown.
+	if (row.splits.length) out.splits = null;
+	const a = after.splits[0];
 	const other = otherOf(row, a);
 	const p = other.account ? preview(a, ref) : { category: true, purpose: true };
-	if (other.account && (unsplit || !same(other, otherOf(row, b))))
+	// A transfer pair added as one transfer: its other side is the pair's.
+	if (other.account && !(row.transfer_pair && row.decision === 'add'))
 		Object.assign(out, sideUpdate(other, ids));
-	if (p.category && a.category && a.category !== UNSET && (unsplit || a.category !== b.category))
-		out.category_id = a.category;
-	if (p.purpose && a.purpose && a.purpose !== UNSET && (unsplit || a.purpose !== b.purpose))
-		out.purpose_id = a.purpose;
+	if (p.category && a.category && a.category !== UNSET) out.category_id = a.category;
+	if (p.purpose && a.purpose && a.purpose !== UNSET) out.purpose_id = a.purpose;
 	return out;
 }
 

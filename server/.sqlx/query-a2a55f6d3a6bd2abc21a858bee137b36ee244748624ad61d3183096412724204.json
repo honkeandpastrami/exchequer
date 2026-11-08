@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE staged_row r SET status = u.status, pair_import_id = u.pi,\n                                 pair_statement = u.ps, pair_position = u.pp,\n                                 conflict_import_id = u.ci, conflict_statement = u.cs,\n                                 conflict_position = u.cp,\n                                 decision = CASE WHEN r.status <> u.status\n                                     OR (r.pair_import_id, r.pair_statement, r.pair_position)\n                                        IS DISTINCT FROM (u.pi, u.ps, u.pp)\n                                     OR (r.conflict_import_id, r.conflict_statement,\n                                         r.conflict_position)\n                                        IS DISTINCT FROM (u.ci, u.cs, u.cp)\n                                     THEN NULL ELSE r.decision END\n         FROM unnest($1::uuid[], $2::int2[], $3::int4[], $4::text[], $5::uuid[], $6::int2[],\n                     $7::int4[], $8::uuid[], $9::int2[], $10::int4[])\n              AS u(i, s, p, status, pi, ps, pp, ci, cs, cp)\n         WHERE r.import_id = u.i AND r.statement = u.s AND r.position = u.p\n           AND r.status IN ('new', 'transfer_pair')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Int2Array",
+        "Int4Array",
+        "TextArray",
+        "UuidArray",
+        "Int2Array",
+        "Int4Array",
+        "UuidArray",
+        "Int2Array",
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a2a55f6d3a6bd2abc21a858bee137b36ee244748624ad61d3183096412724204"
+}

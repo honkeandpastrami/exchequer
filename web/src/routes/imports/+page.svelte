@@ -2,18 +2,14 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { all, api, ok, type Schemas } from '#lib/api/client.ts';
+	import CommittedImport from '#lib/components/CommittedImport.svelte';
 	import Failure from '#lib/components/Failure.svelte';
 	import Mark from '#lib/components/Mark.svelte';
+	import NoValue from '#lib/components/NoValue.svelte';
 	import { localDate } from '#lib/dates.ts';
 	import { accountLabel } from '#lib/names.ts';
 	import { reference, type Reference } from '#lib/reference.ts';
-	import {
-		committedSummary,
-		readinessNames,
-		readinessTones,
-		readinessWhy,
-		statementName
-	} from '#lib/views/imports.ts';
+	import { counted, states, unreviewedQuestion } from '#lib/views/imports.ts';
 
 	let ref: Reference | null = $state(null);
 	let staged: Schemas['Import'][] | null = $state(null);
@@ -21,12 +17,15 @@
 	let failure: unknown = $state(null);
 	let busy = $state(false);
 	let input: HTMLInputElement | undefined = $state();
-	/** What the last commit did, a line per file. */
-	let notices: string[] = $state([]);
+	/** What the last commit did, per file. */
+	let outcomes: { name: string; committed?: Schemas['Committed']; skipped?: string }[] = $state([]);
 	let committing = $state(false);
+	/** The import whose Commit asks about its rows to review. */
+	let asking: string | null = $state(null);
 
 	const ready = $derived.by(() => staged?.filter((i) => i.readiness.state === 'ready') ?? []);
-	const name = (i: { file_name?: string | null; id: string }) => i.file_name ?? 'A file';
+	const name = (i: { file_name?: string | null; format?: string }) =>
+		i.file_name ?? (i.format ? `${i.format.toUpperCase()} file` : 'A file');
 
 	async function load() {
 		try {
@@ -71,10 +70,11 @@
 		await load();
 	}
 
-	/** One import, as it is now; the server refuses it if it needs work since. */
+	/** One import, as it is now; the server refuses it if it needs you since. */
 	async function commitOne(imp: Schemas['Import']) {
 		committing = true;
-		notices = [];
+		asking = null;
+		outcomes = [];
 		failure = null;
 		try {
 			const r = await api.GET('/api/v1/imports/{id}', { params: { path: { id: imp.id } } });
@@ -85,8 +85,10 @@
 					header: { 'If-Match': r.response.headers.get('etag') ?? '' }
 				}
 			});
-			notices = [
-				`${name(imp)}: ${c.data ? committedSummary(c.data) : `not committed, ${c.error?.detail ?? c.error?.title}`}.`
+			outcomes = [
+				c.data
+					? { name: name(imp), committed: c.data }
+					: { name: name(imp), skipped: c.error?.detail ?? c.error?.title ?? 'refused' }
 			];
 		} catch (e) {
 			failure = e;
@@ -95,9 +97,16 @@
 		await load();
 	}
 
+	/** Commit; with rows to review left, ask once first. */
+	function tryCommit(imp: Schemas['Import']) {
+		if (unreviewedQuestion(imp.readiness)) asking = imp.id;
+		else commitOne(imp);
+	}
+
 	async function commitReady() {
 		committing = true;
-		notices = [];
+		asking = null;
+		outcomes = [];
 		failure = null;
 		try {
 			const r = ok(
@@ -105,191 +114,240 @@
 					body: { ids: ready.map((i) => i.id) }
 				})
 			);
-			notices = r.results.map(
-				(o) =>
-					`${name(o)}: ${o.committed ? committedSummary(o.committed) : `not committed, ${o.skipped}`}.`
-			);
+			outcomes = r.results.map((o) => ({
+				name: name(o),
+				committed: o.committed ?? undefined,
+				skipped: o.skipped ?? undefined
+			}));
 		} catch (e) {
 			failure = e;
 		}
 		committing = false;
 		await load();
 	}
+
+	const several = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 </script>
 
 <h1>Imports</h1>
-<p class="muted intro">
-	Upload bank files (OFX, QFX, QBO or CSV). Nothing enters the ledger until you review an import and
-	commit it; until then it stays here, for any client to finish.
-</p>
 
-<label class="upload">
-	<span>Upload files</span>
-	<input
-		bind:this={input}
-		type="file"
-		multiple
-		accept=".ofx,.qfx,.qbo,.csv,.txt"
-		disabled={busy}
-		onchange={(e) => e.currentTarget.files?.length && upload(e.currentTarget.files)}
-	/>
-	{#if busy}<span class="muted">Uploading…</span>{/if}
-</label>
-<button
-	class="commit-ready"
-	disabled={committing || busy || ready.length === 0}
-	onclick={commitReady}>Commit {ready.length} ready</button
->
-{#each notices as n, i (i)}<p class="notice" role="status">{n}</p>{/each}
+<div class="top">
+	<label class="upload">
+		<span class="button">{busy ? 'Uploading…' : 'Upload files'}</span>
+		<input
+			bind:this={input}
+			type="file"
+			multiple
+			accept=".ofx,.qfx,.qbo,.csv,.txt"
+			disabled={busy}
+			onchange={(e) => e.currentTarget.files?.length && upload(e.currentTarget.files)}
+		/>
+	</label>
+	<button disabled={committing || busy || ready.length === 0} onclick={commitReady}
+		>Commit {several(ready.length, 'ready import', 'ready imports')}</button
+	>
+</div>
 
 {#each failures as f (f.file)}
 	<div class="failed"><strong>{f.file}</strong><Failure error={f.error} /></div>
 {/each}
 {#if failure}<Failure error={failure} />{/if}
 
+{#if ref}
+	{#each outcomes as o, k (k)}
+		<h2 class="file">{o.name}</h2>
+		{#if o.committed}
+			<CommittedImport committed={o.committed} {ref} />
+		{:else}
+			<p class="notice" role="status">Not committed: {o.skipped}</p>
+		{/if}
+	{/each}
+{/if}
+
 {#if ref && staged}
 	{@const r = ref}
 	<div class="list">
-		<table>
-			<thead>
-				<tr>
-					<th>File</th>
-					<th>Uploaded</th>
-					<th>Statements</th>
-					<th>Status</th>
-					<th></th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each staged as imp (imp.id)}
-					<tr class="row">
-						<td class="file">
-							<a href={resolve('/imports/[id]', { id: imp.id })}>{imp.file_name ?? imp.format}</a>
-						</td>
-						<td class="uploaded">{localDate(imp.created_at)}</td>
-						<td class="statements">
-							{#each imp.statements as s (s.position)}
-								{@const a = s.account_id ? r.accounts.get(s.account_id) : undefined}
-								<div>
-									{statementName(s)} →
-									{#if a}{accountLabel(a, r)}{:else}<span class="warn">no account yet</span>{/if}
-								</div>
-							{:else}
-								<span class="muted">none</span>
-							{/each}
-						</td>
-						<td class="state">
-							<Mark
-								tone={readinessTones[imp.readiness.state]}
-								label={readinessNames[imp.readiness.state]}
-							/>
-							{#each readinessWhy(imp.readiness) as why (why)}
-								<div class="why">{why}</div>
-							{/each}
-						</td>
-						<td class="commit">
-							<button
-								disabled={committing || busy || imp.readiness.state === 'needs_work'}
-								onclick={() => commitOne(imp)}>Commit</button
-							>
-						</td>
-					</tr>
-				{:else}
-					<tr><td colspan="5" class="muted">Nothing staged.</td></tr>
-				{/each}
-			</tbody>
-		</table>
+		{#each staged as imp (imp.id)}
+			{@const st = imp.readiness.state}
+			<section class="block {st}">
+				<div class="head">
+					<span class="title">
+						<Mark tone={states[st].tone} label={states[st].label} quiet />
+						{name(imp)}
+					</span>
+					<a class="go" href={resolve('/imports/[id]', { id: imp.id })}>Review ▸</a>
+				</div>
+				<dl class="facts">
+					<dt>Uploaded</dt>
+					<dd>{localDate(imp.created_at)}</dd>
+					<dd class="aside">
+						{#if st !== 'needs_you'}
+							<button disabled={committing || busy} onclick={() => tryCommit(imp)}>Commit</button>
+						{/if}
+					</dd>
+					<dt>Statements</dt>
+					<dd>
+						{#each imp.statements as s (s.position)}
+							{@const a = s.account_id ? r.accounts.get(s.account_id) : undefined}
+							<div class="statement">
+								{#if s.number_last4}<span class="number">…{s.number_last4}</span>{/if}
+								{#if a}{accountLabel(a, r)}{:else}<NoValue kind="unknown" />{/if}
+							</div>
+						{:else}
+							<NoValue kind="none" />
+						{/each}
+					</dd>
+					<dd class="aside"></dd>
+					<dt>Rows</dt>
+					<dd>
+						{#each counted(imp.readiness.rows) as c (c.state)}<div>{c.text}</div>{:else}<NoValue
+								kind="none"
+							/>{/each}
+					</dd>
+					<dd class="aside"></dd>
+				</dl>
+				{#if asking === imp.id}
+					<div class="ask" role="alertdialog" aria-label="Commit with rows to review">
+						<p>{unreviewedQuestion(imp.readiness)}</p>
+						<div class="buttons">
+							<button disabled={committing} onclick={() => commitOne(imp)}>Commit anyway</button>
+							<button class="quiet" onclick={() => (asking = null)}>Cancel</button>
+						</div>
+					</div>
+				{/if}
+			</section>
+		{:else}
+			<p class="muted">Nothing staged.</p>
+		{/each}
 	</div>
 {:else if !failure}
 	<p class="muted">Loading…</p>
 {/if}
 
 <style>
-	.intro {
-		font-size: var(--text-sm);
-		max-width: 50rem;
-	}
-	.upload {
+	.top {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
+		justify-content: space-between;
 		gap: var(--space-3);
 		margin-bottom: var(--space-4);
+	}
+	/* The file input itself is hidden; its label is the button. */
+	.upload input {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+	}
+	.upload .button {
+		display: inline-flex;
+		align-items: center;
+		min-height: var(--target);
+		padding: var(--space-2) var(--space-4);
+		border: var(--border-width) solid var(--color-accent);
+		border-radius: var(--radius-sm);
+		background: var(--color-accent);
+		color: var(--color-on-accent);
+		cursor: pointer;
+	}
+	.upload:focus-within .button {
+		outline: 2px solid var(--color-focus);
+		outline-offset: 2px;
 	}
 	.failed {
 		font-size: var(--text-sm);
 	}
-	.list {
-		overflow-x: auto;
+	.file {
+		overflow-wrap: anywhere;
+	}
+	.notice {
+		padding: var(--space-3) var(--space-4);
+		border-radius: var(--radius-sm);
+		background: var(--color-surface-alt);
+	}
+	.block {
+		--strip: var(--color-positive);
+		margin-bottom: var(--space-3);
+		padding: var(--space-3) var(--space-4);
 		background: var(--color-surface);
 		border: var(--border-width) solid var(--color-border);
+		border-left: 4px solid var(--strip);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-1);
 	}
-	td {
-		vertical-align: top;
+	.needs_you {
+		--strip: var(--color-negative);
 	}
-	.warn {
-		color: var(--color-warning);
+	.to_review {
+		--strip: var(--color-warning);
 	}
-	.commit-ready {
-		margin-bottom: var(--space-4);
+	.head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+		margin-bottom: var(--space-1);
+		font-weight: var(--weight-strong);
 	}
-	.notice {
+	.title {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.go {
+		display: inline-flex;
+		align-items: center;
+		min-height: var(--target);
+		white-space: nowrap;
+		font-weight: var(--weight-normal);
+	}
+	/* One item per line: names in a column, values using the rest. */
+	.facts {
+		display: grid;
+		grid-template-columns: max-content minmax(0, 1fr) max-content;
+		gap: var(--space-1) var(--space-3);
+		align-items: baseline;
+		margin: 0;
 		font-size: var(--text-sm);
 	}
-	.why {
-		font-size: var(--text-sm);
+	dt {
 		color: var(--color-text-muted);
 	}
-	/* A phone: each import a block, its file and Commit together, then why. */
+	dd {
+		margin: 0;
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.aside {
+		justify-self: end;
+	}
+	.number {
+		margin-right: var(--space-2);
+		font-variant-numeric: var(--numeric);
+	}
+	.ask {
+		margin-top: var(--space-3);
+		padding: var(--space-3) var(--space-4);
+		border-left: 4px solid var(--color-warning);
+		border-radius: var(--radius-sm);
+		background: var(--color-warning-bg);
+	}
+	.ask p {
+		margin: 0 0 var(--space-3);
+	}
+	.buttons {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-3);
+	}
+	/* A phone: names above their values. */
 	@media (max-width: 40rem) {
-		.list table,
-		.list tbody,
-		.list tr,
-		.list td {
-			display: block;
+		.facts {
+			grid-template-columns: minmax(0, 1fr) max-content;
 		}
-		.list thead {
-			display: none;
-		}
-		.list tr.row {
-			display: grid;
-			grid-template-columns: minmax(0, 1fr) auto;
-			grid-template-areas:
-				'file commit'
-				'state commit'
-				'statements statements'
-				'uploaded uploaded';
-			gap: var(--space-1) var(--space-3);
-			padding: var(--space-3);
-			border-top: var(--border-width) solid var(--color-border);
-		}
-		.list tr.row td {
-			padding: 0;
-			border: none;
-		}
-		.file {
-			grid-area: file;
-			overflow-wrap: anywhere;
-		}
-		.commit {
-			grid-area: commit;
-			align-self: start;
-		}
-		.state {
-			grid-area: state;
-		}
-		.statements,
-		.uploaded {
-			font-size: var(--text-sm);
-			color: var(--color-text-muted);
-		}
-		.statements {
-			grid-area: statements;
-		}
-		.uploaded {
-			grid-area: uploaded;
+		dt {
+			grid-column: 1 / -1;
 		}
 	}
 </style>

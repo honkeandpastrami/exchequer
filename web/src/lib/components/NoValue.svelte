@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Where a value would be, something that isn't one (docs/ux.md §4): a
-	// deliberate `none`, or an `unknown` that still needs an answer. A tag,
-	// so it can't be mistaken for data.
+	// deliberate `none`, or an `unknown`, not set. A tag, so it can't be
+	// mistaken for data, a name like "Unknown" included.
 	let { kind }: { kind: 'none' | 'unknown' } = $props();
 </script>
 
@@ -20,9 +20,10 @@
 		white-space: nowrap;
 		vertical-align: baseline;
 	}
+	/* Dark grey: the row's colour says whether it needs you. */
 	.unknown {
-		border-color: var(--color-warning);
-		background: var(--color-warning-bg);
-		color: var(--color-warning);
+		border-color: var(--color-text-muted);
+		background: var(--color-surface-alt);
+		color: var(--color-text);
 	}
 </style>
