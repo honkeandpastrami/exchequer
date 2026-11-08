@@ -14,6 +14,9 @@ branch ─▶ pull request ─▶ checks ─▶ merge to main ─▶ release vX.
   required to merge.
 - **One pull request, one change.** It's squash-merged, so it becomes one commit on `main`
   whose subject is the pull request's title. That commit is what the release is built from.
+- **Merges go through the merge queue.** *Merge when ready* queues a pull request; the
+  queue puts it on top of the latest `main` (and whatever is ahead of it), runs the checks
+  there, and merges it if they pass. Nobody rebases by hand.
 - **Everything that belongs together lands together:** an API change, the regenerated spec
   and SDKs (`just spec`, `just sdk`) and the clients that use them (design §16.1).
 - **Docs change with the code.** A pull request that changes behavior updates
@@ -24,7 +27,8 @@ branch ─▶ pull request ─▶ checks ─▶ merge to main ─▶ release vX.
 
 ## Checks
 
-The `ci` workflow checks a pull request, and checks `main` again after the merge. Each area
+The `ci` workflow checks a pull request, again in the merge queue on top of `main`, and
+`main` once more after the merge. Each area
 runs only when its part of the repository changed (a change to `ci.yml` runs them all):
 
 | Area | Runs when these change | Jobs |
