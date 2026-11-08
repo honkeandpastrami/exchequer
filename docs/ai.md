@@ -463,5 +463,8 @@ transactions are later edited or undone.
   suggestion. `"decision": "new"` on a transfer match keeps its two sides separate.
   `"splits": [...]` splits a row added as new into parts (two or more, adding up to its
   amount), each with its own other side, category, purpose and note; `null` unsplits it.
+  `"reviewed": true` ticks the row as reviewed (design §6.7): its AI suggestions count as
+  yours while it shows what you ticked; `false` unticks it. `POST /imports/{id}/review`
+  ticks or unticks many rows at once.
 - `PATCH /imports/{id}/statements/{position}` with an `account_id` makes it the
   statement's own; with `null`, it goes back to the suggestion, if any.

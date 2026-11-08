@@ -48,6 +48,8 @@ use crate::transactions::{
 const MAX_FILE: usize = 10 * 1024 * 1024;
 /// Longest bank ID a row may have (the fingerprint column's limit).
 const MAX_ID: usize = 200;
+/// Rows one review request may tick.
+const MAX_REVIEW: usize = 500;
 
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -56,6 +58,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(rows))
         .routes(routes!(set_statement))
         .routes(routes!(set_row))
+        .routes(routes!(review))
         .routes(routes!(commit))
         .routes(routes!(commit_ready))
         .routes(routes!(refresh))
@@ -361,7 +364,8 @@ pub struct Readiness {
     /// Statements whose account is a confident suggestion short of 100%,
     /// not yet chosen.
     suggested_accounts: u32,
-    /// Rows that would take a confident AI suggestion short of 100%.
+    /// Rows that would take a confident AI suggestion short of 100%, not
+    /// ticked as reviewed.
     suggested_rows: u32,
 }
 
@@ -397,6 +401,12 @@ pub struct StagedRow {
     decision: Option<Decision>,
     /// Whether `decision` is the client's choice rather than the default.
     decided: bool,
+    /// Whether you ticked the row as reviewed, and it still shows what you
+    /// saw then: the AI suggestions it takes count as yours.
+    reviewed: bool,
+    /// What a tick would record now.
+    #[serde(skip)]
+    seen: Seen,
     /// What matching suggests `decision` be; absent while the statement has
     /// no account.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -438,6 +448,32 @@ pub struct StagedRow {
     /// The row's fields as the file had them.
     #[schema(value_type = Object)]
     raw: serde_json::Value,
+}
+
+impl StagedRow {
+    /// Whether the row needs you before commit (design §6.7): its statement
+    /// has no account, or it has a label or a decision that's neither yours
+    /// nor confidently suggested.
+    fn needs_work(&self) -> bool {
+        self.decision.is_none()
+            || !self.missing.is_empty()
+            || (!self.decided
+                && !self
+                    .suggested_decision
+                    .as_ref()
+                    .is_some_and(|d| d.confident))
+    }
+
+    /// What a tick on the row records, if it may be ticked.
+    fn tick(&self) -> Result<serde_json::Value, Problem> {
+        if self.needs_work() {
+            return Err(Problem::invalid(format!(
+                "statement {} row {} needs a label or a decision first",
+                self.statement, self.position
+            )));
+        }
+        serde_json::to_value(&self.seen).map_err(|_| Problem::internal())
+    }
 }
 
 /// One part of a row split before commit: a split of the new transaction
@@ -601,6 +637,31 @@ pub struct RowUpdate {
     #[serde(default, deserialize_with = "nullable")]
     #[schema(value_type = Option<Vec<RowSplit>>)]
     splits: Option<Option<Vec<RowSplit>>>,
+    /// `true` ticks the row as reviewed, as it is after this change: you
+    /// agree with what it shows, so the AI suggestions it takes count as
+    /// yours. Not for a row that needs a label or a decision. `false`
+    /// unticks it. The tick goes by itself when the row changes under it: a
+    /// new suggestion, or a transfer match made or undone.
+    reviewed: Option<bool>,
+}
+
+/// Rows to tick as reviewed, or untick.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Review {
+    /// The rows, as you saw them; at most 500.
+    rows: Vec<RowRef>,
+    /// `true` ticks the rows that don't need a label or a decision (the
+    /// others stay as they are); `false` unticks them all.
+    reviewed: bool,
+}
+
+/// A staged row of the import.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RowRef {
+    statement: i16,
+    position: i32,
 }
 
 /// What a commit did.
@@ -1130,8 +1191,90 @@ struct Labels {
     purpose: Option<Uuid>,
     missing: Vec<Label>,
     not_applicable: Vec<Label>,
-    /// Who made the suggestions it takes, and how sure each is.
-    suggested_by: Vec<(Uuid, i16)>,
+    /// The suggestions it takes.
+    suggested_by: Vec<Took>,
+}
+
+/// A suggestion a row's labels take: for which label, what, by whom, and
+/// how sure.
+#[derive(Debug, PartialEq, Eq)]
+struct Took {
+    taken: Taken,
+    suggester: Uuid,
+    confidence: i16,
+}
+
+/// A suggested value a row took, as a tick records it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Taken {
+    label: String,
+    value: Option<Uuid>,
+    account: Option<Uuid>,
+}
+
+impl Took {
+    fn of(s: &SuggestionRow) -> Self {
+        Self {
+            taken: Taken {
+                label: s.label.clone(),
+                value: s.value,
+                account: s.account_id,
+            },
+            suggester: s.suggester_id,
+            confidence: s.confidence,
+        }
+    }
+}
+
+/// What a row showed when you ticked it as reviewed (design §6.7): its
+/// status, its transfer match, and the AI suggestions short of certain it
+/// took. The tick holds while the status and match are the same and it
+/// takes no AI suggestion it didn't then; one you since made your own
+/// choice doesn't undo it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Seen {
+    status: String,
+    pair: Option<RowKey>,
+    suggestions: Vec<Taken>,
+}
+
+impl Seen {
+    fn now(r: &RowRow, l: &Labels, by: &HashMap<Uuid, Suggester>) -> Self {
+        Self {
+            status: r.status.clone(),
+            pair: pair_key(r),
+            suggestions: l
+                .suggested_by
+                .iter()
+                .filter(|t| unsure(t, by))
+                .map(|t| t.taken.clone())
+                .collect(),
+        }
+    }
+
+    /// Whether a tick that saw `self` still holds for a row showing `now`.
+    fn holds(&self, now: &Self) -> bool {
+        self.status == now.status
+            && self.pair == now.pair
+            && now.suggestions.iter().all(|t| self.suggestions.contains(t))
+    }
+}
+
+/// An AI suggestion short of certain: worth a look. A certain one, like
+/// logic's, counts as yours.
+fn unsure(t: &Took, by: &HashMap<Uuid, Suggester>) -> bool {
+    !certain(t.confidence)
+        && by
+            .get(&t.suggester)
+            .is_some_and(|s| matches!(s.kind, SuggesterKind::Local | SuggesterKind::Remote))
+}
+
+/// Whether the row's tick holds for what it shows now.
+fn reviewed(r: &RowRow, now: &Seen) -> bool {
+    r.reviewed
+        .clone()
+        .and_then(|v| serde_json::from_value::<Seen>(v).ok())
+        .is_some_and(|seen| seen.holds(now))
 }
 
 /// What a row's labels depend on beyond the row.
@@ -1176,7 +1319,7 @@ fn labels(r: &RowRow, suggestions: &[SuggestionRow], cx: &Context) -> Labels {
         match suggested(Label::Counterparty) {
             Some(s) => {
                 (out.counterparty, out.transfer) = (s.value, s.account_id);
-                out.suggested_by.push((s.suggester_id, s.confidence));
+                out.suggested_by.push(Took::of(s));
             }
             None => {
                 (out.counterparty, out.transfer) = (None, None);
@@ -1213,7 +1356,7 @@ fn labels(r: &RowRow, suggestions: &[SuggestionRow], cx: &Context) -> Labels {
         match suggested(label).filter(|s| s.value.is_some()) {
             Some(s) => {
                 *slot = s.value;
-                out.suggested_by.push((s.suggester_id, s.confidence));
+                out.suggested_by.push(Took::of(s));
             }
             None => {
                 *slot = None;
@@ -1412,14 +1555,10 @@ async fn readiness(
         if decision == Decision::New && !l.missing.is_empty() {
             out.unlabeled += 1;
         }
-        // An AI suggestion short of certain is worth a look; a certain one,
-        // like logic's, counts as yours.
-        if l.suggested_by.iter().any(|(s, c)| {
-            !certain(*c)
-                && by
-                    .get(s)
-                    .is_some_and(|s| matches!(s.kind, SuggesterKind::Local | SuggesterKind::Remote))
-        }) {
+        // An AI suggestion short of certain is worth a look, unless you
+        // ticked the row as reviewed.
+        let seen = Seen::now(r, &l, &by);
+        if !seen.suggestions.is_empty() && !reviewed(r, &seen) {
             out.suggested_rows += 1;
         }
     }
@@ -1556,6 +1695,8 @@ fn staged_row(
     let chosen = r.decision.as_deref().map(Decision::parse).transpose()?;
     let decision = decision_of(&r)?;
     let l = labels(&r, suggestions, cx);
+    let seen = Seen::now(&r, &l, by);
+    let reviewed = reviewed(&r, &seen);
     let suggestions = suggestions
         .iter()
         .map(|s| {
@@ -1587,6 +1728,8 @@ fn staged_row(
         transfer_conflict,
         decision,
         decided: chosen.is_some(),
+        reviewed,
+        seen,
         suggested_decision,
         set_description: r.set_description,
         counterparty_id: l.counterparty,
@@ -1787,6 +1930,7 @@ async fn upload(
                 conflict_import_id: None,
                 conflict_statement: None,
                 conflict_position: None,
+                reviewed: None,
                 match_days: None,
                 match_similarity: None,
             });
@@ -2260,12 +2404,70 @@ async fn set_row(
     let version = store::imports::lock(&mut *tx, id)
         .await?
         .ok_or_else(Problem::internal)?;
-    let row = shown(&mut tx, id, vec![row])
+    let mut row = shown(&mut tx, id, vec![row])
         .await?
         .pop()
         .ok_or_else(Problem::internal)?;
+    if let Some(tick) = req.reviewed {
+        let seen = if tick { Some(row.tick()?) } else { None };
+        store::imports::set_reviewed(&mut *tx, id, &[((statement, position), seen)]).await?;
+        row.reviewed = tick;
+    }
     tx.commit().await?;
     Ok((StatusCode::OK, etag(version), axum::Json(row)).into_response())
+}
+
+/// Tick rows as reviewed, or untick them (design §6.7): a ticked row's AI
+/// suggestions count as yours, so an import whose rows you ticked is ready
+/// to commit. A row that needs a label or a decision isn't ticked. Each
+/// tick goes by itself when its row changes under it.
+#[utoipa::path(post, path = "/imports/{id}/review", tag = "imports", security(("bearer" = [])),
+    params(("id" = Uuid, Path),
+           ("If-Match" = String, Header, description = "ETag from your last read")),
+    request_body = Review,
+    responses((status = OK, body = Import, headers(("ETag" = String))),
+              (status = NOT_FOUND, body = Problem, content_type = "application/problem+json"),
+              (status = PRECONDITION_FAILED, body = Problem, content_type = "application/problem+json"),
+              (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json")))]
+async fn review(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    IfMatch(version): IfMatch,
+    Json(req): Json<Review>,
+) -> Result<Response, Problem> {
+    if req.rows.len() > MAX_REVIEW {
+        return Err(Problem::invalid(format!("rows: at most {MAX_REVIEW}")));
+    }
+    let mut tx = state.pool.begin().await?;
+    let current = store::imports::lock(&mut *tx, id)
+        .await?
+        .ok_or_else(Problem::not_found)?;
+    if current != version {
+        return Err(Problem::stale());
+    }
+    let wanted: HashSet<(i16, i32)> = req.rows.iter().map(|r| (r.statement, r.position)).collect();
+    let rows: Vec<RowRow> = store::imports::rows(&mut *tx, id, None, None, None, i64::MAX)
+        .await?
+        .into_iter()
+        .filter(|r| wanted.contains(&(r.statement, r.position)))
+        .collect();
+    if rows.len() != wanted.len() {
+        return Err(Problem::invalid("rows: not all of them are this import's"));
+    }
+    let mut ticks = Vec::new();
+    for r in shown(&mut tx, id, rows).await? {
+        let seen = match (req.reviewed, r.needs_work()) {
+            (false, _) => None,
+            (true, true) => continue,
+            (true, false) => Some(r.tick()?),
+        };
+        ticks.push(((r.statement, r.position), seen));
+    }
+    store::imports::set_reviewed(&mut *tx, id, &ticks).await?;
+    store::imports::touch(&mut *tx, id).await?;
+    let after = one(&mut tx, id).await?;
+    tx.commit().await?;
+    Ok(respond(StatusCode::OK, &after))
 }
 
 /// A row's parts as a request gives them, checked: two or more, each more

@@ -561,6 +561,16 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
    - `ready` (green): it commits exactly as shown. A suggestion from logic (the rules,
      matching), or any at 100%, counts as yours.
 
+   **Reviewed rows.** You can tick a row as reviewed: you read what it shows and agree, so
+   the AI suggestions it takes count as yours, and an import whose rows are all settled
+   or ticked is `ready`. A tick isn't a choice: it doesn't make the row's labels yours, so
+   a transfer match can still form and settle its other side (§6.4). It holds while the
+   row shows what you ticked (the same status and transfer match, and no AI suggestion
+   it didn't take then; a label you since chose yourself doesn't undo it), and goes by
+   itself when the row changes under it. A row that needs work can't be ticked: there's
+   nothing to agree with. A tick can be taken back any time before commit (`PATCH` the row
+   with `reviewed`, or `POST /imports/{id}/review {rows, reviewed}` for many).
+
    The web app shows the same mark and reasons on the Imports list and on an import's
    review, where its rows to label or decide are one filter away; either page can
    commit any import that isn't `needs_work`, through the one commit endpoint. **Commit N ready** (`POST /imports/commit-ready {ids}`) commits the `ready` ones

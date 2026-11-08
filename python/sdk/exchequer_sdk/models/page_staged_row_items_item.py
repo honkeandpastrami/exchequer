@@ -40,6 +40,8 @@ class PageStagedRowItemsItem:
             §3.2).
         position (int):
         raw (PageStagedRowItemsItemRaw): The row's fields as the file had them.
+        reviewed (bool): Whether you ticked the row as reviewed, and it still shows what you
+            saw then: the AI suggestions it takes count as yours.
         splits (list[RowSplit]): The row split into parts, each a split of the new transaction; empty
             if it isn't split. A split row is added as new, and its labels are
             the parts': the row's own, and its suggestions, don't apply.
@@ -73,6 +75,7 @@ class PageStagedRowItemsItem:
     not_applicable: list[Label]
     position: int
     raw: PageStagedRowItemsItemRaw
+    reviewed: bool
     splits: list[RowSplit]
     statement: int
     status: RowStatus
@@ -120,6 +123,8 @@ class PageStagedRowItemsItem:
         position = self.position
 
         raw = self.raw.to_dict()
+
+        reviewed = self.reviewed
 
         splits = []
         for splits_item_data in self.splits:
@@ -232,6 +237,7 @@ class PageStagedRowItemsItem:
                 "not_applicable": not_applicable,
                 "position": position,
                 "raw": raw,
+                "reviewed": reviewed,
                 "splits": splits,
                 "statement": statement,
                 "status": status,
@@ -304,6 +310,8 @@ class PageStagedRowItemsItem:
         position = d.pop("position")
 
         raw = PageStagedRowItemsItemRaw.from_dict(d.pop("raw"))
+
+        reviewed = d.pop("reviewed")
 
         splits = []
         _splits = d.pop("splits")
@@ -504,6 +512,7 @@ class PageStagedRowItemsItem:
             not_applicable=not_applicable,
             position=position,
             raw=raw,
+            reviewed=reviewed,
             splits=splits,
             statement=statement,
             status=status,

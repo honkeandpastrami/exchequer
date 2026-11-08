@@ -567,6 +567,28 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v1/imports/{id}/review': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Tick rows as reviewed, or untick them (design §6.7): a ticked row's AI
+		 *     suggestions count as yours, so an import whose rows you ticked is ready
+		 *     to commit. A row that needs a label or a decision isn't ticked. Each
+		 *     tick goes by itself when its row changes under it.
+		 */
+		post: operations['imports_review'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/imports/{id}/rows': {
 		parameters: {
 			query?: never;
@@ -2564,6 +2586,11 @@ export interface components {
 				purpose_id?: string | null;
 				/** @description The row's fields as the file had them. */
 				raw: Record<string, never>;
+				/**
+				 * @description Whether you ticked the row as reviewed, and it still shows what you
+				 *     saw then: the AI suggestions it takes count as yours.
+				 */
+				reviewed: boolean;
 				/** @description The new transaction's description, if not the bank's. */
 				set_description?: string | null;
 				/**
@@ -2770,7 +2797,8 @@ export interface components {
 			suggested_accounts: number;
 			/**
 			 * Format: int32
-			 * @description Rows that would take a confident AI suggestion short of 100%.
+			 * @description Rows that would take a confident AI suggestion short of 100%, not
+			 *     ticked as reviewed.
 			 */
 			suggested_rows: number;
 			/**
@@ -2842,6 +2870,16 @@ export interface components {
 			/** @description Prices stored or replaced. */
 			stored: number;
 		};
+		/** @description Rows to tick as reviewed, or untick. */
+		Review: {
+			/**
+			 * @description `true` ticks the rows that don't need a label or a decision (the
+			 *     others stay as they are); `false` unticks them all.
+			 */
+			reviewed: boolean;
+			/** @description The rows, as you saw them; at most 500. */
+			rows: components['schemas']['RowRef'][];
+		};
 		/** @description What `POST /revoke-all` did. */
 		RevokedAll: {
 			/** @description How many tokens were still working. */
@@ -2888,6 +2926,13 @@ export interface components {
 			transfer_duplicate: number;
 			/** Format: int64 */
 			transfer_match: number;
+		};
+		/** @description A staged row of the import. */
+		RowRef: {
+			/** Format: int32 */
+			position: number;
+			/** Format: int32 */
+			statement: number;
 		};
 		/**
 		 * @description One part of a row split before commit: a split of the new transaction
@@ -2950,6 +2995,14 @@ export interface components {
 			 *     label (to a value or `null`) makes it your choice.
 			 */
 			revert?: components['schemas']['Label'][];
+			/**
+			 * @description `true` ticks the row as reviewed, as it is after this change: you
+			 *     agree with what it shows, so the AI suggestions it takes count as
+			 *     yours. Not for a row that needs a label or a decision. `false`
+			 *     unticks it. The tick goes by itself when the row changes under it: a
+			 *     new suggestion, or a transfer match made or undone.
+			 */
+			reviewed?: boolean | null;
 			set_description?: string | null;
 			/**
 			 * @description Split the row into these parts (two or more, adding up to its
@@ -3187,6 +3240,11 @@ export interface components {
 			purpose_id?: string | null;
 			/** @description The row's fields as the file had them. */
 			raw: Record<string, never>;
+			/**
+			 * @description Whether you ticked the row as reviewed, and it still shows what you
+			 *     saw then: the AI suggestions it takes count as yours.
+			 */
+			reviewed: boolean;
 			/** @description The new transaction's description, if not the bank's. */
 			set_description?: string | null;
 			/**
@@ -5314,6 +5372,63 @@ export interface operations {
 			};
 			/** @description Precondition Failed */
 			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+		};
+	};
+	imports_review: {
+		parameters: {
+			query?: never;
+			header: {
+				/** @description ETag from your last read */
+				'If-Match': string;
+			};
+			path: {
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['Review'];
+			};
+		};
+		responses: {
+			/** @description OK */
+			200: {
+				headers: {
+					ETag?: string;
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Import'];
+				};
+			};
+			/** @description Not Found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Precondition Failed */
+			412: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
 				headers: {
 					[name: string]: unknown;
 				};

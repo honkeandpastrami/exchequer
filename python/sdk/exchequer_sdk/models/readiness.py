@@ -23,7 +23,8 @@ class Readiness:
             confirmed; `needs_work` needs you first.
         suggested_accounts (int): Statements whose account is a confident suggestion short of 100%,
             not yet chosen.
-        suggested_rows (int): Rows that would take a confident AI suggestion short of 100%.
+        suggested_rows (int): Rows that would take a confident AI suggestion short of 100%, not
+            ticked as reviewed.
         undecided (int): Rows whose decision is neither yours nor confidently suggested (a
             near duplicate never is). Needs work.
         unlabeled (int): New rows with a label neither chosen nor confidently suggested.

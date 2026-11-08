@@ -207,3 +207,30 @@ export const unlabeled = (rows: Schemas['StagedRow'][]) =>
 /** Rows whose decision is neither yours nor confidently suggested. */
 export const undecided = (rows: Schemas['StagedRow'][]) =>
 	rows.filter((r) => r.suggested_decision && !r.decided && !r.suggested_decision.confident);
+
+/** Rows that need you before commit: no account yet, labels, or a decision. */
+export const needsWork = (r: Schemas['StagedRow']) =>
+	!r.decision ||
+	(r.decision === 'new' && r.missing.length > 0) ||
+	(!!r.suggested_decision && !r.decided && !r.suggested_decision.confident);
+
+/** Whether a row takes an AI suggestion short of 100%: worth a look. A
+ * split row's labels are its parts', and a transfer match's other side is
+ * the match's. */
+const takesAi = (r: Schemas['StagedRow']) =>
+	(r.decision === 'new' || r.decision === 'replace' || r.status === 'transfer_match') &&
+	!r.splits.length &&
+	(Object.keys(labelNames) as Label[]).some((label) => {
+		const st = labelState(r, label);
+		return (
+			st.kind === 'confident' &&
+			!r.not_applicable.includes(label) &&
+			!(label === 'counterparty' && r.transfer_match) &&
+			(st.suggestion.suggester.kind === 'local' || st.suggestion.suggester.kind === 'remote') &&
+			st.suggestion.confidence < 1000
+		);
+	});
+
+/** Rows that would commit on AI suggestions you haven't ticked as reviewed. */
+export const toReview = (rows: Schemas['StagedRow'][]) =>
+	rows.filter((r) => !r.reviewed && !needsWork(r) && takesAi(r));
