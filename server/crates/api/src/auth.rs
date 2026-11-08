@@ -21,7 +21,7 @@ use axum::extract::{ConnectInfo, Request, State};
 use axum::http::header;
 use axum::middleware::Next;
 use axum::response::Response;
-use domain::TokenId;
+use ledger::TokenId;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use time::OffsetDateTime;

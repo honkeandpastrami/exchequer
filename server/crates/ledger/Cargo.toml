@@ -1,0 +1,23 @@
+[package]
+name = "ledger"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Ledger core: amounts, commodities, parties, accounts, splits and their invariants (design §3)"
+
+[lints]
+workspace = true
+
+[dependencies]
+bigdecimal = "0.4.11"
+rust_decimal = "1.43.0"
+serde = "1.0.229"
+thiserror = "2.0.21"
+time = "0.3.55"
+uuid = { version = "1.28.0", features = ["v7"] }
+
+[dev-dependencies]
+proptest = "1.12.0"
+serde_json = "1.0.154"
+time = { version = "0.3.55", features = ["macros"] }

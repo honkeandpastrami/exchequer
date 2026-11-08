@@ -10,7 +10,7 @@ description = "Postgres access and schema migrations (design §15)"
 workspace = true
 
 [dependencies]
-domain = { path = "../domain" }
+ledger = { path = "../ledger" }
 rust_decimal = "1.43.0"
 suggest = { path = "../suggest" }
 serde_json = "1.0.154"

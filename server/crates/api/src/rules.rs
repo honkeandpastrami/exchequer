@@ -150,7 +150,7 @@ pub struct DryRun {
 
 // ------------------------------------------------------------- Helpers ----
 
-fn invalid(errors: Vec<rules::ScriptError>) -> Problem {
+fn invalid(errors: Vec<suggest_rules::ScriptError>) -> Problem {
     let n = errors.len();
     Problem::new(
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -235,7 +235,8 @@ async fn put(
         return Err(Problem::stale());
     }
     let version = current + 1;
-    rules::Script::compile(version, &req.source, &names(&mut tx).await?).map_err(invalid)?;
+    suggest_rules::Script::compile(version, &req.source, &names(&mut tx).await?)
+        .map_err(invalid)?;
     let token = principal.actor().map(|t| *t.as_uuid());
     store::rules::insert(&mut *tx, version, &req.source, note, token).await?;
     let r = store::rules::get(&mut *tx, version)
@@ -323,7 +324,8 @@ async fn dry_run(
         },
     };
     let names = names(&mut db).await?;
-    let script = rules::Script::compile(version.unwrap_or(0), &source, &names).map_err(invalid)?;
+    let script =
+        suggest_rules::Script::compile(version.unwrap_or(0), &source, &names).map_err(invalid)?;
     let history = history(&mut db).await?;
     let examples: Vec<(suggest::Example, Vec<suggest::Candidate>)> = history
         .examples

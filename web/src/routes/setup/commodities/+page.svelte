@@ -3,7 +3,7 @@
 	import { commodities } from '#lib/api/resources.ts';
 	import Failure from '#lib/components/Failure.svelte';
 	import RowForm from '#lib/components/RowForm.svelte';
-	import { referenceState } from '#lib/setup.svelte.ts';
+	import { referenceState } from '#lib/reference-state.svelte.ts';
 
 	type Kind = Schemas['CommodityKind'];
 	/** The open form: a new commodity (`id` null) or a commodity's. */

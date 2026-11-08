@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use axum::http::StatusCode;
 use common::household::{H, create};
-use outbound::prices::{Error, Kind, Pair, PriceSource, Quote};
+use external_calls::prices::{Error, Kind, Pair, PriceSource, Quote};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use time::Date;

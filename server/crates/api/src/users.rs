@@ -9,7 +9,7 @@ use axum::Extension;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use domain::{PasskeyId, TokenId, UserId};
+use ledger::{PasskeyId, TokenId, UserId};
 use serde::{Deserialize, Serialize};
 use store::audit::{self, Action};
 use store::users::{PasskeyRow, UserRow};

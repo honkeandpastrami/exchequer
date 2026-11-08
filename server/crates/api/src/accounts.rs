@@ -5,7 +5,7 @@ use axum::Extension;
 use axum::extract::State;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use domain::{AccountNumber, Amount};
+use ledger::{AccountNumber, Amount};
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use store::account_numbers::NumberRow;

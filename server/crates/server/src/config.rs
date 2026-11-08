@@ -287,7 +287,7 @@ impl Config {
             },
             local_ai: match env("EXCHEQUER_LOCAL_AI") {
                 Some(off) if off == "off" => None,
-                Some(id) => match heuristics::method(&id) {
+                Some(id) => match suggest_local_ai::method(&id) {
                     Some(m) => Some(m.id()),
                     None => {
                         return Err(ConfigError::Invalid {
@@ -296,7 +296,7 @@ impl Config {
                         });
                     }
                 },
-                None => heuristics::METHODS.first().map(|m| m.id()),
+                None => suggest_local_ai::METHODS.first().map(|m| m.id()),
             },
             remote_ai,
             prices,

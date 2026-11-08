@@ -2,7 +2,7 @@
 //! POST with the same `Idempotency-Key` gets the original response back
 //! instead of creating something twice.
 
-use domain::TokenId;
+use ledger::TokenId;
 use sqlx::PgExecutor;
 
 /// How long a key is remembered.

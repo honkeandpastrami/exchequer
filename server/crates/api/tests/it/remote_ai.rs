@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use axum::http::StatusCode;
 use common::household::H;
 use common::{Response, call};
-use outbound::decision::{Answer, Decide, Decision, Error, Question};
+use external_calls::decision::{Answer, Decide, Decision, Error, Question};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
@@ -57,7 +57,10 @@ impl Decide for Fake {
 }
 
 fn with_remote(fake: &Arc<Fake>) -> api::Suggestions {
-    api::Suggestions::default().with_remote(Some(Arc::new(remote::Remote::new(fake.clone(), 2))))
+    api::Suggestions::default().with_remote(Some(Arc::new(suggest_remote_ai::Remote::new(
+        fake.clone(),
+        2,
+    ))))
 }
 
 async fn spend(pool: &PgPool, h: &H, date: &str, description: &str) {

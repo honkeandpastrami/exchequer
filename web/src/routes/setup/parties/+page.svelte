@@ -4,7 +4,7 @@
 	import Failure from '#lib/components/Failure.svelte';
 	import RowForm from '#lib/components/RowForm.svelte';
 	import { partyKinds, rank } from '#lib/labels.ts';
-	import { referenceState } from '#lib/setup.svelte.ts';
+	import { referenceState } from '#lib/reference-state.svelte.ts';
 
 	type Kind = Schemas['PartyKind'];
 	/** The open form: a new party (`id` null) or a party's. */

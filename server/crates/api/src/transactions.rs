@@ -1,15 +1,15 @@
 //! `/api/v1/transactions` (design §3). A transaction is created and replaced
-//! whole, splits included. Every split is checked by `domain` before it's
+//! whole, splits included. Every split is checked by `ledger` before it's
 //! stored, and every response carries each split's derived `kind`.
 
 use axum::Extension;
 use axum::extract::State;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use domain::transaction::TransactionError;
-use domain::{
-    AccountId, Amount, Book, CategoryId, Classified, CommodityId, CounterpartyId, Leg as DomainLeg,
-    Month, PartyId, Side, Split as DomainSplit, TransactionId,
+use ledger::transaction::TransactionError;
+use ledger::{
+    AccountId, Amount, Book, CategoryId, Classified, CommodityId, CounterpartyId, Leg as LedgerLeg,
+    Month, PartyId, Side, Split as LedgerSplit, TransactionId,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
@@ -25,7 +25,7 @@ use crate::AppState;
 use crate::auth::Principal;
 use crate::common::{audit, delete_error, write_error};
 use crate::conventions::{IfMatch, Page, etag};
-use crate::ledger::book_for;
+use crate::ledger_from_store::book_for;
 use crate::problem::{Json, Path, Problem, Query};
 
 pub fn routes() -> OpenApiRouter<AppState> {
@@ -83,14 +83,14 @@ pub enum Kind {
     Adjustment,
 }
 
-impl From<domain::Kind> for Kind {
-    fn from(k: domain::Kind) -> Self {
+impl From<ledger::Kind> for Kind {
+    fn from(k: ledger::Kind) -> Self {
         match k {
-            domain::Kind::Expense => Self::Expense,
-            domain::Kind::Income => Self::Income,
-            domain::Kind::Transfer => Self::Transfer,
-            domain::Kind::Conversion => Self::Conversion,
-            domain::Kind::Adjustment => Self::Adjustment,
+            ledger::Kind::Expense => Self::Expense,
+            ledger::Kind::Income => Self::Income,
+            ledger::Kind::Transfer => Self::Transfer,
+            ledger::Kind::Conversion => Self::Conversion,
+            ledger::Kind::Adjustment => Self::Adjustment,
         }
     }
 }
@@ -178,18 +178,18 @@ fn side(leg: &Leg, which: &str, index: usize) -> Result<Side, Problem> {
     }
 }
 
-fn domain_leg(leg: &Leg, which: &str, index: usize) -> Result<DomainLeg, Problem> {
-    Ok(DomainLeg {
+fn ledger_leg(leg: &Leg, which: &str, index: usize) -> Result<LedgerLeg, Problem> {
+    Ok(LedgerLeg {
         side: side(leg, which, index)?,
         commodity: CommodityId::from_uuid(leg.commodity_id),
         quantity: leg.quantity,
     })
 }
 
-pub(crate) fn domain_split(s: &NewSplit, index: usize) -> Result<DomainSplit, Problem> {
-    Ok(DomainSplit {
-        from: domain_leg(&s.from, "from", index)?,
-        to: domain_leg(&s.to, "to", index)?,
+pub(crate) fn ledger_split(s: &NewSplit, index: usize) -> Result<LedgerSplit, Problem> {
+    Ok(LedgerSplit {
+        from: ledger_leg(&s.from, "from", index)?,
+        to: ledger_leg(&s.to, "to", index)?,
         purpose: s.purpose_id.map(PartyId::from_uuid),
         category: s.category_id.map(CategoryId::from_uuid),
         bill: None,
@@ -212,7 +212,7 @@ fn leg_from_row(
     }
 }
 
-/// The request form of a stored split (to re-check it with `domain`).
+/// The request form of a stored split (to re-check it with `ledger`).
 pub(crate) fn new_split_from_row(r: &SplitRow) -> NewSplit {
     NewSplit {
         from: leg_from_row(
@@ -244,18 +244,18 @@ fn check_count(splits: &[NewSplit]) -> Result<(), Problem> {
     Ok(())
 }
 
-fn domain_splits(splits: &[NewSplit]) -> Result<Vec<DomainSplit>, Problem> {
+fn ledger_splits(splits: &[NewSplit]) -> Result<Vec<LedgerSplit>, Problem> {
     splits
         .iter()
         .enumerate()
-        .map(|(i, s)| domain_split(s, i))
+        .map(|(i, s)| ledger_split(s, i))
         .collect()
 }
 
-/// Classifies splits with `domain`, against entities already loaded into
+/// Classifies splits with `ledger`, against entities already loaded into
 /// `book`. Errors name the split and the rule.
-fn classify_with(book: &Book, splits: Vec<DomainSplit>) -> Result<Vec<Classified>, Problem> {
-    let tx = domain::Transaction {
+fn classify_with(book: &Book, splits: Vec<LedgerSplit>) -> Result<Vec<Classified>, Problem> {
+    let tx = ledger::Transaction {
         id: TransactionId::new(),
         date: Date::MIN,
         description: String::new(),
@@ -277,7 +277,7 @@ fn classify_with(book: &Book, splits: Vec<DomainSplit>) -> Result<Vec<Classified
 /// Checks a request's splits against the database.
 async fn classify(db: &mut PgConnection, splits: &[NewSplit]) -> Result<Vec<Classified>, Problem> {
     check_count(splits)?;
-    let splits = domain_splits(splits)?;
+    let splits = ledger_splits(splits)?;
     let book = book_for(db, &splits).await?;
     classify_with(&book, splits)
 }
@@ -340,9 +340,9 @@ async fn from_full(db: &mut PgConnection, fulls: Vec<Full>) -> Result<Vec<Transa
         .collect();
     // Stored data passed these checks when written; failing now is a bug.
     let internal = |_| Problem::internal();
-    let all: Vec<DomainSplit> = requests
+    let all: Vec<LedgerSplit> = requests
         .iter()
-        .map(|(_, r)| domain_splits(&r.splits))
+        .map(|(_, r)| ledger_splits(&r.splits))
         .collect::<Result<Vec<_>, _>>()
         .map_err(internal)?
         .into_iter()
@@ -352,7 +352,7 @@ async fn from_full(db: &mut PgConnection, fulls: Vec<Full>) -> Result<Vec<Transa
     requests
         .into_iter()
         .map(|(t, req)| {
-            let splits = domain_splits(&req.splits).map_err(internal)?;
+            let splits = ledger_splits(&req.splits).map_err(internal)?;
             let classified = classify_with(&book, splits).map_err(internal)?;
             Ok(output(t.id, t.version, t.import_batch_id, req, classified))
         })

@@ -26,13 +26,13 @@ pub struct Suggestions {
     local: Option<&'static dyn Method>,
     /// The local method trained on a snapshot of the history.
     trained: Arc<Mutex<Trained>>,
-    remote: Option<Arc<remote::Remote>>,
+    remote: Option<Arc<suggest_remote_ai::Remote>>,
 }
 
 impl Default for Suggestions {
     /// The default local method.
     fn default() -> Self {
-        Self::new(heuristics::METHODS.first().copied())
+        Self::new(suggest_local_ai::METHODS.first().copied())
     }
 }
 
@@ -49,7 +49,7 @@ impl Suggestions {
 
     /// With remote AI, asked after the local method.
     #[must_use]
-    pub fn with_remote(self, remote: Option<Arc<remote::Remote>>) -> Self {
+    pub fn with_remote(self, remote: Option<Arc<suggest_remote_ai::Remote>>) -> Self {
         Self { remote, ..self }
     }
 
@@ -57,7 +57,7 @@ impl Suggestions {
         self.local
     }
 
-    pub(crate) fn remote(&self) -> Option<&Arc<remote::Remote>> {
+    pub(crate) fn remote(&self) -> Option<&Arc<suggest_remote_ai::Remote>> {
         self.remote.as_ref()
     }
 
@@ -72,7 +72,7 @@ impl Suggestions {
         {
             // Validated when uploaded; a name deleted since makes it invalid
             // until it's fixed, and rules sit out meanwhile.
-            match rules::Script::compile(r.version, &r.source, &names(db).await?) {
+            match suggest_rules::Script::compile(r.version, &r.source, &names(db).await?) {
                 Ok(s) => levels.push(Arc::new(s)),
                 Err(e) => tracing::warn!(
                     version = r.version,
@@ -159,13 +159,13 @@ pub(crate) async fn history(db: &mut PgConnection) -> Result<History, Problem> {
 }
 
 /// What remote AI may name: account numbers as their last four only.
-pub(crate) async fn catalog(db: &mut PgConnection) -> Result<remote::Catalog, Problem> {
+pub(crate) async fn catalog(db: &mut PgConnection) -> Result<suggest_remote_ai::Catalog, Problem> {
     let c = store::history::catalog(db).await?;
-    Ok(remote::Catalog {
+    Ok(suggest_remote_ai::Catalog {
         accounts: c
             .accounts
             .into_iter()
-            .map(|a| remote::AccountInfo {
+            .map(|a| suggest_remote_ai::AccountInfo {
                 id: a.id,
                 name: a.name,
                 kind: a.kind,
@@ -179,19 +179,19 @@ pub(crate) async fn catalog(db: &mut PgConnection) -> Result<remote::Catalog, Pr
         parties: c
             .parties
             .into_iter()
-            .map(|(id, name, kind)| remote::PartyInfo { id, name, kind })
+            .map(|(id, name, kind)| suggest_remote_ai::PartyInfo { id, name, kind })
             .collect(),
     })
 }
 
 /// Every name a rules script may use.
-pub(crate) async fn names(db: &mut PgConnection) -> Result<rules::Names, Problem> {
+pub(crate) async fn names(db: &mut PgConnection) -> Result<suggest_rules::Names, Problem> {
     let n = store::rules::names(db).await?;
-    Ok(rules::Names {
+    Ok(suggest_rules::Names {
         accounts: n
             .accounts
             .into_iter()
-            .map(|(id, name, owner)| rules::AccountName { id, name, owner })
+            .map(|(id, name, owner)| suggest_rules::AccountName { id, name, owner })
             .collect(),
         counterparties: n.counterparties,
         categories: n.categories,

@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::process::ExitCode;
 
-use import::ofx::restore;
+use bank_import::ofx_parsing::restore;
 use ofx_rs::aggregates::{LedgerBalance, StatementTransaction};
 use rust_decimal::Decimal;
 use time::{Date, UtcOffset};
@@ -56,8 +56,8 @@ fn main() -> ExitCode {
 /// Returns `Ok(true)` when every transaction matches the reference.
 fn run(ofx_path: &str, reference_path: &str) -> Result<bool, Box<dyn Error>> {
     // Exchequer's patched parser: ofx-rs plus fixes for bank-specific tags,
-    // entities and non-ASCII text (see `import::ofx`).
-    let parsed = import::ofx::parse(std::fs::read(ofx_path)?)?;
+    // entities and non-ASCII text (see `bank_import::ofx_parsing`).
+    let parsed = bank_import::ofx_parsing::parse(std::fs::read(ofx_path)?)?;
     let doc = &parsed.document;
     let statements = collect_statements(doc);
     let reference = read_reference(reference_path)?;

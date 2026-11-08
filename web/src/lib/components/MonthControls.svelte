@@ -15,7 +15,7 @@
 		toParams,
 		unsaved,
 		type ParamsDraft
-	} from '../views/params';
+	} from '../views/settlement-params';
 	import Failure from './Failure.svelte';
 
 	let { month, ref, onchange }: { month: string; ref: Reference; onchange: () => void } = $props();

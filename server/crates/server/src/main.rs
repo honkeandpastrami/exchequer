@@ -151,11 +151,11 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     }
     let remote = match &config.remote_ai {
         Some(r) => {
-            let client = outbound::decision::Client::new(
+            let client = external_calls::decision::Client::new(
                 &r.endpoint,
                 &r.deployment,
                 r.key.expose(),
-                outbound::decision::TIMEOUT,
+                external_calls::decision::TIMEOUT,
             )
             .map_err(|e| format!("remote AI: {e}"))?;
             tracing::info!(
@@ -163,7 +163,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                 concurrency = r.concurrency,
                 "remote AI"
             );
-            Some(std::sync::Arc::new(remote::Remote::new(
+            Some(std::sync::Arc::new(suggest_remote_ai::Remote::new(
                 std::sync::Arc::new(client),
                 r.concurrency,
             )))
@@ -174,15 +174,20 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     let timeout = std::time::Duration::from_secs(15);
-    let mut price_sources: Vec<std::sync::Arc<dyn outbound::prices::PriceSource>> = Vec::new();
+    let mut price_sources: Vec<std::sync::Arc<dyn external_calls::prices::PriceSource>> =
+        Vec::new();
     for s in &config.prices.sources {
         price_sources.push(match s {
             config::PriceSource::Tiingo { key } => std::sync::Arc::new(
-                outbound::prices::Tiingo::new(outbound::prices::Tiingo::URL, key.expose(), timeout)
-                    .map_err(|e| format!("tiingo: {e}"))?,
+                external_calls::prices::Tiingo::new(
+                    external_calls::prices::Tiingo::URL,
+                    key.expose(),
+                    timeout,
+                )
+                .map_err(|e| format!("tiingo: {e}"))?,
             ),
             config::PriceSource::Ecb => std::sync::Arc::new(
-                outbound::prices::Ecb::new(outbound::prices::Ecb::URL, timeout)
+                external_calls::prices::Ecb::new(external_calls::prices::Ecb::URL, timeout)
                     .map_err(|e| format!("ecb: {e}"))?,
             ),
         });
@@ -214,8 +219,13 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         pool,
         passkeys,
         zone: config.zone,
-        suggestions: api::Suggestions::new(config.local_ai.as_deref().and_then(heuristics::method))
-            .with_remote(remote),
+        suggestions: api::Suggestions::new(
+            config
+                .local_ai
+                .as_deref()
+                .and_then(suggest_local_ai::method),
+        )
+        .with_remote(remote),
         pricing,
     };
     let app = match &config.web_dir {

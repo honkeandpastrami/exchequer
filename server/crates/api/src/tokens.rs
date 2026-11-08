@@ -6,7 +6,7 @@
 use axum::Extension;
 use axum::extract::State;
 use axum::http::StatusCode;
-use domain::{PasskeyId, TokenId, UserId};
+use ledger::{PasskeyId, TokenId, UserId};
 use serde::{Deserialize, Serialize};
 use store::audit::{self, Action};
 use store::tokens::{Client, Kind, TokenRow};

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { usd } from '#lib/usd.ts';
+	import { usd } from '#lib/settlement-currency.ts';
 	import { resolve } from '$app/paths';
 	import type { Schemas } from '#lib/api/client.ts';
 	import { accountNumbers, accounts } from '#lib/api/resources.ts';
@@ -8,7 +8,7 @@
 	import RowForm from '#lib/components/RowForm.svelte';
 	import { accountKinds, partyKinds, rank } from '#lib/labels.ts';
 	import type { Reference } from '#lib/reference.ts';
-	import { referenceState } from '#lib/setup.svelte.ts';
+	import { referenceState } from '#lib/reference-state.svelte.ts';
 	import { cleanQuantity } from '#lib/views/editor.ts';
 
 	type Kind = Schemas['AccountKind'];

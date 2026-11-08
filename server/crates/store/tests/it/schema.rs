@@ -56,7 +56,7 @@ async fn only_one_household(pool: PgPool) {
     );
 }
 
-/// The split CHECK constraints reject what `domain` rejects, even if a bug
+/// The split CHECK constraints reject what `ledger` rejects, even if a bug
 /// lets an invalid split through.
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn split_constraints(pool: PgPool) {

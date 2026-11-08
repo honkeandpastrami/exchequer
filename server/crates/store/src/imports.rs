@@ -2,7 +2,7 @@
 //! file has statements (one per account), and a statement has rows, each
 //! with its label: new, a duplicate of an existing transaction, and so on.
 
-use domain::AccountNumber;
+use ledger::AccountNumber;
 use rust_decimal::Decimal;
 use serde_json::Value;
 use sqlx::PgExecutor;

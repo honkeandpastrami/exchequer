@@ -1,7 +1,7 @@
 <script lang="ts">
 	// One transaction's form, opened in place: under its row to edit it, or at
 	// the top of the list to add one (blank, or like an existing one).
-	import { usd } from '../usd';
+	import { usd } from '../settlement-currency';
 	import { resolve } from '$app/paths';
 	import { api, done, ok, type Schemas } from '../api/client';
 	import Failure from './Failure.svelte';

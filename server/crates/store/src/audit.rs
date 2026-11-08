@@ -1,6 +1,6 @@
 //! The append-only audit log: who changed what (design §3.1).
 
-use domain::TokenId;
+use ledger::TokenId;
 use sqlx::PgExecutor;
 use uuid::Uuid;
 

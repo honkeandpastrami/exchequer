@@ -103,7 +103,7 @@ pub struct CatalogAccount {
     pub owner_id: Uuid,
     pub archived: bool,
     /// The numbers it's known by, whole: callers keep only the last four.
-    pub numbers: Vec<domain::AccountNumber>,
+    pub numbers: Vec<ledger::AccountNumber>,
 }
 
 pub async fn catalog(db: &mut sqlx::PgConnection) -> Result<Catalog, sqlx::Error> {
@@ -120,7 +120,7 @@ pub async fn catalog(db: &mut sqlx::PgConnection) -> Result<Catalog, sqlx::Error
         numbers: numbers
             .iter()
             .filter(|n| n.account_id == a.id)
-            .filter_map(|n| domain::AccountNumber::new(&n.number))
+            .filter_map(|n| ledger::AccountNumber::new(&n.number))
             .collect(),
         id: a.id,
         name: a.name,

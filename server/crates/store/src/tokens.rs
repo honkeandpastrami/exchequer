@@ -1,7 +1,7 @@
 //! API tokens and the sessions using them (design §10). Only SHA-256 hashes
 //! of secrets are stored.
 
-use domain::{PasskeyId, TokenId, UserId};
+use ledger::{PasskeyId, TokenId, UserId};
 use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;

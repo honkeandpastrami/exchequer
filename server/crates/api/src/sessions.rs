@@ -8,7 +8,7 @@ use axum::Extension;
 use axum::extract::{ConnectInfo, FromRequestParts, State};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, StatusCode, header};
-use domain::TokenId;
+use ledger::TokenId;
 use serde::Serialize;
 use store::tokens::{Client, Kind, SessionRow};
 use time::OffsetDateTime;

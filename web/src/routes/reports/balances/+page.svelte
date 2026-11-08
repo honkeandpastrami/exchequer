@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { usd } from '#lib/usd.ts';
+	import { usd } from '#lib/settlement-currency.ts';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';

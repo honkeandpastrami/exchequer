@@ -6,7 +6,7 @@
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
 	import { addMonths, lastDay, monthName, thisMonth } from '#lib/dates.ts';
-	import { fetched, latest } from '#lib/fetching.svelte.ts';
+	import { fetched, latest } from '#lib/price-fetching.svelte.ts';
 	import { minus, negate, sign, sum, zero } from '#lib/money.ts';
 	import { hashQuery } from '#lib/query.ts';
 	import { reference, type Reference } from '#lib/reference.ts';

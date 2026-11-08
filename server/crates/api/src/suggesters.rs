@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::extract::State;
-use domain::Month;
+use ledger::Month;
 use serde::{Deserialize, Serialize};
 use suggest::backtest::{self, BINS};
 use utoipa::{IntoParams, ToSchema};
@@ -240,8 +240,8 @@ async fn backtest(
     Query(p): Query<BacktestParams>,
 ) -> Result<axum::Json<Backtest>, Problem> {
     let method = match p.method.as_deref() {
-        Some(id) => heuristics::method(id).ok_or_else(|| {
-            let known: Vec<String> = heuristics::METHODS.iter().map(|m| m.id()).collect();
+        Some(id) => suggest_local_ai::method(id).ok_or_else(|| {
+            let known: Vec<String> = suggest_local_ai::METHODS.iter().map(|m| m.id()).collect();
             Problem::invalid(format!(
                 "method: no such method (known: {})",
                 known.join(", ")

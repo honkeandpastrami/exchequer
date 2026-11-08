@@ -1,7 +1,7 @@
 //! Sign-ins in progress (design §10): passkey ceremonies, and the CLI's
 //! device sign-ins. Both are short-lived and used once.
 
-use domain::{PasskeyId, UserId};
+use ledger::{PasskeyId, UserId};
 use sqlx::PgExecutor;
 use time::OffsetDateTime;
 use uuid::Uuid;

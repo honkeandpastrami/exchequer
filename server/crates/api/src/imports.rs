@@ -11,13 +11,13 @@ use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use domain::{AccountNumber, Amount};
-use import::fingerprint::fingerprints;
-use import::matching::{
+use bank_import::fingerprint::fingerprints;
+use bank_import::matching::{
     Near, Side, Staged, near_confidence, one_to_one, transfer_confidence, transfer_conflicts,
     transfer_matches,
 };
-use import::params::{CHANGED, DISAGREES, MATCHER, NEAR_DAYS, SURE};
+use bank_import::params::{CHANGED, DISAGREES, MATCHER, NEAR_DAYS, SURE};
+use ledger::{AccountNumber, Amount};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -1077,7 +1077,7 @@ fn conflict_of(r: &Matchable) -> Option<RowKey> {
 /// Works out transfer pairs among the rows of every staged import (design
 /// §6.4): two new rows in two of your accounts, with opposite amounts a few
 /// days apart, unless your choice of either's other side says otherwise
-/// ([`import::matching`]). A row you chose as a transfer to one account
+/// ([`bank_import::matching`]). A row you chose as a transfer to one account
 /// that fits a row in another is a transfer pair too, a conflicting one:
 /// your choice stays its default ([`guess`]). A row's choice doesn't change
 /// whether it's paired, so choosing never changes its label. Touches and
@@ -1907,13 +1907,13 @@ async fn upload(
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    let statements = tokio::task::spawn_blocking(move || import::parse(bytes, &zone))
+    let statements = tokio::task::spawn_blocking(move || bank_import::parse(bytes, &zone))
         .await
         .map_err(|_| Problem::internal())?
         .map_err(|e| Problem::invalid(e.to_string()))?;
     let format = match statements[0].format {
-        import::Format::Ofx => "ofx",
-        import::Format::Csv => "csv",
+        bank_import::Format::Ofx => "ofx",
+        bank_import::Format::Csv => "csv",
     };
     if statements.len() > 1 && p.account_id.is_some() {
         return Err(Problem::invalid(
@@ -1998,8 +1998,8 @@ async fn upload(
             account_number: s.account,
             account_id,
             kind: s.kind.map(|k| match k {
-                import::StatementKind::Bank => "bank".to_owned(),
-                import::StatementKind::CreditCard => "credit_card".to_owned(),
+                bank_import::StatementKind::Bank => "bank".to_owned(),
+                bank_import::StatementKind::CreditCard => "credit_card".to_owned(),
             }),
             commodity_id: commodity.id,
             ledger_amount: s.ledger.as_ref().map(|l| l.amount.as_decimal()),
