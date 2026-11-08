@@ -1,7 +1,7 @@
 //! Users, invites, passkey sign-in and the CLI's device sign-in, end to end
 //! (design §10). Needs the dev database: `just db-up`.
 
-mod common;
+use crate::common;
 
 use axum::http::StatusCode;
 use common::authenticator::Authenticator;

@@ -3,7 +3,7 @@
 //! it records. The suggesters themselves come later; these tests store
 //! suggestions directly. Needs `just db-up`.
 
-mod common;
+use crate::common;
 
 use axum::http::StatusCode;
 use common::household::{H, create};

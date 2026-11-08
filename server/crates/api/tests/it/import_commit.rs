@@ -1,7 +1,7 @@
 //! Committing staged imports: decisions, new transactions, transfers,
 //! recorded rows, balance checks, and refusals. Needs `just db-up`.
 
-mod common;
+use crate::common;
 
 use axum::http::StatusCode;
 use common::household::H;

@@ -2,7 +2,7 @@
 //! end.
 //! Needs the dev database: `just db-up`.
 
-mod common;
+use crate::common;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};

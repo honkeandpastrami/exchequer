@@ -2,7 +2,7 @@
 //! statements, implied stipends, closing and reopening, and the closed-month
 //! guard on transactions. Needs `just db-up`.
 
-mod common;
+use crate::common;
 
 use axum::http::StatusCode;
 use common::household::{H, edge};

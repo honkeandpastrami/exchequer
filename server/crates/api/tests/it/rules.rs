@@ -1,7 +1,7 @@
 //! The rules script (design §8, docs/ai.md): versions, validation, its
 //! suggestions in staging, and dry runs. Needs `just db-up`.
 
-mod common;
+use crate::common;
 
 use axum::http::StatusCode;
 use common::household::{H, create};

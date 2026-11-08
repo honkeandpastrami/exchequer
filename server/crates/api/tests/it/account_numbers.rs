@@ -1,7 +1,7 @@
 //! `/api/v1/accounts/{id}/numbers`: the numbers bank files name accounts by,
 //! never shown or logged in full. Needs `just db-up`.
 
-mod common;
+use crate::common;
 
 use axum::http::StatusCode;
 use common::household::H;

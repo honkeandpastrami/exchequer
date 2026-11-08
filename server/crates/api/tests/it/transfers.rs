@@ -4,7 +4,7 @@
 //! as one transfer; a transfer already in the ledger makes its other side a
 //! transfer duplicate. Needs `just db-up`.
 
-mod common;
+use crate::common;
 
 use axum::http::StatusCode;
 use common::household::H;

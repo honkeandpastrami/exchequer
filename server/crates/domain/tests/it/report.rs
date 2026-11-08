@@ -1,7 +1,7 @@
 //! The query engine's core (design §7): postings, flows and balances on the
 //! fictional household.
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeMap;
 

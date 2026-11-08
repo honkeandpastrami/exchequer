@@ -1,5 +1,4 @@
 //! Calls the app in-process, as a client would.
-#![allow(dead_code)] // each test file uses a different subset
 
 pub mod authenticator;
 pub mod household;

@@ -1,7 +1,7 @@
 //! `/api/v1/parties`, plus the §5 conventions (ETag/If-Match, pagination,
 //! idempotency keys) exercised through it. Needs `just db-up`.
 
-mod common;
+use crate::common;
 
 use axum::http::StatusCode;
 use common::{call, new_token};
