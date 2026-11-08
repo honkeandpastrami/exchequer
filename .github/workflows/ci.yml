@@ -1,4 +1,5 @@
-# Every check, for a pull request and again on main after the merge. Each area
+# Every check, for a pull request, for it on top of main in the merge queue,
+# and again on main after the merge. Each area
 # (server, web, python) runs only when its paths changed; `gate` passes only if
 # nothing that ran failed, and it's the one check the ruleset requires. Each
 # area runs the same `just` recipe as a local checkout.
@@ -8,6 +9,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
 
 permissions:
   contents: read
@@ -34,7 +36,7 @@ jobs:
           fetch-depth: 0
       - id: areas
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: |
           if git cat-file -e "$BASE^{commit}" 2>/dev/null; then
               files=$(git diff --name-only "$BASE...HEAD")
