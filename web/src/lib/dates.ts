@@ -1,3 +1,5 @@
+import * as chrono from 'chrono-node';
+
 /** Today in the browser's time zone, as `YYYY-MM-DD`. */
 export function today(): string {
 	return new Date().toLocaleDateString('en-CA');
@@ -69,20 +71,26 @@ export function addDays(day: string, n: number): string {
 	return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
 
-/** A typed day, `2026-08-14` or `Aug 14, 2026`, as `YYYY-MM-DD`; null when it isn't one. */
-export function parseDay(text: string): string | null {
+/**
+ * Whatever day a person types (`8/14/2026`, `14 Aug`, `yesterday`, `last
+ * Friday`), as `YYYY-MM-DD`; null when it isn't one. A day typed without a
+ * year is the most recent one on or before `reference`: ledger dates are
+ * almost always past.
+ */
+export function parseDay(text: string, reference: string = today()): string | null {
 	const t = text.trim();
-	let y: number, m: number, d: number;
-	const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
-	const named = /^([A-Za-z]{3})[a-z]*\.? (\d{1,2}),? (\d{4})$/.exec(t);
-	if (iso) [y, m, d] = [iso[1], iso[2], iso[3]].map((x) => parseInt(x, 10));
-	else if (named) {
-		m = MONTHS.findIndex((n) => n.toLowerCase() === named[1].toLowerCase()) + 1;
-		[d, y] = [named[2], named[3]].map((x) => parseInt(x, 10));
-		if (m === 0) return null;
-	} else return null;
-	const day = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-	return m >= 1 && m <= 12 && d >= 1 && day <= lastDay(day.slice(0, 7)) ? day : null;
+	const [ry, rm, rd] = reference.split('-').map((x) => parseInt(x, 10));
+	const found = chrono.parse(t, new Date(ry, rm - 1, rd, 12))[0];
+	// The whole text must be the date: nothing left over is ignored.
+	if (!found || found.text.length !== t.length) return null;
+	const s = found.start;
+	let y = s.get('year')!;
+	const [m, d] = [s.get('month')!, s.get('day')!];
+	const iso = (y: number) =>
+		`${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+	if (!s.isCertain('year') && iso(y) > reference) y -= 1;
+	const day = iso(y);
+	return day <= lastDay(day.slice(0, 7)) ? day : null;
 }
 
 /** What a date picker picks: a day, a month or a year. */

@@ -56,15 +56,26 @@ describe('one format', () => {
 		expect(rangeName('2025-09', '2026-08')).toBe('Sep 2025 – Aug 2026');
 	});
 
-	it('reads what is typed, either way', () => {
-		expect(parseDay('2026-08-14')).toBe('2026-08-14');
-		expect(parseDay(' Aug 14, 2026 ')).toBe('2026-08-14');
-		expect(parseDay('aug 4 2026')).toBe('2026-08-04');
-		expect(parseDay('2026-8-4')).toBe('2026-08-04');
-		expect(parseDay('Feb 30, 2026')).toBeNull();
-		expect(parseDay('2026-13-01')).toBeNull();
-		expect(parseDay('Foo 1, 2026')).toBeNull();
-		expect(parseDay('')).toBeNull();
+	it('reads what people type', () => {
+		const ref = '2026-11-08';
+		expect(parseDay('2026-08-14', ref)).toBe('2026-08-14');
+		expect(parseDay(' Aug 14, 2026 ', ref)).toBe('2026-08-14');
+		expect(parseDay('8/14/2026', ref)).toBe('2026-08-14');
+		expect(parseDay('14 Aug', ref)).toBe('2026-08-14');
+		expect(parseDay('yesterday', ref)).toBe('2026-11-07');
+		expect(parseDay('last friday', ref)).toBe('2026-11-06');
+		expect(parseDay('Feb 30, 2026', ref)).toBeNull();
+		expect(parseDay('Aug 14 or so', ref)).toBeNull();
+		expect(parseDay('foo', ref)).toBeNull();
+		expect(parseDay('', ref)).toBeNull();
+	});
+
+	it('takes a day without a year as the most recent one', () => {
+		const ref = '2026-11-08';
+		expect(parseDay('Dec 20', ref)).toBe('2025-12-20');
+		expect(parseDay('12/25', ref)).toBe('2025-12-25');
+		expect(parseDay('Nov 8', ref)).toBe('2026-11-08');
+		expect(parseDay('Feb 29', '2024-03-01')).toBe('2024-02-29');
 	});
 
 	it('steps by its own unit', () => {
