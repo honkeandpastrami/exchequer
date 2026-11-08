@@ -92,7 +92,7 @@ jobs:
         run: cargo sqlx migrate run -D postgres://exchequer@localhost/exchequer
       - run: just check
         env:
-          CARGO_LOG: cargo::core::compiler::fingerprint=info
+          CARGO_LOG: cargo::compiler::fingerprint=info
 
   # Both container images, built as the release builds them, and smoke-tested.
   image:
