@@ -14,7 +14,8 @@ use axum::response::{IntoResponse, Response};
 use domain::{AccountNumber, Amount};
 use import::fingerprint::fingerprints;
 use import::matching::{
-    Near, Side, Staged, near_confidence, one_to_one, transfer_confidence, transfer_matches,
+    Near, Side, Staged, near_confidence, one_to_one, transfer_confidence, transfer_conflicts,
+    transfer_matches,
 };
 use import::params::{MATCHER, NEAR_DAYS, SURE};
 use rust_decimal::Decimal;
@@ -47,6 +48,8 @@ use crate::transactions::{
 const MAX_FILE: usize = 10 * 1024 * 1024;
 /// Longest bank ID a row may have (the fingerprint column's limit).
 const MAX_ID: usize = 200;
+/// Rows one review request may tick.
+const MAX_REVIEW: usize = 500;
 
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -55,6 +58,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(rows))
         .routes(routes!(set_statement))
         .routes(routes!(set_row))
+        .routes(routes!(review))
         .routes(routes!(commit))
         .routes(routes!(commit_ready))
         .routes(routes!(refresh))
@@ -360,7 +364,8 @@ pub struct Readiness {
     /// Statements whose account is a confident suggestion short of 100%,
     /// not yet chosen.
     suggested_accounts: u32,
-    /// Rows that would take a confident AI suggestion short of 100%.
+    /// Rows that would take a confident AI suggestion short of 100%, not
+    /// ticked as reviewed.
     suggested_rows: u32,
 }
 
@@ -384,12 +389,24 @@ pub struct StagedRow {
     /// side.
     #[serde(skip_serializing_if = "Option::is_none")]
     transfer_match: Option<TransferMatch>,
+    /// A transfer conflict: you chose the row as a transfer to one account,
+    /// and this staged row, in another of your accounts, fits as its other
+    /// side. Matching isn't sure of the row's decision until you choose its
+    /// other side again or decide either row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transfer_conflict: Option<TransferMatch>,
     /// What committing does with the row: the client's choice, else the
     /// default for its status. Absent while the statement has no account.
     #[serde(skip_serializing_if = "Option::is_none")]
     decision: Option<Decision>,
     /// Whether `decision` is the client's choice rather than the default.
     decided: bool,
+    /// Whether you ticked the row as reviewed, and it still shows what you
+    /// saw then: the AI suggestions it takes count as yours.
+    reviewed: bool,
+    /// What a tick would record now.
+    #[serde(skip)]
+    seen: Seen,
     /// What matching suggests `decision` be; absent while the statement has
     /// no account.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -431,6 +448,32 @@ pub struct StagedRow {
     /// The row's fields as the file had them.
     #[schema(value_type = Object)]
     raw: serde_json::Value,
+}
+
+impl StagedRow {
+    /// Whether the row needs you before commit (design §6.7): its statement
+    /// has no account, or it has a label or a decision that's neither yours
+    /// nor confidently suggested.
+    fn needs_work(&self) -> bool {
+        self.decision.is_none()
+            || !self.missing.is_empty()
+            || (!self.decided
+                && !self
+                    .suggested_decision
+                    .as_ref()
+                    .is_some_and(|d| d.confident))
+    }
+
+    /// What a tick on the row records, if it may be ticked.
+    fn tick(&self) -> Result<serde_json::Value, Problem> {
+        if self.needs_work() {
+            return Err(Problem::invalid(format!(
+                "statement {} row {} needs a label or a decision first",
+                self.statement, self.position
+            )));
+        }
+        serde_json::to_value(&self.seen).map_err(|_| Problem::internal())
+    }
 }
 
 /// One part of a row split before commit: a split of the new transaction
@@ -594,6 +637,31 @@ pub struct RowUpdate {
     #[serde(default, deserialize_with = "nullable")]
     #[schema(value_type = Option<Vec<RowSplit>>)]
     splits: Option<Option<Vec<RowSplit>>>,
+    /// `true` ticks the row as reviewed, as it is after this change: you
+    /// agree with what it shows, so the AI suggestions it takes count as
+    /// yours. Not for a row that needs a label or a decision. `false`
+    /// unticks it. The tick goes by itself when the row changes under it: a
+    /// new suggestion, or a transfer match made or undone.
+    reviewed: Option<bool>,
+}
+
+/// Rows to tick as reviewed, or untick.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Review {
+    /// The rows, as you saw them; at most 500.
+    rows: Vec<RowRef>,
+    /// `true` ticks the rows that don't need a label or a decision (the
+    /// others stay as they are); `false` unticks them all.
+    reviewed: bool,
+}
+
+/// A staged row of the import.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RowRef {
+    statement: i16,
+    position: i32,
 }
 
 /// What a commit did.
@@ -934,18 +1002,14 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
     Ok(())
 }
 
-/// A staged row's other side, as settled for transfer matching: your choice,
-/// else a confident suggestion of one of your accounts. A suggested
-/// counterparty doesn't rule a transfer out (it was made without seeing the
-/// other side); a chosen one does.
+/// A staged row's other side, as transfer matching sees it: your choice
+/// only. A suggestion was made without seeing the other side; a pair
+/// settles it.
 fn side(r: &Matchable) -> Side {
-    if r.chose_side {
-        return r.transfer_account_id.map_or(Side::Outside, Side::Transfer);
+    if !r.chose_side {
+        return Side::Open;
     }
-    match (r.suggested_account_id, r.suggested_confidence) {
-        (Some(a), Some(c)) if c >= CONFIDENT => Side::Transfer(a),
-        _ => Side::Open,
-    }
+    r.transfer_account_id.map_or(Side::Outside, Side::Transfer)
 }
 
 fn key(r: &Matchable) -> RowKey {
@@ -956,15 +1020,24 @@ fn pair_of(r: &Matchable) -> Option<RowKey> {
     Some((r.pair_import_id?, r.pair_statement?, r.pair_position?))
 }
 
+fn conflict_of(r: &Matchable) -> Option<RowKey> {
+    Some((
+        r.conflict_import_id?,
+        r.conflict_statement?,
+        r.conflict_position?,
+    ))
+}
+
 /// Works out transfer matches among the rows of every staged import (design
 /// §6.4): two rows that will become new transactions, in two of your
-/// accounts, with opposite amounts a few days apart, one settled as a
-/// transfer to the other's account ([`import::matching`]). A skipped row
-/// isn't matched; a pair you said isn't one (both sides `new`) stays a pair,
-/// so you can change your mind. The two sides always agree: if one is `new`
-/// (a pair just formed with a row added as new before), both are, so no
-/// bank row is recorded twice. Touches and returns the imports whose rows
-/// changed.
+/// accounts, with opposite amounts a few days apart, unless your choice of
+/// either's other side says otherwise ([`import::matching`]); and transfer
+/// conflicts, where a transfer you chose to one account fits a row in
+/// another. A skipped row isn't matched; a pair you said isn't one (both
+/// sides `new`) stays a pair, so you can change your mind. The two sides
+/// always agree: if one is `new` (a pair just formed with a row added as
+/// new before), both are, so no bank row is recorded twice. Touches and
+/// returns the imports whose rows changed.
 async fn rematch(db: &mut PgConnection) -> Result<HashSet<Uuid>, Problem> {
     let rows = store::imports::matchable(&mut *db).await?;
     let open = |r: &Matchable| matches!(r.status.as_str(), "new" | "transfer_match");
@@ -980,10 +1053,12 @@ async fn rematch(db: &mut PgConnection) -> Result<HashSet<Uuid>, Problem> {
                 side: side(r),
                 // A split row is added as new, never one side of a transfer.
                 eligible: open(r) && r.decision.as_deref() != Some("skip") && !r.split,
+                decided: r.decision.is_some(),
             })
         })
         .collect();
     let pairs = transfer_matches(&staged);
+    let conflicts = transfer_conflicts(&staged, &pairs);
     let mut changes = Vec::new();
     let mut agree = Vec::new();
     let mut changed = HashSet::new();
@@ -997,8 +1072,9 @@ async fn rematch(db: &mut PgConnection) -> Result<HashSet<Uuid>, Problem> {
             RowStatus::New.as_str().to_owned()
         };
         let pair = if open(r) { pair } else { None };
-        if status != r.status || pair != pair_of(r) {
-            changes.push((key(r), status, pair));
+        let conflict = conflicts.get(&key(r)).copied().filter(|_| open(r));
+        if status != r.status || pair != pair_of(r) || conflict != conflict_of(r) {
+            changes.push((key(r), status, pair, conflict));
             changed.insert(r.import_id);
         }
     }
@@ -1115,8 +1191,90 @@ struct Labels {
     purpose: Option<Uuid>,
     missing: Vec<Label>,
     not_applicable: Vec<Label>,
-    /// Who made the suggestions it takes, and how sure each is.
-    suggested_by: Vec<(Uuid, i16)>,
+    /// The suggestions it takes.
+    suggested_by: Vec<Took>,
+}
+
+/// A suggestion a row's labels take: for which label, what, by whom, and
+/// how sure.
+#[derive(Debug, PartialEq, Eq)]
+struct Took {
+    taken: Taken,
+    suggester: Uuid,
+    confidence: i16,
+}
+
+/// A suggested value a row took, as a tick records it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Taken {
+    label: String,
+    value: Option<Uuid>,
+    account: Option<Uuid>,
+}
+
+impl Took {
+    fn of(s: &SuggestionRow) -> Self {
+        Self {
+            taken: Taken {
+                label: s.label.clone(),
+                value: s.value,
+                account: s.account_id,
+            },
+            suggester: s.suggester_id,
+            confidence: s.confidence,
+        }
+    }
+}
+
+/// What a row showed when you ticked it as reviewed (design §6.7): its
+/// status, its transfer match, and the AI suggestions short of certain it
+/// took. The tick holds while the status and match are the same and it
+/// takes no AI suggestion it didn't then; one you since made your own
+/// choice doesn't undo it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Seen {
+    status: String,
+    pair: Option<RowKey>,
+    suggestions: Vec<Taken>,
+}
+
+impl Seen {
+    fn now(r: &RowRow, l: &Labels, by: &HashMap<Uuid, Suggester>) -> Self {
+        Self {
+            status: r.status.clone(),
+            pair: pair_key(r),
+            suggestions: l
+                .suggested_by
+                .iter()
+                .filter(|t| unsure(t, by))
+                .map(|t| t.taken.clone())
+                .collect(),
+        }
+    }
+
+    /// Whether a tick that saw `self` still holds for a row showing `now`.
+    fn holds(&self, now: &Self) -> bool {
+        self.status == now.status
+            && self.pair == now.pair
+            && now.suggestions.iter().all(|t| self.suggestions.contains(t))
+    }
+}
+
+/// An AI suggestion short of certain: worth a look. A certain one, like
+/// logic's, counts as yours.
+fn unsure(t: &Took, by: &HashMap<Uuid, Suggester>) -> bool {
+    !certain(t.confidence)
+        && by
+            .get(&t.suggester)
+            .is_some_and(|s| matches!(s.kind, SuggesterKind::Local | SuggesterKind::Remote))
+}
+
+/// Whether the row's tick holds for what it shows now.
+fn reviewed(r: &RowRow, now: &Seen) -> bool {
+    r.reviewed
+        .clone()
+        .and_then(|v| serde_json::from_value::<Seen>(v).ok())
+        .is_some_and(|seen| seen.holds(now))
 }
 
 /// What a row's labels depend on beyond the row.
@@ -1161,7 +1319,7 @@ fn labels(r: &RowRow, suggestions: &[SuggestionRow], cx: &Context) -> Labels {
         match suggested(Label::Counterparty) {
             Some(s) => {
                 (out.counterparty, out.transfer) = (s.value, s.account_id);
-                out.suggested_by.push((s.suggester_id, s.confidence));
+                out.suggested_by.push(Took::of(s));
             }
             None => {
                 (out.counterparty, out.transfer) = (None, None);
@@ -1198,7 +1356,7 @@ fn labels(r: &RowRow, suggestions: &[SuggestionRow], cx: &Context) -> Labels {
         match suggested(label).filter(|s| s.value.is_some()) {
             Some(s) => {
                 *slot = s.value;
-                out.suggested_by.push((s.suggester_id, s.confidence));
+                out.suggested_by.push(Took::of(s));
             }
             None => {
                 *slot = None;
@@ -1250,7 +1408,8 @@ fn apart(days: i32) -> String {
 
 /// What matching suggests committing does with a row, and how sure it is;
 /// `None` while its statement has no account. `pair_date`: a transfer
-/// match's other side's.
+/// match's other side's. A transfer conflict leaves matching unsure, so it
+/// waits for you.
 fn guess(r: &RowRow, pair_date: Option<Date>) -> Result<Option<Guess>, Problem> {
     let status = RowStatus::parse(&r.status)?;
     let Some(decision) = Decision::default_for(status) else {
@@ -1263,6 +1422,12 @@ fn guess(r: &RowRow, pair_date: Option<Date>) -> Result<Option<Guess>, Problem> 
     };
     let (confidence, reason) = match status {
         RowStatus::NeedsAccount => return Ok(None),
+        RowStatus::New if conflict_key(r).is_some() => (
+            0,
+            "a row in another of your accounts fits as the other side of this transfer, \
+             not the account chosen"
+                .to_owned(),
+        ),
         RowStatus::New => (SURE, "nothing like it in the ledger".to_owned()),
         RowStatus::Duplicate => (SURE, "this bank row was imported before".to_owned()),
         RowStatus::TransferDuplicate => transfer(
@@ -1390,14 +1555,10 @@ async fn readiness(
         if decision == Decision::New && !l.missing.is_empty() {
             out.unlabeled += 1;
         }
-        // An AI suggestion short of certain is worth a look; a certain one,
-        // like logic's, counts as yours.
-        if l.suggested_by.iter().any(|(s, c)| {
-            !certain(*c)
-                && by
-                    .get(s)
-                    .is_some_and(|s| matches!(s.kind, SuggesterKind::Local | SuggesterKind::Remote))
-        }) {
+        // An AI suggestion short of certain is worth a look, unless you
+        // ticked the row as reviewed.
+        let seen = Seen::now(r, &l, &by);
+        if !seen.suggestions.is_empty() && !reviewed(r, &seen) {
             out.suggested_rows += 1;
         }
     }
@@ -1437,13 +1598,14 @@ async fn shown(
                 .cloned()
                 .collect();
             let pair = pair_key(&r).and_then(|k| pairs.get(&k)).cloned();
+            let conflict = conflict_key(&r).and_then(|k| pairs.get(&k)).cloned();
             let cx = Context {
                 accounts: &accounts,
                 account: statements.get(&r.statement).copied().flatten(),
                 pair_account: pair.as_ref().map(|p| p.account_id),
                 splits: parts(&splits, &r),
             };
-            staged_row(r, &mine, &by, &matcher, &cx, pair)
+            staged_row(r, &mine, &by, &matcher, &cx, pair, conflict)
         })
         .collect()
 }
@@ -1471,12 +1633,24 @@ fn pair_key(r: &RowRow) -> Option<RowKey> {
     Some((r.pair_import_id?, r.pair_statement?, r.pair_position?))
 }
 
-/// The other sides of these rows' transfer matches.
+fn conflict_key(r: &RowRow) -> Option<RowKey> {
+    Some((
+        r.conflict_import_id?,
+        r.conflict_statement?,
+        r.conflict_position?,
+    ))
+}
+
+/// The other rows of these rows' transfer matches and transfer conflicts.
 async fn pairs(
     db: &mut PgConnection,
     rows: &[RowRow],
 ) -> Result<HashMap<RowKey, TransferMatch>, Problem> {
-    let keys: Vec<RowKey> = rows.iter().filter_map(pair_key).collect();
+    let keys: Vec<RowKey> = rows
+        .iter()
+        .flat_map(|r| [pair_key(r), conflict_key(r)])
+        .flatten()
+        .collect();
     if keys.is_empty() {
         return Ok(HashMap::new());
     }
@@ -1507,6 +1681,7 @@ fn staged_row(
     matcher: &Suggester,
     cx: &Context,
     transfer_match: Option<TransferMatch>,
+    transfer_conflict: Option<TransferMatch>,
 ) -> Result<StagedRow, Problem> {
     let status = RowStatus::parse(&r.status)?;
     let suggested_decision =
@@ -1520,6 +1695,8 @@ fn staged_row(
     let chosen = r.decision.as_deref().map(Decision::parse).transpose()?;
     let decision = decision_of(&r)?;
     let l = labels(&r, suggestions, cx);
+    let seen = Seen::now(&r, &l, by);
+    let reviewed = reviewed(&r, &seen);
     let suggestions = suggestions
         .iter()
         .map(|s| {
@@ -1548,8 +1725,11 @@ fn staged_row(
         } else {
             None
         },
+        transfer_conflict,
         decision,
         decided: chosen.is_some(),
+        reviewed,
+        seen,
         suggested_decision,
         set_description: r.set_description,
         counterparty_id: l.counterparty,
@@ -1747,6 +1927,10 @@ async fn upload(
                 pair_import_id: None,
                 pair_statement: None,
                 pair_position: None,
+                conflict_import_id: None,
+                conflict_statement: None,
+                conflict_position: None,
+                reviewed: None,
                 match_days: None,
                 match_similarity: None,
             });
@@ -2220,12 +2404,70 @@ async fn set_row(
     let version = store::imports::lock(&mut *tx, id)
         .await?
         .ok_or_else(Problem::internal)?;
-    let row = shown(&mut tx, id, vec![row])
+    let mut row = shown(&mut tx, id, vec![row])
         .await?
         .pop()
         .ok_or_else(Problem::internal)?;
+    if let Some(tick) = req.reviewed {
+        let seen = if tick { Some(row.tick()?) } else { None };
+        store::imports::set_reviewed(&mut *tx, id, &[((statement, position), seen)]).await?;
+        row.reviewed = tick;
+    }
     tx.commit().await?;
     Ok((StatusCode::OK, etag(version), axum::Json(row)).into_response())
+}
+
+/// Tick rows as reviewed, or untick them (design §6.7): a ticked row's AI
+/// suggestions count as yours, so an import whose rows you ticked is ready
+/// to commit. A row that needs a label or a decision isn't ticked. Each
+/// tick goes by itself when its row changes under it.
+#[utoipa::path(post, path = "/imports/{id}/review", tag = "imports", security(("bearer" = [])),
+    params(("id" = Uuid, Path),
+           ("If-Match" = String, Header, description = "ETag from your last read")),
+    request_body = Review,
+    responses((status = OK, body = Import, headers(("ETag" = String))),
+              (status = NOT_FOUND, body = Problem, content_type = "application/problem+json"),
+              (status = PRECONDITION_FAILED, body = Problem, content_type = "application/problem+json"),
+              (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json")))]
+async fn review(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    IfMatch(version): IfMatch,
+    Json(req): Json<Review>,
+) -> Result<Response, Problem> {
+    if req.rows.len() > MAX_REVIEW {
+        return Err(Problem::invalid(format!("rows: at most {MAX_REVIEW}")));
+    }
+    let mut tx = state.pool.begin().await?;
+    let current = store::imports::lock(&mut *tx, id)
+        .await?
+        .ok_or_else(Problem::not_found)?;
+    if current != version {
+        return Err(Problem::stale());
+    }
+    let wanted: HashSet<(i16, i32)> = req.rows.iter().map(|r| (r.statement, r.position)).collect();
+    let rows: Vec<RowRow> = store::imports::rows(&mut *tx, id, None, None, None, i64::MAX)
+        .await?
+        .into_iter()
+        .filter(|r| wanted.contains(&(r.statement, r.position)))
+        .collect();
+    if rows.len() != wanted.len() {
+        return Err(Problem::invalid("rows: not all of them are this import's"));
+    }
+    let mut ticks = Vec::new();
+    for r in shown(&mut tx, id, rows).await? {
+        let seen = match (req.reviewed, r.needs_work()) {
+            (false, _) => None,
+            (true, true) => continue,
+            (true, false) => Some(r.tick()?),
+        };
+        ticks.push(((r.statement, r.position), seen));
+    }
+    store::imports::set_reviewed(&mut *tx, id, &ticks).await?;
+    store::imports::touch(&mut *tx, id).await?;
+    let after = one(&mut tx, id).await?;
+    tx.commit().await?;
+    Ok(respond(StatusCode::OK, &after))
 }
 
 /// A row's parts as a request gives them, checked: two or more, each more
@@ -2416,6 +2658,7 @@ async fn carry_out(
         now.status != before.status
             || now.match_transaction_id != before.match_transaction_id
             || pair_key(now) != pair_key(before)
+            || conflict_key(now) != conflict_key(before)
     });
     if changed {
         store::imports::touch(&mut *tx, id).await?;

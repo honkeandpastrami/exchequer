@@ -83,6 +83,7 @@ def test_a_row_and_what_it_can_become():
         amount="-80.00",
         date=datetime.date(2026, 3, 2),
         decided=False,
+        reviewed=False,
         description="GROCER",
         position=0,
         raw=StagedRowRaw(),
@@ -110,9 +111,15 @@ def test_a_row_and_what_it_can_become():
     assert row_line(r, None, Names(accounts={CARD: "Alex · Card"})).endswith(
         "transfer match with Alex · Card: 2026-03-01 'PAYMENT'"
     )
-    # A split row says so.
+    # A transfer conflict names the row in the other account.
     r.status = RowStatus.NEW
+    r.transfer_conflict = r.transfer_match
     r.transfer_match = None
+    assert row_line(r, None, Names(accounts={CARD: "Alex · Card"})).endswith(
+        "new, conflicts with Alex · Card: 2026-03-01 'PAYMENT'"
+    )
+    # A split row says so.
+    r.transfer_conflict = None
     r.splits = [RowSplit(amount="50.00"), RowSplit(amount="30.00")]
     assert row_line(r).endswith("new, split 2 ways")
     assert decisions_for(RowStatus.NEW) == [Decision.NEW, Decision.SKIP]

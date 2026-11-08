@@ -31,6 +31,7 @@
 		decisionsFor,
 		labelNames,
 		labelState,
+		needsWork,
 		noneNames,
 		plan,
 		readinessNames,
@@ -41,6 +42,7 @@
 		statementName,
 		statuses,
 		suggestedSide,
+		toReview,
 		totals,
 		undecided,
 		unlabeled,
@@ -64,8 +66,8 @@
 	let etag = '';
 	let rows: Row[] = $state([]);
 	let txs: Map<string, Schemas['Transaction']> = $state(new Map());
-	// A status, or the rows that need labels or a decision.
-	type Shown = Status | 'unlabeled' | 'undecided' | '';
+	// A status, or the rows that need labels, a decision, or a look.
+	type Shown = Status | 'unlabeled' | 'undecided' | 'review' | '';
 	let shown = $state<Shown>('');
 	// The rows the filter picked, kept while you work on them (docs/ux.md §2):
 	// a row you label stays on screen until the filter is picked again.
@@ -133,7 +135,7 @@
 		openRow(row);
 		await bring([row]);
 	}
-	function showOnly(s: 'unlabeled' | 'undecided') {
+	function showOnly(s: 'unlabeled' | 'undecided' | 'review') {
 		show(s);
 		bring(matching(s));
 	}
@@ -192,6 +194,21 @@
 		});
 
 	const setRow = (row: Row, body: Schemas['RowUpdate']) => serial(() => patch(row, body));
+
+	/** Ticks these rows as reviewed; the server leaves out those that need work. */
+	const markReviewed = (targets: Row[]) =>
+		serial(async () => {
+			const keys = targets.map(({ statement, position }) => ({ statement, position }));
+			for (let k = 0; k < keys.length; k += 500) {
+				const r = await api.POST('/api/v1/imports/{id}/review', {
+					params: { path: { id }, header: { 'If-Match': etag } },
+					body: { rows: keys.slice(k, k + 500), reviewed: true }
+				});
+				imp = ok(r);
+				etag = r.response.headers.get('etag') ?? '';
+			}
+			await load();
+		});
 
 	async function patch(row: Row, body: Schemas['RowUpdate']) {
 		{
@@ -307,7 +324,9 @@
 			? unlabeled(rows)
 			: s === 'undecided'
 				? undecided(rows)
-				: rows.filter((r) => r.status === s);
+				: s === 'review'
+					? toReview(rows)
+					: rows.filter((r) => r.status === s);
 	function pin(s: Shown) {
 		pinned = s ? new Set(matching(s).map(rowKey)) : null;
 	}
@@ -429,6 +448,7 @@
 
 	const blocked = $derived(unlabeled(rows));
 	const toDecide = $derived(undecided(rows));
+	const unreviewed = $derived(toReview(rows));
 	const planned = $derived(plan(rows));
 	const visible = $derived(pinned ? rows.filter((r) => pinned?.has(rowKey(r))) : rows);
 	const allCounts = $derived(imp ? counted(totals(imp.statements)) : []);
@@ -560,6 +580,9 @@
 		{#if toDecide.length}<button class="link small" onclick={() => showOnly('undecided')}
 				>show the rows that need a decision</button
 			>{/if}
+		{#if unreviewed.length}<button class="link small" onclick={() => showOnly('review')}
+				>show the rows to review</button
+			>{/if}
 	</p>
 
 	<nav class="filter" aria-label="Rows to show">
@@ -576,6 +599,15 @@
 		>
 		<button class="link" aria-pressed={shown === 'undecided'} onclick={() => show('undecided')}
 			>Needs a decision {toDecide.length}</button
+		>
+		<button class="link" aria-pressed={shown === 'review'} onclick={() => show('review')}
+			>To review {unreviewed.length}</button
+		>
+		<button
+			class="link mark"
+			disabled={!visible.some((r) => !r.reviewed && !needsWork(r))}
+			onclick={() => markReviewed(visible.filter((r) => !r.reviewed && !needsWork(r)))}
+			>Mark shown rows reviewed</button
 		>
 	</nav>
 
@@ -686,6 +718,14 @@
 									<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- sideLink resolves -->
 									<a href={sideLink(m)}>{a ? accountLabel(a, r) : '?'}: {m.date} {m.description}</a>
 								</div>
+							{:else if row.transfer_conflict}
+								{@const m = row.transfer_conflict}
+								{@const a = r.accounts.get(m.account_id)}
+								<div class="small match">
+									<Mark tone="error" label="Conflicts" /> with
+									<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- sideLink resolves -->
+									<a href={sideLink(m)}>{a ? accountLabel(a, r) : '?'}: {m.date} {m.description}</a>
+								</div>
 							{:else if row.match_transaction_id}
 								<div class="small match">
 									of <a href={resolve('/transactions/[id]', { id: row.match_transaction_id })}
@@ -729,6 +769,15 @@
 							{:else}
 								<span class="muted">Pick the account</span>
 							{/if}
+							<label class="check reviewed">
+								<input
+									type="checkbox"
+									checked={row.reviewed}
+									disabled={!row.reviewed && needsWork(row)}
+									onchange={(e) => setRow(row, { reviewed: e.currentTarget.checked })}
+								/>
+								Reviewed
+							</label>
 							<button class="link" aria-expanded={open === key} onclick={() => toggle(row)}
 								>Details</button
 							>
@@ -747,6 +796,19 @@
 											>{a ? accountLabel(a, r) : '?'}: {m.date} {m.description}</a
 										>
 										{#if m.import_id !== i.id}(in {m.file_name ?? 'another import'}){/if}
+									</p>
+								{:else if row.transfer_conflict}
+									{@const m = row.transfer_conflict}
+									{@const a = r.accounts.get(m.account_id)}
+									<p class="matches">
+										<Mark tone="error" label="Conflicts" /> with
+										<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- sideLink resolves -->
+										<a href={sideLink(m)}
+											>{a ? accountLabel(a, r) : '?'}: {m.date} {m.description}</a
+										>
+										{#if m.import_id !== i.id}(in {m.file_name ?? 'another import'}){/if}: it fits
+										as the other side of this transfer, not the account chosen. Choose again, or
+										decide either row.
 									</p>
 								{:else if row.match_transaction_id}
 									<p class="matches">
@@ -982,6 +1044,12 @@
 		gap: var(--space-4);
 		margin-bottom: var(--space-2);
 		font-size: var(--text-sm);
+	}
+	.filter .mark {
+		margin-left: auto;
+	}
+	.reviewed {
+		margin-top: var(--space-1);
 	}
 	.filter [aria-pressed='true'] {
 		font-weight: var(--weight-strong);

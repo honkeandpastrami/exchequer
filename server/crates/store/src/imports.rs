@@ -93,6 +93,14 @@ pub struct RowRow {
     pub pair_import_id: Option<Uuid>,
     pub pair_statement: Option<i16>,
     pub pair_position: Option<i32>,
+    /// A transfer conflict's other row: a staged row, maybe in another
+    /// import.
+    pub conflict_import_id: Option<Uuid>,
+    pub conflict_statement: Option<i16>,
+    pub conflict_position: Option<i32>,
+    /// What the row showed when you ticked it as reviewed; `None`: not
+    /// ticked.
+    pub reviewed: Option<Value>,
     /// What matching found: days between the row and its match, and how
     /// alike their descriptions are (thousandths).
     pub match_days: Option<i16>,
@@ -357,7 +365,8 @@ pub async fn rows(
         "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,
                 status, match_transaction_id, decision, set_description, counterparty_id,
                 transfer_account_id, category_id, purpose_id, chosen, pair_import_id,
-                pair_statement, pair_position, match_days, match_similarity
+                pair_statement, pair_position, conflict_import_id, conflict_statement,
+                conflict_position, reviewed, match_days, match_similarity
          FROM staged_row
          WHERE import_id = $1
            AND ($2::int2 IS NULL OR statement = $2)
@@ -546,12 +555,12 @@ pub struct Matchable {
     /// counterparty, or none.
     pub chose_side: bool,
     pub transfer_account_id: Option<Uuid>,
-    /// The suggested other side, if it's an account, and how sure.
-    pub suggested_account_id: Option<Uuid>,
-    pub suggested_confidence: Option<i16>,
     pub pair_import_id: Option<Uuid>,
     pub pair_statement: Option<i16>,
     pub pair_position: Option<i32>,
+    pub conflict_import_id: Option<Uuid>,
+    pub conflict_statement: Option<i16>,
+    pub conflict_position: Option<i32>,
     /// Split into parts before commit.
     pub split: bool,
 }
@@ -568,18 +577,14 @@ pub async fn matchable(db: impl PgExecutor<'_>) -> Result<Vec<Matchable>, sqlx::
                   r.decision,
                   'counterparty' = ANY(r.chosen) AS "chose_side!",
                   r.transfer_account_id,
-                  sg.account_id AS "suggested_account_id?",
-                  sg.confidence AS "suggested_confidence?",
                   r.pair_import_id, r.pair_statement, r.pair_position,
+                  r.conflict_import_id, r.conflict_statement, r.conflict_position,
                   EXISTS (SELECT 1 FROM staged_split sp
                           WHERE sp.import_id = r.import_id AND sp.statement = r.statement
                             AND sp.position = r.position) AS "split!"
            FROM staged_row r
            JOIN staged_statement st
              ON st.import_id = r.import_id AND st.position = r.statement
-           LEFT JOIN staged_suggestion sg
-             ON sg.import_id = r.import_id AND sg.statement = r.statement
-            AND sg.position = r.position AND sg.label = 'counterparty'
            ORDER BY r.import_id, r.statement, r.position"#,
         CONFIDENT
     )
@@ -638,11 +643,12 @@ pub async fn pair_rows(
     .await
 }
 
-/// Sets rows' status and transfer match (`None`: none).
-pub async fn set_pairs(
-    db: impl PgExecutor<'_>,
-    rows: &[(RowKey, String, Option<RowKey>)],
-) -> Result<(), sqlx::Error> {
+/// What transfer matching sets on a row: its status, transfer match and
+/// transfer conflict (`None`: none).
+pub type PairUpdate = (RowKey, String, Option<RowKey>, Option<RowKey>);
+
+/// Sets rows' status, transfer match and transfer conflict.
+pub async fn set_pairs(db: impl PgExecutor<'_>, rows: &[PairUpdate]) -> Result<(), sqlx::Error> {
     let imports: Vec<Uuid> = rows.iter().map(|r| r.0.0).collect();
     let statements: Vec<i16> = rows.iter().map(|r| r.0.1).collect();
     let positions: Vec<i32> = rows.iter().map(|r| r.0.2).collect();
@@ -650,13 +656,18 @@ pub async fn set_pairs(
     let pair_imports: Vec<Option<Uuid>> = rows.iter().map(|r| r.2.map(|p| p.0)).collect();
     let pair_statements: Vec<Option<i16>> = rows.iter().map(|r| r.2.map(|p| p.1)).collect();
     let pair_positions: Vec<Option<i32>> = rows.iter().map(|r| r.2.map(|p| p.2)).collect();
+    let conflict_imports: Vec<Option<Uuid>> = rows.iter().map(|r| r.3.map(|c| c.0)).collect();
+    let conflict_statements: Vec<Option<i16>> = rows.iter().map(|r| r.3.map(|c| c.1)).collect();
+    let conflict_positions: Vec<Option<i32>> = rows.iter().map(|r| r.3.map(|c| c.2)).collect();
     sqlx::query!(
         "UPDATE staged_row r SET status = u.status, match_transaction_id = NULL,
                                  match_days = NULL, match_similarity = NULL,
                                  pair_import_id = u.pi, pair_statement = u.ps,
-                                 pair_position = u.pp
+                                 pair_position = u.pp, conflict_import_id = u.ci,
+                                 conflict_statement = u.cs, conflict_position = u.cp
          FROM unnest($1::uuid[], $2::int2[], $3::int4[], $4::text[], $5::uuid[], $6::int2[],
-                     $7::int4[]) AS u(i, s, p, status, pi, ps, pp)
+                     $7::int4[], $8::uuid[], $9::int2[], $10::int4[])
+              AS u(i, s, p, status, pi, ps, pp, ci, cs, cp)
          WHERE r.import_id = u.i AND r.statement = u.s AND r.position = u.p",
         &imports,
         &statements,
@@ -665,6 +676,9 @@ pub async fn set_pairs(
         &pair_imports as &[Option<Uuid>],
         &pair_statements as &[Option<i16>],
         &pair_positions as &[Option<i32>],
+        &conflict_imports as &[Option<Uuid>],
+        &conflict_statements as &[Option<i16>],
+        &conflict_positions as &[Option<i32>],
     )
     .execute(db)
     .await?;
@@ -790,6 +804,30 @@ pub async fn set_decision(
     .execute(db)
     .await?;
     Ok(done.rows_affected() > 0)
+}
+
+/// Ticks rows as reviewed, each with what it showed, or unticks them
+/// (`None`).
+pub async fn set_reviewed(
+    db: impl PgExecutor<'_>,
+    import_id: Uuid,
+    rows: &[((i16, i32), Option<Value>)],
+) -> Result<(), sqlx::Error> {
+    let statements: Vec<i16> = rows.iter().map(|r| r.0.0).collect();
+    let positions: Vec<i32> = rows.iter().map(|r| r.0.1).collect();
+    let seen: Vec<Option<Value>> = rows.iter().map(|r| r.1.clone()).collect();
+    sqlx::query!(
+        "UPDATE staged_row r SET reviewed = u.seen
+         FROM unnest($2::int2[], $3::int4[], $4::jsonb[]) AS u(s, p, seen)
+         WHERE r.import_id = $1 AND r.statement = u.s AND r.position = u.p",
+        import_id,
+        &statements,
+        &positions,
+        &seen as &[Option<Value>],
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 /// One part of a staged row split before commit: a split of the new

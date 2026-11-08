@@ -723,3 +723,118 @@ async fn confident_ai_suggestions_make_an_import_suggested(pool: PgPool) {
         json!("ready")
     );
 }
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn ticked_rows_make_an_import_ready_until_they_change(pool: PgPool) {
+    let h = H::new(&pool).await;
+    let r = call(
+        &pool,
+        "POST",
+        format!("/api/v1/imports?account_id={}", h.alex_checking),
+    )
+    .token(&h.t)
+    .bytes(CSV.as_bytes().to_vec())
+    .send()
+    .await;
+    let id = r.id();
+    let remote = suggester(&pool, "remote", "a-deployment/a-model").await;
+    // Both rows labeled by remote AI, sure but not certain; `purposes` are
+    // each row's purpose.
+    let set = |purposes: [&str; 2]| {
+        let (pool, id, store, shopping) =
+            (pool.clone(), uuid(&id), h.store.clone(), h.shopping.clone());
+        let purposes = purposes.map(str::to_owned);
+        async move {
+            let mut db = pool.acquire().await.unwrap();
+            let mut all = Vec::new();
+            for (position, purpose) in [0, 1].into_iter().zip(&purposes) {
+                all.push(label(position, "counterparty", Some(&store), remote, 950));
+                all.push(label(position, "category", Some(&shopping), remote, 950));
+                all.push(label(position, "purpose", Some(purpose), remote, 950));
+            }
+            store::imports::set_suggestions(&mut db, id, 0, &all)
+                .await
+                .unwrap();
+        }
+    };
+    let readiness = |pool: PgPool, id: String, t: String| async move {
+        let r = call(&pool, "GET", format!("/api/v1/imports/{id}"))
+            .token(&t)
+            .send()
+            .await;
+        let ready = &r.body["readiness"];
+        (ready["state"].clone(), ready["suggested_rows"].clone())
+    };
+    let review = |rows: Value, reviewed: bool| {
+        let (pool, id, t) = (pool.clone(), id.clone(), h.t.clone());
+        async move {
+            let etag = call(&pool, "GET", format!("/api/v1/imports/{id}"))
+                .token(&t)
+                .send()
+                .await
+                .etag();
+            call(&pool, "POST", format!("/api/v1/imports/{id}/review"))
+                .token(&t)
+                .if_match(&etag)
+                .json(json!({ "rows": rows, "reviewed": reviewed }))
+                .send()
+                .await
+        }
+    };
+    let state = || readiness(pool.clone(), id.clone(), h.t.clone());
+    set([&h.alex, &h.alex]).await;
+    assert_eq!(state().await, (json!("suggested"), json!(2)));
+
+    // You read one row's suggestions and agree: it counts as yours.
+    let r = patch(
+        &pool,
+        &h,
+        format!("/api/v1/imports/{id}/rows/0/0"),
+        json!({ "reviewed": true }),
+    )
+    .await;
+    assert_eq!(r.body["reviewed"], json!(true));
+    assert_eq!(state().await, (json!("suggested"), json!(1)));
+    // Both, at once: ready.
+    let both = json!([{ "statement": 0, "position": 0 }, { "statement": 0, "position": 1 }]);
+    let r = review(both.clone(), true).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(r.body["readiness"]["state"], json!("ready"));
+
+    // A suggestion that changes under a tick undoes it.
+    set([&h.alex, &h.household]).await;
+    assert_eq!(state().await, (json!("suggested"), json!(1)));
+    let all = rows(&pool, &h, &id).await;
+    assert_eq!(
+        (&all[0]["reviewed"], &all[1]["reviewed"]),
+        (&json!(true), &json!(false))
+    );
+    // A tick can be taken back.
+    let r = review(both.clone(), false).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(state().await, (json!("suggested"), json!(2)));
+
+    // A row that needs a label can't be ticked: nothing to agree with.
+    {
+        let mut db = pool.acquire().await.unwrap();
+        store::imports::set_suggestions(&mut db, uuid(&id), 0, &[])
+            .await
+            .unwrap();
+    }
+    let etag = read(&pool, &h, &id).await.etag();
+    let r = call(&pool, "PATCH", format!("/api/v1/imports/{id}/rows/0/0"))
+        .token(&h.t)
+        .if_match(&etag)
+        .json(json!({ "reviewed": true }))
+        .send()
+        .await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
+    // Ticking many leaves such rows as they are.
+    let r = review(both, true).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(r.body["readiness"]["state"], json!("needs_work"));
+    assert_eq!(rows(&pool, &h, &id).await[0]["reviewed"], json!(false));
+    // Rows not in the import are refused.
+    let r = review(json!([{ "statement": 0, "position": 9 }]), true).await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
+}
