@@ -113,7 +113,6 @@
 	<div class="columns">
 		<section class="card">
 			<h2>Stipends</h2>
-			<p class="muted hint">What the household owes each person for the month.</p>
 			{#each pool.stipends as s (s.party_id)}
 				<p class="line">
 					<span>{ref.parties.get(s.party_id)?.name ?? '?'}</span>
@@ -125,7 +124,6 @@
 		</section>
 		<section class="card">
 			<h2>Business funding</h2>
-			<p class="muted hint">How much each business's net funding grew this month.</p>
 			{#each pool.business_funding as b (b.party_id)}
 				<p class="line">
 					<span>{ref.parties.get(b.party_id)?.name ?? '?'}</span>
@@ -186,10 +184,6 @@
 		justify-content: space-between;
 		gap: var(--space-3);
 		margin: var(--space-2) 0 0;
-		font-size: var(--text-sm);
-	}
-	.hint {
-		margin-top: 0;
 		font-size: var(--text-sm);
 	}
 </style>

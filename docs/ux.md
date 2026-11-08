@@ -66,7 +66,9 @@ a reason to change this doc, not to make an exception.
 
 ## 9. Short text
 
-- A label or a one-line hint. Explanations go in the docs; no footnotes.
+- A label or a one-line hint. Explanations go in the docs.
+- No paragraph at the top of a page, and no footnotes at the bottom. What the user needs
+  goes where it applies: a label, a column header, a field hint.
 
 ## 10. Privacy
 

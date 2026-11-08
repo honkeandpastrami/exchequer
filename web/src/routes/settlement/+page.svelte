@@ -57,10 +57,6 @@
 		>
 	</div>
 </div>
-<p class="muted legend">
-	Positive amounts go from the first party to the second.
-	<code>outstanding = carried + due − paid</code>; <code>due = claims − stipend</code>.
-</p>
 
 {#await data.promise}
 	{#if !data.value}<p class="muted">Loading…</p>{/if}
@@ -121,9 +117,6 @@
 	}
 	.year button {
 		padding: var(--space-1) var(--space-3);
-	}
-	.legend {
-		font-size: var(--text-sm);
 	}
 	.card {
 		margin-bottom: var(--space-5);

@@ -103,11 +103,9 @@
 			<strong>{s.closed ? 'Closed' : 'Open'}</strong>
 			<span class="muted">
 				{#if s.closed}
-					{s.closed_at ? `since ${localDate(s.closed_at)}. ` : ''}Transactions dated in it can't be
-					edited until it's reopened.
+					{s.closed_at ? `since ${localDate(s.closed_at)}` : ''}
 				{:else if s.params_from && s.params_from !== month}
-					Parameters carried forward from {monthName(s.params_from)}; closing saves them for this
-					month.
+					Parameters carried forward from {monthName(s.params_from)}
 				{:else if !s.params_from}
 					No parameters set yet.
 				{/if}

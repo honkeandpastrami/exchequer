@@ -127,6 +127,10 @@
 	}
 
 	/** The split's effect on the checked account: + in, − out. */
+	/** Banks show what's owed on these as positive, and so are checks entered. */
+	const owed = (a: Schemas['Account'] | undefined) =>
+		a?.kind === 'credit_card' || a?.kind === 'mortgage';
+
 	function movement(tx: Schemas['Transaction'] | undefined, position: number): string | null {
 		const s = tx?.splits[position];
 		if (!s) return null;
@@ -143,12 +147,6 @@
 		>Add balance check</button
 	>
 </div>
-<p class="muted intro">
-	Enter what the bank shows. A match marks the account verified through that date; a mismatch lists
-	transactions that could explain the difference, searched since the last match. For a credit card,
-	enter what you owe as a positive amount.
-</p>
-
 {#if ref}
 	{@const r = ref}
 	{@const code = (id: string) => r.commodities.get(id)?.code}
@@ -194,6 +192,10 @@
 								</select>
 							{/if}
 						</span>
+						<!-- Always there, so picking an account never moves the form (ux.md §2). -->
+						<span class="muted hint" class:unseen={!owed(r.accounts.get(f.account))}
+							>Owed amounts positive</span
+						>
 					</label>
 					<label class="field">
 						<span>On</span>
@@ -304,10 +306,15 @@
 		justify-content: space-between;
 		gap: var(--space-4);
 	}
-	.intro,
 	.toolbar,
 	.adding {
 		margin-bottom: var(--space-4);
+	}
+	.hint {
+		font-size: var(--text-sm);
+	}
+	.unseen {
+		visibility: hidden;
 	}
 	.money {
 		display: flex;
