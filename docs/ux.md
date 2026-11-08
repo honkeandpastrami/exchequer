@@ -51,7 +51,8 @@ these; a screen that can't is a reason to change this doc, not to make an except
 - Hovering or tapping it says why (the rule, the similar transactions, the model and its
   probability).
 - Accepting a suggestion and choosing a value yourself are the same control (the field's
-  dropdown); there's no separate "accept" step.
+  dropdown); there's no separate "accept" step for one suggestion. Agreeing with all of a
+  bank row's suggestions at once is its **Reviewed** tick (§10).
 
 ## 6. Looks
 
@@ -135,3 +136,7 @@ these; a screen that can't is a reason to change this doc, not to make an except
   suggestion and why, or *Pick one*. A suggestion you haven't taken is offered in the
   field's dropdown (§5). What the row becomes on commit stays in the row, outside the form,
   and applies at once.
+- With it, also outside the form and applied at once, the row's **Reviewed** tick: you
+  agree with what it shows. It's disabled while the row needs you first, and clears
+  itself when the row changes. **Mark shown rows reviewed** ticks every row the filter
+  shows that can be ticked.

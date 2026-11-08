@@ -98,6 +98,9 @@ pub struct RowRow {
     pub conflict_import_id: Option<Uuid>,
     pub conflict_statement: Option<i16>,
     pub conflict_position: Option<i32>,
+    /// What the row showed when you ticked it as reviewed; `None`: not
+    /// ticked.
+    pub reviewed: Option<Value>,
     /// What matching found: days between the row and its match, and how
     /// alike their descriptions are (thousandths).
     pub match_days: Option<i16>,
@@ -363,7 +366,7 @@ pub async fn rows(
                 status, match_transaction_id, decision, set_description, counterparty_id,
                 transfer_account_id, category_id, purpose_id, chosen, pair_import_id,
                 pair_statement, pair_position, conflict_import_id, conflict_statement,
-                conflict_position, match_days, match_similarity
+                conflict_position, reviewed, match_days, match_similarity
          FROM staged_row
          WHERE import_id = $1
            AND ($2::int2 IS NULL OR statement = $2)
@@ -801,6 +804,30 @@ pub async fn set_decision(
     .execute(db)
     .await?;
     Ok(done.rows_affected() > 0)
+}
+
+/// Ticks rows as reviewed, each with what it showed, or unticks them
+/// (`None`).
+pub async fn set_reviewed(
+    db: impl PgExecutor<'_>,
+    import_id: Uuid,
+    rows: &[((i16, i32), Option<Value>)],
+) -> Result<(), sqlx::Error> {
+    let statements: Vec<i16> = rows.iter().map(|r| r.0.0).collect();
+    let positions: Vec<i32> = rows.iter().map(|r| r.0.1).collect();
+    let seen: Vec<Option<Value>> = rows.iter().map(|r| r.1.clone()).collect();
+    sqlx::query!(
+        "UPDATE staged_row r SET reviewed = u.seen
+         FROM unnest($2::int2[], $3::int4[], $4::jsonb[]) AS u(s, p, seen)
+         WHERE r.import_id = $1 AND r.statement = u.s AND r.position = u.p",
+        import_id,
+        &statements,
+        &positions,
+        &seen as &[Option<Value>],
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 /// One part of a staged row split before commit: a split of the new

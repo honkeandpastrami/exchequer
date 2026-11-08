@@ -28,6 +28,11 @@ class RowUpdate:
         purpose_id (None | Unset | UUID):
         revert (list[Label] | Unset): Labels to stop choosing, so their suggestions apply again. Setting a
             label (to a value or `null`) makes it your choice.
+        reviewed (bool | None | Unset): `true` ticks the row as reviewed, as it is after this change: you
+            agree with what it shows, so the AI suggestions it takes count as
+            yours. Not for a row that needs a label or a decision. `false`
+            unticks it. The tick goes by itself when the row changes under it: a
+            new suggestion, or a transfer match made or undone.
         set_description (None | str | Unset):
         splits (list[RowSplit] | None | Unset): Split the row into these parts (two or more, adding up to its
             amount), each a split of the new transaction; `null` or `[]`: not
@@ -43,6 +48,7 @@ class RowUpdate:
     decision: Decision | None | Unset = UNSET
     purpose_id: None | Unset | UUID = UNSET
     revert: list[Label] | Unset = UNSET
+    reviewed: bool | None | Unset = UNSET
     set_description: None | str | Unset = UNSET
     splits: list[RowSplit] | None | Unset = UNSET
     transfer_account_id: None | Unset | UUID = UNSET
@@ -87,6 +93,12 @@ class RowUpdate:
                 revert_item = revert_item_data.value
                 revert.append(revert_item)
 
+        reviewed: bool | None | Unset
+        if isinstance(self.reviewed, Unset):
+            reviewed = UNSET
+        else:
+            reviewed = self.reviewed
+
         set_description: None | str | Unset
         if isinstance(self.set_description, Unset):
             set_description = UNSET
@@ -126,6 +138,8 @@ class RowUpdate:
             field_dict["purpose_id"] = purpose_id
         if revert is not UNSET:
             field_dict["revert"] = revert
+        if reviewed is not UNSET:
+            field_dict["reviewed"] = reviewed
         if set_description is not UNSET:
             field_dict["set_description"] = set_description
         if splits is not UNSET:
@@ -218,6 +232,15 @@ class RowUpdate:
 
                 revert.append(revert_item)
 
+        def _parse_reviewed(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        reviewed = _parse_reviewed(d.pop("reviewed", UNSET))
+
         def _parse_set_description(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -272,6 +295,7 @@ class RowUpdate:
             decision=decision,
             purpose_id=purpose_id,
             revert=revert,
+            reviewed=reviewed,
             set_description=set_description,
             splits=splits,
             transfer_account_id=transfer_account_id,

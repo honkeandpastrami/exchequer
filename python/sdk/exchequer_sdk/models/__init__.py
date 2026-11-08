@@ -132,9 +132,11 @@ from .ready_committed import ReadyCommitted
 from .ready_outcome import ReadyOutcome
 from .refresh_request import RefreshRequest
 from .refreshed import Refreshed
+from .review import Review
 from .revoked_all import RevokedAll
 from .row import Row
 from .row_counts import RowCounts
+from .row_ref import RowRef
 from .row_split import RowSplit
 from .row_status import RowStatus
 from .row_update import RowUpdate
@@ -306,9 +308,11 @@ __all__ = (
     "ReadyOutcome",
     "Refreshed",
     "RefreshRequest",
+    "Review",
     "RevokedAll",
     "Row",
     "RowCounts",
+    "RowRef",
     "RowSplit",
     "RowStatus",
     "RowUpdate",
