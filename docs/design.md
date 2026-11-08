@@ -166,8 +166,8 @@ from conversion splits after the fact, without a schema change.
   the most recent price on or before the date. A figure comes from **one price** (or
   its inverse) whenever one exists: sources disagree, and chaining two can compound the
   disagreement. Choosing among prices:
-  1. **Fresh before stale:** a price at most a few days (configurable, default 5) older
-     than the date beats any older one; only when nothing is fresh is the newest older
+  1. **Fresh before stale:** a price at most `EXCHEQUER_PRICE_FRESH_DAYS` older than
+     the date (default in [`config.rs`](../server/crates/server/src/config.rs)) beats any older one; only when nothing is fresh is the newest older
      figure used, marked stale.
   2. **Direct before derived:** one price beats a chain of two through a pivot commodity
      (GBP→EUR→USD), and a chain within one source (one publication) beats one mixing
@@ -187,12 +187,12 @@ from conversion splits after the fact, without a schema change.
    batch** in the background (every commodity × date the request needs, back-filling gaps
    since the last stored price). A pair already being fetched isn't fetched twice.
    `GET /prices/fetching?wait=25` answers once every fetch running has finished (or the
-   wait, at most 50 s, is over); then the same request answers with what arrived. The web
+   wait, at most [`MAX_WAIT_SECS`](../server/crates/api/src/prices.rs), is over); then the same request answers with what arrived. The web
    app does this by itself, keeping what it shows until the new answer arrives. Storing a fetched price is the one
    deliberate exception to "a GET never writes": a historical closing price never changes,
    so storing it is caching an external fact.
-3. A price for a day still in progress is *provisional*: refetched when older than a
-   configurable age and replaced by the close once available.
+3. A price for a day still in progress is *provisional*: refetched when older than
+   [`PROVISIONAL_AGE`](../server/crates/api/src/pricing.rs) and replaced by the close once available.
 4. If the provider is unreachable or rate-limited, nothing is fetched and answers keep the
    latest stored price, marked stale. Outages degrade answers, never fail them.
 5. `POST /prices/refresh` starts a forced fetch and answers at once (`202`);
@@ -216,17 +216,17 @@ rate-limited or has nothing; the first that answers is recorded (`provider:<name
 source's prices outlive it. A source that answered isn't asked for the same pair and days
 again within an hour (a ticker it doesn't know would otherwise cost a request on every
 page). A source that didn't answer (the network, a timeout, its server's error) is passed
-over for the rest of that fetch and for a minute after, then asked again: a network that's
+over for the rest of that fetch and for [`OUTAGE`](../server/crates/api/src/pricing.rs) after, then asked again: a network that's
 down for a few minutes, as after the machine wakes, costs one failed request per source,
-not one per pair, and prices arrive soon after it's back. A rate-limited source waits 15
-minutes. `POST /prices/refresh` (also on Setup → Prices, and `exchequer prices refresh`)
+not one per pair, and prices arrive soon after it's back. A rate-limited source waits
+[`RATE_LIMITED`](../server/crates/api/src/pricing.rs). `POST /prices/refresh` (also on Setup → Prices, and `exchequer prices refresh`)
 asks anyway. Only
 commodity codes and dates are sent.
 
 A source that needs a key has its own secret, `exchequer_<source>_api_key`, read as
 `<SOURCE>_API_KEY_FILE`; adding a source adds a secret, never a shared one. Which sources
-run, and in which order, is configuration (`EXCHEQUER_PRICE_SOURCES`, default
-`tiingo,ecb`; `off` for none), as is freshness (`EXCHEQUER_PRICE_FRESH_DAYS`, default 5).
+run, and in which order, is configuration (`EXCHEQUER_PRICE_SOURCES`; `off` for
+none), as is freshness (`EXCHEQUER_PRICE_FRESH_DAYS`); the defaults are in [`config.rs`](../server/crates/server/src/config.rs).
 Manual prices always win over fetched ones.
 
 ### 3.5 Numbers: no floating point
@@ -466,7 +466,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      recorded on commit and deleted with its transaction). Transactions that came in another
      way get theirs through `POST /import-fingerprints`; the Firefly migration records each
      journal's `external_id`, the ID the preimporter gave the row (§11).
-   - *Near:* same account, commodity and signed amount, date within ±3 days, matched
+   - *Near:* same account, commodity and signed amount, date within ±[`NEAR_DAYS`](../server/crates/import/src/params.rs), matched
      one-to-one: the most similar descriptions first (`pg_trgm`), then the closest dates.
      Similarity only ranks: a transaction typed by hand rarely reads like the bank's text,
      so a low score doesn't clear a row. Near-duplicates are **flagged in staging**, not
@@ -480,7 +480,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      §4.1).
    - *Potential transfer matches:* each row's rows in your other accounts, in any staged
      import (this file's other statements, other files), with the opposite amount in the
-     same commodity, dated within 3 days. Every suggestion level sees them
+     same commodity, dated within [`TRANSFER_DAYS`](../server/crates/suggest/src/params.rs). Every suggestion level sees them
      (`row.transfer_candidates` in rules).
    - *Transfer match* (`transfer_match`): two staged rows that are potential transfer
      matches of each other are the two sides of one transfer, unless your choice says
@@ -499,7 +499,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      row.
    - *Transfer duplicate* (`transfer_duplicate`): the transfer is already in the ledger,
      from the other account: a one-split transfer between the account and another of
-     yours, the same amount the same way, within 3 days, holding no bank row of this
+     yours, the same amount the same way, within [`TRANSFER_DAYS`](../server/crates/suggest/src/params.rs), holding no bank row of this
      account yet. Matched after exact duplicates and before near ones.
    - A transfer whose first side is committed before the other is staged is recorded as a
      transfer then; one-sided transactions in the ledger are never turned into transfers
@@ -510,7 +510,7 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
 6. **Staging and review.** The batch lives on the server, so a review started in one client
    can finish in another. Rows are `new`, `duplicate`, `near-duplicate`, `transfer-match`,
    `transfer-duplicate` or `needs-account`. `POST /imports` takes the file's bytes (at most
-   10 MiB; optional `account_id`) and stages one statement per account in it; `GET
+   [`MAX_FILE`](../server/crates/api/src/imports.rs); optional `account_id`) and stages one statement per account in it; `GET
    /imports/{id}` shows each statement's account, ledger balance, skipped lines and row
    counts by status, `GET /imports/{id}/rows` the rows; `PATCH
    /imports/{id}/statements/{n}` sets a statement's account (optionally remembering the
@@ -557,9 +557,9 @@ upload raw file ─▶ detect ─▶ parse ─▶ resolve account ─▶ fingerp
      `labels-missing`, `decisions-missing`, or no account), so every client and page
      follows the same rule.
    - `suggested` (yellow): it would commit, but it relies on confident AI suggestions
-     (local or remote) or a suggested account that you haven't confirmed, short of 100%.
+     (local or remote) or a suggested account that you haven't confirmed, short of [`CERTAIN`](../server/crates/suggest/src/params.rs).
    - `ready` (green): it commits exactly as shown. A suggestion from logic (the rules,
-     matching), or any at 100%, counts as yours.
+     matching), or any at [`CERTAIN`](../server/crates/suggest/src/params.rs), counts as yours.
 
    **Reviewed rows.** You can tick a row as reviewed: you read what it shows and agree, so
    the AI suggestions it takes count as yours, and an import whose rows are all settled
@@ -636,8 +636,9 @@ takes, the API) is in [`docs/ai.md`](ai.md).
   local AI learns from past transfers. Pairing two staged rows into one transfer is then a
   rule, not a suggestion, and it overrides a suggested other side (§6.4).
 - **A stack of three levels,** tried in order: rules → local AI → remote AI. A level runs
-  while a label is still below **0.9 confidence**; labels already settled (by an earlier
-  level at ≥ 0.9, or by you) are given to the next level as facts. Below 0.9 everywhere,
+  while a label is still below the **confidence threshold** ([`CONFIDENT`](../server/crates/suggest/src/params.rs)); labels
+  already settled (by an earlier level at or above it, or by you) are given to the next
+  level as facts. Below it everywhere,
   the best suggestion is kept but shown as unsure. **Suggesting again:** the whole stack
   runs again for the labels that aren't yours or confident, on every other staged import
   when a file is uploaded or committed, and on one import on request (`POST
@@ -659,7 +660,8 @@ The levels:
    Rhai is a scripting language for embedding in Rust, with Rust-like syntax. It's
    sandboxed (no file system, network or process access) and limited in operations per
    call. The active version is compiled once and runs for each staged row. If/else is the
-   rule language. A rule that sets a label is confidence 1.0.
+   rule language. A rule that sets a label is confidence
+   [`CONFIDENCE`](../server/crates/rules/src/params.rs).
 
    ```rust
    fn classify(row, s) {
@@ -694,8 +696,8 @@ The levels:
    counterparty X the last N times), and nearest labeled transactions by trigram/TF-IDF
    similarity voting on the whole combination of labels, weighted by similarity; the
    account's owner, direction and amount break ties. Confidence is calibrated by a
-   backtest (train on earlier months, predict the next), so 0.9 means about 90% right on
-   the ledger's own data. Embeddings aren't used (#10). No model files, no training
+   backtest (train on earlier months, predict the next), so a confidence of *p* means right
+   about a fraction *p* of the time on the ledger's own data. Embeddings aren't used (#10). No model files, no training
    pipeline. Local methods are interchangeable behind one interface, picked by
    `EXCHEQUER_LOCAL_AI` and measured on the ledger's past by a backtest endpoint
    (`docs/ai.md`).
@@ -727,7 +729,7 @@ A pluggable middleware layer: every request resolves to a principal or is reject
   leaked database lets no one sign in. A user is a household member with a name; the audit
   log ties every change to one through its token.
 - **Invites are the one way in.** An invite names a person: it adds them as a user if
-  there's none by that name, and gives a one-time link, valid for 3 hours, that registers
+  there's none by that name, and gives a one-time link, valid for [`INVITE_LIFE`](../server/crates/api/src/users.rs), that registers
   a passkey for them. Nobody registers without one. An invite only adds a passkey: a user
   already there gets another one, on another device or in place of a lost one. Signed in
   with it, they delete the lost passkey and sign out the sessions it signed in. Removing a
@@ -742,7 +744,7 @@ A pluggable middleware layer: every request resolves to a principal or is reject
   that works over the network is left lying around.
 - **Sign-in** is usernameless: the browser offers the passkeys it holds for the server's
   domain. Success signs the browser in: a token that belongs to the user and expires after
-  30 days; signing out revokes it.
+  [`SESSION_LIFE`](../server/crates/api/src/sign_in.rs); signing out revokes it.
 - **The CLI signs in through the browser,** like OAuth's device flow: `exchequer login`
   shows a link with a short code, a signed-in user approves it, and the CLI receives a token
   of its own, kept in its token file.
@@ -767,9 +769,10 @@ A pluggable middleware layer: every request resolves to a principal or is reject
   clients send the program and its version, and the host (`Exchequer-Host`); and the
   address the reverse proxy reports (`X-Forwarded-For`). It's for people to read, never a
   check: a client that reports nothing works the same, and shows `unknown`.
-- **Every token expires.** Its time to live is chosen when it's made: 30 days for a
-  browser; for the CLI's and scripts', what the person making it asks for, at most 365
-  days (`exchequer login` asks 90 unless told otherwise, and the approver sees it). Each
+- **Every token expires.** Its time to live is chosen when it's made: [`SESSION_LIFE`](../server/crates/api/src/sign_in.rs) for a
+  browser; for the CLI's and scripts', what the person making it asks for, at most
+  [`MAX_TTL_DAYS`](../server/crates/api/src/tokens.rs) (`exchequer login` has its own default unless told otherwise, and
+  the approver sees it). Each
   records when it was created and, to the minute, when it was last used.
 - **Signing out and revoking.** A session is signed out at any time, in Setup → Security,
   with `exchequer sessions sign-out`, or through `DELETE /sessions/{id}`; a token is
@@ -852,8 +855,9 @@ before writing anything that could duplicate or corrupt data. How to use it, and
     account and commodity) is skipped if unchanged; one that changed stops it, and so
     does anything else there that Firefly doesn't have.
   - **Duplicates, always:** a Firefly ID already on the server outside the year, a near
-    duplicate (§6.3: same account, commodity and signed amount within 3 days, 5 for a
-    transfer) among the year's transactions or the server's non-migrated ones around it,
+    duplicate (§6.3: same account, commodity and signed amount within `NEAR_DAYS`, `TRANSFER_DAYS` for
+    a transfer, both in
+    [`existing.py`](../python/firefly-migrate/src/firefly_migrate/existing.py)) among the year's transactions or the server's non-migrated ones around it,
     a bank row (§6.3) already recorded for another transaction, or a write into a closed
     month.
   - The statements of closed months after the year are compared before and after; one

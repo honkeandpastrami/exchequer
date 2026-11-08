@@ -155,7 +155,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                 &r.endpoint,
                 &r.deployment,
                 r.key.expose(),
-                std::time::Duration::from_secs(30),
+                outbound::decision::TIMEOUT,
             )
             .map_err(|e| format!("remote AI: {e}"))?;
             tracing::info!(

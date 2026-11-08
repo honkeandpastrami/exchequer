@@ -273,9 +273,15 @@ mod tests {
             // A transfer you chose to another account: not paired either.
             staged(5, CHECKING, 20, -700, Side::Transfer(CARD)),
             staged(6, SAVINGS, 20, 700, Side::Open),
-            // Four days apart: too far.
+            // A day past the window: too far.
             staged(7, CHECKING, 1, -900, Side::Open),
-            staged(8, CARD, 5, 900, Side::Open),
+            staged(
+                8,
+                CARD,
+                2 + u8::try_from(TRANSFER_DAYS).unwrap(),
+                900,
+                Side::Open,
+            ),
         ];
         assert_eq!(transfer_matches(&rows), HashMap::from([(1, 2), (2, 1)]));
     }
