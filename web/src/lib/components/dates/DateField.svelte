@@ -70,7 +70,6 @@
 			{id}
 			type="text"
 			autocomplete="off"
-			placeholder="Mmm d, yyyy"
 			aria-label={id ? undefined : label}
 			aria-invalid={wrong !== null}
 			{required}
