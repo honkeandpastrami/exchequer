@@ -9,7 +9,7 @@
 set -eu
 
 cd "$(dirname "$0")/../.."
-export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_FROM_API=1
+export HOMEBREW_NO_AUTO_UPDATE=1
 tap=local/exchequer-smoke
 formula=$tap/exchequer-cli
 
