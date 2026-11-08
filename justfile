@@ -51,7 +51,7 @@ psql:
     "{{pg_bin}}/psql"
 
 # Format, lint and test everything (the dev database must be up).
-check:
+check: sweep
     cd server && cargo fmt --check
     cd server && cargo sqlx prepare --workspace --check -- --all-targets
     cd server && cargo clippy --all-targets -- -D warnings
@@ -60,6 +60,22 @@ check:
     cd server && cargo test
     just backup-test
     deploy/tests/release-version.sh
+
+# Trim server/target: incremental data untouched for 3 days (rustc never
+# removes it), then cap the rest at 20GB if cargo-sweep is installed.
+sweep:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    server="{{justfile_directory()}}/server"
+    # Only ever cargo's own cache directory.
+    [ -f "$server/target/CACHEDIR.TAG" ] || exit 0
+    if [ -d "$server/target/debug/incremental" ]; then
+        find "$server/target/debug/incremental" -mindepth 1 -maxdepth 1 \
+            -type d -name '*-*' -mtime +3 -exec rm -rf {} +
+    fi
+    if command -v cargo-sweep > /dev/null; then
+        cargo sweep --maxsize 20GB "$server" > /dev/null
+    fi
 
 # Dump a scratch database with deploy/exchequer-backup and restore it into
 # another (the dev database must be up).

@@ -9,6 +9,14 @@ edition = "2024"
 license = "BSD-2-Clause"
 publish = false
 
+# Debug info is most of target/: keep file:line for backtraces, and none for
+# dependencies.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 # Money is never floating point (docs/design.md §3.5). Only the future
 # `heuristics` crate (local AI) opts out of these lints as a whole.
 [workspace.lints.clippy]
