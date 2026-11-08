@@ -19,6 +19,9 @@ branch ─▶ pull request ─▶ checks ─▶ merge to main ─▶ release vX.
 - **Docs change with the code.** A pull request that changes behavior updates
   [`design.md`](design.md), which describes what's built, and [`ai.md`](ai.md) or
   [`ux.md`](ux.md) where they're affected.
+- **Docs name parameters, never their values.** A threshold, window, limit or default is
+  written as its constant (or setting), linked to where it's defined, so changing the value
+  never edits a doc.
 - Issues follow [`issues.md`](issues.md); a pull request that fixes one says so
   (`Fixes #N`), and merging closes it.
 

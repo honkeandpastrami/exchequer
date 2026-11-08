@@ -34,8 +34,8 @@ transfer, never an expense plus an income.
   expense or income (design §3.2), which keeps them.
 - **Potential transfer matches.** Each row comes with the rows of every staged import
   (this file's other statements, other files) that could be the other side of it: in
-  another of your accounts, with the opposite amount in the same currency, dated within 5
-  days. Every level sees them (`row.transfer_candidates` in rules); they're evidence, not a
+  another of your accounts, with the opposite amount in the same currency, dated within
+  [`TRANSFER_DAYS`](../server/crates/suggest/src/params.rs). Every level sees them (`row.transfer_candidates` in rules); they're evidence, not a
   verdict.
 - **Transfer match.** A row and one of its potential transfer matches are a transfer
   match unless your choice says otherwise: a counterparty (or none) you chose for either,
@@ -62,10 +62,10 @@ sure as what it found:
 
 | Row | Suggests | Confidence |
 |---|---|---|
-| New: nothing like it | *Add as new* | 1.0 |
-| Duplicate: the same bank row, imported before | *Already there* | 1.0 |
-| Transfer duplicate or transfer match | *Already there* / *Merge into one transfer* | 1.0, less 0.03 a day apart |
-| Near duplicate: the same amount a few days apart | *Already there* | the descriptions' likeness, less 0.06 a day apart; **never above 0.89** |
+| New: nothing like it | *Add as new* | [`SURE`](../server/crates/import/src/params.rs) |
+| Duplicate: the same bank row, imported before | *Already there* | [`SURE`](../server/crates/import/src/params.rs) |
+| Transfer duplicate or transfer match | *Already there* / *Merge into one transfer* | [`SURE`](../server/crates/import/src/params.rs), less [`TRANSFER_DAY`](../server/crates/import/src/params.rs) a day apart |
+| Near duplicate: the same amount a few days apart | *Already there* | the descriptions' likeness, less [`NEAR_DAY`](../server/crates/import/src/params.rs) a day apart; **never above [`NEAR_LIKENESS`](../server/crates/import/src/params.rs)%** |
 | New, in a transfer conflict | *Add as new* | 0 |
 
 A near duplicate may be another, identical purchase, so it's never confident: it always
@@ -82,9 +82,9 @@ Suggestions come from three levels, tried in order:
    (below).
 3. **Remote AI** — a decision model on Azure AI Foundry. Optional (below).
 
-A level runs while anything is still below the **confidence threshold, 0.9**. Labels
-already settled — by an earlier level at 0.9 or more, or by you — are given to the next
-level as facts, so it proposes the rest consistently with them. If no level reaches 0.9
+A level runs while anything is still below the **confidence threshold** ([`CONFIDENT`](../server/crates/suggest/src/params.rs)). Labels
+already settled — by an earlier level at or above it, or by you — are given to the next
+level as facts, so it proposes the rest consistently with them. If no level reaches it
 for a label, the most confident suggestion any level made is kept, marked as unsure.
 
 Suggestions are made when a file is uploaded: first the account of each statement that has
@@ -265,12 +265,12 @@ Version 2 learns transfers (version 1 didn't see them).
    accounts they're in (only accounts that aren't archived, and of the statement's kind
    when the file says: a credit card statement for a credit card). Transfers don't vote:
    a transfer's text is one bank's, not necessarily this account's.
-6. **Calibration.** On training, the method suggests its latest 2,000 transactions again,
+6. **Calibration.** On training, the method suggests its latest [`CALIBRATION_ROWS`](../server/crates/heuristics/src/params.rs) transactions again,
    each from only the ones before it, and each of the latest account-months as a
    statement, from the months before. Each score is then mapped to how often it was right
-   (isotonic regression, smoothed so that thin evidence stays unsure). A confidence of 0.9
-   means right about 9 times in 10 on this ledger's own data. With little history,
-   nothing reaches 0.9. A transfer's potential transfer matches are worked out from the
+   (isotonic regression, smoothed so that thin evidence stays unsure). A confidence of *p*
+   means right about a fraction *p* of the time on this ledger's own data. With little
+   history, nothing reaches the threshold. A transfer's potential transfer matches are worked out from the
    history as if its rows had been staged together; its category and purpose aren't
    asked.
 
@@ -288,13 +288,13 @@ month's other transactions as potential transfer matches) and an account for eac
 account's transactions taken as one statement. A transfer is scored on its other side
 only. Per label and for
 accounts it reports how many were asked, guessed, right, confident, and right when
-confident, plus guesses and right answers by confidence bin, which shows whether 0.9
-really means 9 in 10. Each score also has the usual measures (samples, coverage,
+confident, plus guesses and right answers by confidence bin, which shows whether a
+confidence of *p* really means right a fraction *p* of the time. Each score also has the usual measures (samples, coverage,
 precision, recall, F1, accuracy, and their macro means over values), over all guesses and
 over confident ones only, and the response totals them over all months. It reads only; nothing is stored. Any method can be named, so a
 replacement can be compared with the current one before switching.
 
-With `remote=true` (when remote AI is configured, and for at most 3 months), remote AI is
+With `remote=true` (when remote AI is configured, and for at most [`BACKTEST_REMOTE_MONTHS`](../server/crates/api/src/params.rs) months), remote AI is
 asked too, as on upload: shown only what's before the month, about what the method left
 unsure. The scores are then the final suggestions', and `levels` says, per level, how
 many of them it made and how right they were. Its requests are real ones, and billed.
@@ -310,7 +310,7 @@ Optional: a **decision model** deployed on Azure AI Foundry, such as Microsoft-D
 A decision model generates no text: it's given a `state` (JSON) and named multiple-choice
 questions, and answers each with one of the options and a probability for every option.
 That fits the problem: pick a label among the ledger's own values, with a confidence the
-0.9 threshold can use directly.
+threshold can use directly.
 
 It's the last level: asked only about what rules and local AI left unsure, with what they
 settled as facts. Without it configured, or when the service fails, everything else works
@@ -321,7 +321,7 @@ question per open label, sharing one state; one request per statement without an
 
 | Question | Options |
 |---|---|
-| `counterparty` | The row's other side: the accounts of its potential transfer matches (a transfer), then the other sides of its similar past transactions and of those with the same text, at most 10 — never the whole list — plus *none of these* and *cannot tell* |
+| `counterparty` | The row's other side: the accounts of its potential transfer matches (a transfer), then the other sides of its similar past transactions and of those with the same text, at most [`CANDIDATES`](../server/crates/remote/src/params.rs) — never the whole list — plus *none of these* and *cannot tell* |
 | `category` | Every category, plus *cannot tell* |
 | `purpose` | Every party, plus *cannot tell* |
 | `account` | Every account that isn't archived and fits the file's kind, plus *none of these* and *cannot tell* |
@@ -346,9 +346,9 @@ server; the code only computes what fills them.
   bank's own fields saying what kind of transaction it is (a `Type` or `Category` column,
   a merchant category code), whether the same amount recurred in recent months, and the
   accounts where the same amount moved the other way (its potential transfer matches);
-- its account: name, kind, owner, and its purposes and top categories over six months;
+- its account: name, kind, owner, and its purposes and top categories over [`USAGE`](../server/crates/remote/src/params.rs);
 - the labels already settled, as facts;
-- the 10 most similar past transactions, from local AI, with their labels.
+- the [`SIMILAR`](../server/crates/remote/src/params.rs) most similar past transactions, from local AI, with their labels.
 
 For a statement: its file name, the last four digits of the number it names, its kind,
 dates and a few rows.
@@ -373,11 +373,12 @@ version: measure it with the backtest before using it.
 | `EXCHEQUER_REMOTE_AI_ENDPOINT` | The Foundry resource's endpoint, `https://<resource>.services.ai.azure.com` |
 | `EXCHEQUER_REMOTE_AI_DEPLOYMENT` | The model's deployment name |
 | `REMOTE_AI_KEY_FILE` | A file holding the resource's key: a podman secret (`exchequer_remote_ai_key`) |
-| `EXCHEQUER_REMOTE_AI_CONCURRENCY` | Requests at once, default 4 (1–32) |
+| `EXCHEQUER_REMOTE_AI_CONCURRENCY` | Requests at once (default and range in [`config.rs`](../server/crates/server/src/config.rs)) |
 
 Requests go to `<endpoint>/providers/microsoft/v1/systemone` over HTTPS, with the key in
-the `api-key` header, 30 seconds each at most; a busy service (`429`, `5xx`) is retried
-twice, after what `Retry-After` says (at most 10 seconds). Remote AI runs while a file is uploaded (or a statement's
+the `api-key` header, each with a timeout ([`main.rs`](../server/crates/server/src/main.rs)); a busy
+service (`429`, `5xx`) is tried up to [`ATTEMPTS`](../server/crates/outbound/src/decision.rs) times, after what `Retry-After` says (at most
+[`MAX_WAIT`](../server/crates/outbound/src/decision.rs)). Remote AI runs while a file is uploaded (or a statement's
 account is changed), so a large statement takes a while: one request per unsure row. A
 deployment type that keeps inference within a data zone, rather than a global one, keeps
 the data in that zone.
@@ -398,7 +399,7 @@ Each suggestion keeps:
 ## Review
 
 In the web app's import review, every suggested value carries a badge: one color per
-level, **solid when confident** (0.9 or more), **outlined when not**. Your own choices
+level, **solid when confident** ([`CONFIDENT`](../server/crates/suggest/src/params.rs) or more), **outlined when not**. Your own choices
 carry none, so "the AI said so" and "I said so" always look different. Hovering a badge
 shows the suggester and the reason.
 
