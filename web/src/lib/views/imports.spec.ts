@@ -8,6 +8,7 @@ import {
 	percent,
 	sideOf,
 	statementName,
+	statusWords,
 	unreviewedQuestion
 } from './imports';
 
@@ -151,5 +152,21 @@ describe('the other side', () => {
 			});
 		expect(suggested({ value: 'store' })).toEqual({ counterparty: 'store' });
 		expect(suggested({ transfer_account_id: 'card' })).toEqual({ account: 'card' });
+	});
+});
+
+describe('statusWords', () => {
+	it('says what a duplicate is of', () => {
+		expect(statusWords(row({ status: 'duplicate', match_transaction_id: 't' }))).toBe(
+			'Duplicate of'
+		);
+		expect(statusWords(row({ status: 'possible_duplicate', match_transaction_id: 't' }))).toBe(
+			'Possible duplicate of'
+		);
+	});
+
+	it('is the status alone when it is about nothing', () => {
+		expect(statusWords(row({ status: 'new' }))).toBe('New');
+		expect(statusWords(row({ status: 'duplicate' }))).toBe('Duplicate');
 	});
 });

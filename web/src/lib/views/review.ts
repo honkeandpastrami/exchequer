@@ -1,4 +1,4 @@
-// A bank row's form in import review (ux.md §10): the row as splits, like
+// A bank row's form in import review (docs/ux.md §7): the row as splits, like
 // any transaction's, with the bank account's side fixed. Unsplit, it's one
 // split whose fields are the row's labels: yours, a suggestion's, or not
 // chosen yet. Saving makes everything the form shows yours.

@@ -244,8 +244,7 @@
 	.upload .button {
 		display: inline-flex;
 		align-items: center;
-		min-height: var(--target);
-		padding: var(--space-2) var(--space-4);
+		padding: var(--space-1) var(--space-3);
 		border: var(--border-width) solid var(--color-accent);
 		border-radius: var(--radius-sm);
 		background: var(--color-accent);
@@ -298,7 +297,6 @@
 	.go {
 		display: inline-flex;
 		align-items: center;
-		min-height: var(--target);
 		white-space: nowrap;
 		font-weight: var(--weight-normal);
 	}

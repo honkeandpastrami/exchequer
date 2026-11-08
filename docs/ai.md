@@ -403,10 +403,9 @@ Each suggestion keeps:
 
 In the web app's import review, every suggested value carries a badge: one color per
 level, **solid when confident** ([`CONFIDENT`](../server/crates/suggest/src/params.rs) or more), **outlined when not**. Your own choices
-carry none, so "the AI said so" and "I said so" always look different. Hovering a badge
-shows the suggester and the reason; tapping it opens the row's details, where each
-field's reason sits under it in full. A suggestion is always the value shown, never an
-extra option to pick.
+carry none, so "the AI said so" and "I said so" always look different. Hovering or
+tapping a badge shows the suggester and the reason in a bubble next to it, on the row and
+in its form alike. A suggestion is always the value shown, never an extra option to pick.
 
 - **A statement's account.** A confident suggestion counts as the account: the rows are
   checked against it (duplicates, transfer pairs). Short of certain, the statement is to
@@ -414,7 +413,7 @@ extra option to pick.
   account remembers the file's number for it. An unsure suggestion is shown, but the rows
   wait until an account is picked.
 - **A row's labels.** Each row that's added shows its counterparty, category and purpose,
-  with their badges. In its details, you can change any of them; saving makes all it
+  with their badges. In its form (**Edit**), you can change any of them; saving makes all it
   shows yours. *Unknown* is a choice you can make explicitly for the counterparty. A
   category always names something and a purpose someone (design §4.1). The counterparty
   can be one of your accounts (typed by its `Owner · Name`): the row is then a transfer,

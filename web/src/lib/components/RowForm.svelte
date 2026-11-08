@@ -1,10 +1,12 @@
 <script lang="ts">
-	// The form that opens in place, under a row or at the top of a list (ux.md
-	// §10): its fields, what's wrong with them, Save and Cancel, and facts
-	// about the item at the bottom.
+	// The form that opens in place, under a row or at the top of a list
+	// (docs/ux.md §7): its fields, what's wrong with them, Save and Cancel,
+	// and facts about the item at the bottom. Its fields are one section
+	// (`Section`): all wide or all narrow, together.
 	import type { Snippet } from 'svelte';
 	import { ApiError } from '../api/client';
 	import Failure from './Failure.svelte';
+	import Section from './Section.svelte';
 
 	let {
 		label,
@@ -30,7 +32,7 @@
 		onreload?: () => void;
 		/** Its fields; none for an item with nothing to change, only actions. */
 		children?: Snippet;
-		/** More actions, after Cancel: Copy as new, Delete. */
+		/** More actions, at the end of Save's line: Add split, Copy as new, Delete. */
 		actions?: Snippet;
 		/** Facts about the item: its ID, where it came from. */
 		facts?: Snippet;
@@ -45,7 +47,7 @@
 		onsave();
 	}}
 >
-	{@render children?.()}
+	{#if children}<Section>{@render children()}</Section>{/if}
 
 	{#if issues.length}
 		<ul class="issues" role="alert">

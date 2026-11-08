@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Who can sign in and how (design §10): users, their passkeys, the
 	// sessions signed in, and scripts' tokens. Rows and forms as in
-	// docs/ux.md §10: Add or Edit opens the row's form; what acts on an item
+	// docs/ux.md §7: Add or Edit opens the row's form; what acts on an item
 	// is in its form.
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';

@@ -12,9 +12,13 @@
 	import NoValue from '#lib/components/NoValue.svelte';
 	import Quantities from '#lib/components/Quantities.svelte';
 	import RowForm from '#lib/components/RowForm.svelte';
+	import RowStatus from '#lib/components/RowStatus.svelte';
+	import Section from '#lib/components/Section.svelte';
 	import SplitLines, { type Field as SplitField } from '#lib/components/SplitLines.svelte';
 	import SuggestionBadge from '#lib/components/SuggestionBadge.svelte';
 	import Tags from '#lib/components/Tags.svelte';
+	import TransactionRow from '#lib/components/TransactionRow.svelte';
+	import Values from '#lib/components/Values.svelte';
 	import { localDate } from '#lib/dates.ts';
 	import { negate } from '#lib/money.ts';
 	import { hashQuery } from '#lib/query.ts';
@@ -38,10 +42,9 @@
 		labelState,
 		rowKey,
 		sideOf,
-		sourceNames,
 		stateOrder,
 		states,
-		statuses,
+		statusWords,
 		unreviewedQuestion,
 		type Side
 	} from '#lib/views/imports.ts';
@@ -91,7 +94,8 @@
 			rows = await all((query) =>
 				api.GET('/api/v1/imports/{id}/rows', { params: { path: { id }, query } })
 			);
-			if (shown) pin(shown);
+			// The rows on screen stay there, changed or not (docs/ux.md §2).
+			if (shown && !pinned) pin(shown);
 			const matched = rows.flatMap((r) => (r.match_transaction_id ? [r.match_transaction_id] : []));
 			const fresh = await transactionsById(matched.filter((m) => !txs.has(m)));
 			if (fresh.size) txs = new Map([...txs, ...fresh]);
@@ -107,7 +111,7 @@
 		(e) => (failure = e)
 	);
 
-	// `?row=0-3`: the row to show, its Details open (a transfer pair's other
+	// `?row=0-3`: the row to show, its form open (a transfer pair's other
 	// row links here).
 	const focus = $derived(hashQuery(page.url).get('row'));
 	const anchor = (r: { statement: number; position: number }) => `${r.statement}-${r.position}`;
@@ -191,14 +195,15 @@
 			await patch(row, body);
 		});
 
-	/** Ticks these rows as reviewed; the server leaves out those that can't be. */
-	const markReviewed = (targets: Row[]) =>
+	/** Ticks these rows reviewed, or clears them; the server leaves out those
+	 * that can't be. */
+	const markReviewed = (targets: Row[], reviewed: boolean) =>
 		serial(async () => {
 			const keys = targets.map(({ statement, position }) => ({ statement, position }));
 			for (let k = 0; k < keys.length; k += 500) {
 				const r = await api.POST('/api/v1/imports/{id}/review', {
 					params: { path: { id }, header: { 'If-Match': etag } },
-					body: { rows: keys.slice(k, k + 500), reviewed: true }
+					body: { rows: keys.slice(k, k + 500), reviewed }
 				});
 				imp = ok(r);
 				etag = r.response.headers.get('etag') ?? '';
@@ -233,7 +238,7 @@
 		return s?.account_id ? { account: s.account_id, commodity: s.commodity_id } : undefined;
 	}
 
-	/** Details: the row's form opens under it; again, it closes. */
+	/** Edit: the row's form opens under it; again, it closes. */
 	function openRow(row: Row) {
 		const bank = bankOf(row);
 		open = rowKey(row);
@@ -245,21 +250,6 @@
 			open = null;
 			form = null;
 		} else openRow(row);
-	}
-
-	/** A badge tapped: the row's Details, at the field it's for. */
-	async function why(row: Row, label: Label) {
-		if (open !== rowKey(row)) openRow(row);
-		await tick();
-		const field =
-			label === 'counterparty'
-				? `Split 1: ${fixedSide(row) === 'from' ? 'To' : 'From'}`
-				: `Split 1: ${label === 'category' ? 'category' : 'for'}`;
-		const el = document
-			.getElementById(`form-${anchor(row)}`)
-			?.querySelector<HTMLElement>(`[aria-label="${field}"]`);
-		el?.scrollIntoView({ block: 'center' });
-		el?.focus({ preventScroll: true });
 	}
 
 	/** Saving makes everything the form shows yours; what's still to review
@@ -377,6 +367,12 @@
 
 	const visible = $derived(pinned ? rows.filter((r) => pinned?.has(rowKey(r))) : rows);
 	const toTick = $derived(visible.filter((r) => r.state === 'to_review'));
+	/** What the tick-all box covers: the rows shown to review, and those
+	 * ticked since. It's ticked once they all are. */
+	const covered = $derived(visible.filter((r) => r.state === 'to_review' || r.reviewed));
+	const allTicked = $derived(covered.length > 0 && covered.every((r) => r.reviewed));
+	/** The open form's splits, for its Add split. */
+	let lines: SplitLines | undefined = $state();
 	const several = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 </script>
 
@@ -397,91 +393,88 @@
 	<h1 class="file">{name}</h1>
 	<p class="muted uploaded">Uploaded {localDate(i.created_at)}</p>
 
-	{#each i.statements as s (s.position)}
-		{@const code = r.commodities.get(s.commodity_id)?.code}
-		{@const sg = s.suggested_account}
-		<section class="block {s.state}">
-			<div class="head">
-				{@render block(
-					s.state,
-					s.number_last4 ? `Statement …${s.number_last4}` : 'Statement, no account number'
-				)}
-			</div>
-			<dl class="facts">
-				<dt><label for="account-{s.position}">Account</label></dt>
-				<dd>
-					<select
-						id="account-{s.position}"
-						value={s.account_id ?? ''}
-						onchange={(e) => setStatement(s, { account_id: e.currentTarget.value || null })}
-					>
-						{#if !s.account_id}<option value="" disabled>Choose…</option>{/if}
-						{#each accountsByOwner(r).filter((a) => !a.archived || a.id === s.account_id) as a (a.id)}
-							<option value={a.id}>{accountLabel(a, r)}</option>
-						{/each}
-					</select>
-					{#if !s.account_id}<div class="why"><NoValue kind="unknown" /></div>{/if}
-					{#if sg && (s.account_suggested || s.reviewed)}
-						<div class="why">{sourceNames[sg.suggester.kind]}: {sg.reason}</div>
-					{/if}
-				</dd>
-				<dd class="aside">
-					{#if sg && s.account_suggested}<SuggestionBadge suggestion={sg} compact />{/if}
-				</dd>
-				{#if sg && (s.account_suggested || s.reviewed)}
-					<dt></dt>
-					<dd>
-						<label class="choice">
-							<input
-								type="checkbox"
-								checked={s.reviewed}
-								onchange={(e) => setStatement(s, { reviewed: e.currentTarget.checked })}
-							/>
-							Reviewed
-						</label>
-					</dd>
-					<dd class="aside"></dd>
-				{/if}
-				<dt>Rows</dt>
-				<dd>
-					{#if !s.account_id}
-						<div>{s.rows.needs_you} wait for the account</div>
-					{:else}
-						{#each counted(s.rows) as c (c.state)}<div>{c.text}</div>{:else}<div>
-								<NoValue kind="none" />
-							</div>{/each}
-					{/if}
-				</dd>
-				<dd class="aside"></dd>
-				{#if s.ledger}
-					<dt>Balance</dt>
-					<dd><Amount value={s.ledger.amount} {code} /> on {s.ledger.date}</dd>
-					<dd class="aside"></dd>
-				{/if}
-				{#if s.skipped.length}
-					<dt>Skipped</dt>
-					<dd>
-						<details>
-							<summary>
-								{several(s.skipped.length, "line couldn't be read", "lines couldn't be read")}
-							</summary>
-							<ul class="skipped">
-								{#each s.skipped as l (l.line)}<li>Line {l.line}: {l.reason}</li>{/each}
-							</ul>
-						</details>
-					</dd>
-					<dd class="aside"></dd>
-				{/if}
-			</dl>
-		</section>
-	{:else}
-		<p class="muted">The file has no statements.</p>
-	{/each}
+	<Section label="Import" tag="section">
+		{#snippet children(look)}
+			{#each i.statements as s (s.position)}
+				{@const code = r.commodities.get(s.commodity_id)?.code}
+				{@const sg = s.suggested_account}
+				<section class="block {states[s.state].tone}">
+					<div class="head">
+						{@render block(
+							s.state,
+							s.number_last4 ? `Statement …${s.number_last4}` : 'Statement, no account number'
+						)}
+					</div>
+					<dl class="facts">
+						<dt><label for="account-{s.position}">Account</label></dt>
+						<dd>
+							<select
+								id="account-{s.position}"
+								value={s.account_id ?? ''}
+								onchange={(e) => setStatement(s, { account_id: e.currentTarget.value || null })}
+							>
+								{#if !s.account_id}<option value="" disabled>Choose…</option>{/if}
+								{#each accountsByOwner(r).filter((a) => !a.archived || a.id === s.account_id) as a (a.id)}
+									<option value={a.id}>{accountLabel(a, r)}</option>
+								{/each}
+							</select>
+							{#if !s.account_id}<div class="under"><NoValue kind="unknown" /></div>{/if}
+						</dd>
+						<dd class="aside">
+							{#if sg && s.account_suggested}<SuggestionBadge suggestion={sg} compact />{/if}
+						</dd>
+						{#if sg && (s.account_suggested || s.reviewed)}
+							<dt></dt>
+							<dd>
+								<label class="choice">
+									<input
+										type="checkbox"
+										checked={s.reviewed}
+										onchange={(e) => setStatement(s, { reviewed: e.currentTarget.checked })}
+									/>
+									Reviewed
+								</label>
+							</dd>
+							<dd class="aside"></dd>
+						{/if}
+						<dt>Rows</dt>
+						<dd>
+							{#if !s.account_id}
+								<div>{s.rows.needs_you} wait for the account</div>
+							{:else}
+								{#each counted(s.rows) as c (c.state)}<div>{c.text}</div>{:else}<div>
+										<NoValue kind="none" />
+									</div>{/each}
+							{/if}
+						</dd>
+						<dd class="aside"></dd>
+						{#if s.ledger}
+							<dt>Balance</dt>
+							<dd><Amount value={s.ledger.amount} {code} /> on {s.ledger.date}</dd>
+							<dd class="aside"></dd>
+						{/if}
+						{#if s.skipped.length}
+							<dt>Skipped</dt>
+							<dd>
+								<details>
+									<summary>
+										{several(s.skipped.length, "line couldn't be read", "lines couldn't be read")}
+									</summary>
+									<ul class="skipped">
+										{#each s.skipped as l (l.line)}<li>Line {l.line}: {l.reason}</li>{/each}
+									</ul>
+								</details>
+							</dd>
+							<dd class="aside"></dd>
+						{/if}
+					</dl>
+				</section>
+			{:else}
+				<p class="muted">The file has no statements.</p>
+			{/each}
 
-	<section class="summary">
-		<div class="filters" role="group" aria-label="Rows to show">
-			{#each stateOrder as st (st)}
-				<div class="filter-line">
+			<div class="filters" class:narrow={look === 'narrow'} role="group" aria-label="Rows to show">
+				{#each stateOrder as st (st)}
 					<button
 						class="filter"
 						aria-pressed={shown === st}
@@ -491,266 +484,277 @@
 						<span class="filter-name">{states[st].label}</span>
 						<span class="n">{i.readiness.rows[st]}</span>
 					</button>
-					{#if st === 'to_review'}
-						<button class="quiet" disabled={!toTick.length} onclick={() => markReviewed(toTick)}
-							>Tick all reviewed</button
-						>
-					{/if}
-				</div>
-			{/each}
-			<div class="filter-line">
+				{/each}
 				<button class="filter" aria-pressed={shown === ''} onclick={() => show('')}>
 					<span class="filter-name all">All</span>
 					<span class="n">{rows.length}</span>
 				</button>
 			</div>
-		</div>
 
-		{#if notice}<p class="notice" role="status">{notice}</p>{/if}
-		{#if failure}<Failure error={failure} />{/if}
+			{#if notice}<p class="notice" role="status">{notice}</p>{/if}
+			{#if failure}<Failure error={failure} />{/if}
 
-		<div class="commit">
-			<button disabled={busy || line.blocked} onclick={() => tryCommit(i)}>Commit import</button>
-			<span class="commit-line">
-				{#if line.blocked}<Mark tone="error" label="Needs you" quiet />{/if}
-				{line.text}
-			</span>
-		</div>
-		{#if asking}
-			<div class="ask" role="alertdialog" aria-label="Commit with rows to review">
-				<p>{unreviewedQuestion(i.readiness)}</p>
-				<div class="buttons">
-					<button disabled={busy} onclick={commit}>Commit anyway</button>
-					<button class="quiet" onclick={() => (asking = false)}>Cancel</button>
+			<div class="actions" class:narrow={look === 'narrow'}>
+				<div class="commit">
+					<button disabled={busy || line.blocked} onclick={() => tryCommit(i)}>Commit import</button
+					>
+					<span class="commit-line">
+						{#if line.blocked}<Mark tone="error" label="Needs you" quiet />{/if}
+						{line.text}
+					</span>
+				</div>
+				<div class="others">
+					<button class="quiet" disabled={busy || refreshing} onclick={refresh}
+						>{refreshing ? 'Refreshing…' : 'Refresh suggestions'}</button
+					>
+					<button class="quiet danger" onclick={discard}>Discard import</button>
 				</div>
 			</div>
-		{/if}
-		<div>
-			<button class="quiet" disabled={busy || refreshing} onclick={refresh}
-				>{refreshing ? 'Refreshing…' : 'Refresh suggestions'}</button
-			>
-		</div>
-		<div class="discard">
-			<button class="quiet danger" onclick={discard}>Discard import</button>
-		</div>
-	</section>
-
-	<div class="rows">
-		{#each visible as row (rowKey(row))}
-			{@const s = i.statements.find((x) => x.position === row.statement)}
-			{@const code = s ? r.commodities.get(s.commodity_id)?.code : undefined}
-			{@const tx = row.match_transaction_id ? txs.get(row.match_transaction_id) : undefined}
-			{@const key = rowKey(row)}
-			{@const adds = row.decision === 'add' || row.decision === 'add_separately'}
-			<article
-				id="row-{anchor(row)}"
-				class="row {row.state}"
-				class:flash={flashed.has(key)}
-				aria-label="{row.date} {row.set_description ?? row.description}"
-			>
-				<div class="r-date">{row.date}</div>
-				<div class="r-desc">
-					<div>{row.set_description ?? row.description}</div>
-					{#if row.set_description}<div class="muted small">Bank: {row.description}</div>{/if}
+			{#if asking}
+				<div class="ask" role="alertdialog" aria-label="Commit with rows to review">
+					<p>{unreviewedQuestion(i.readiness)}</p>
+					<div class="buttons">
+						<button disabled={busy} onclick={commit}>Commit anyway</button>
+						<button class="quiet" onclick={() => (asking = false)}>Cancel</button>
+					</div>
 				</div>
-				<div class="r-amount"><Amount value={row.amount} {code} /></div>
-				<div class="r-values">
-					<dl class="facts">
-						<dt class="label">
-							<Mark tone={states[row.state].tone} label={states[row.state].label} quiet />
-							{statuses[row.status]}
-						</dt>
-						{#if row.status === 'no_account'}
-							<dt>Account</dt>
-							<dd><NoValue kind="unknown" /></dd>
-							<dd class="aside"></dd>
-						{/if}
-						{#if row.transfer_pair}
-							{@const m = row.transfer_pair}
-							{@const a = r.accounts.get(m.account_id)}
-							<dt>With</dt>
-							<dd>{a ? accountLabel(a, r) : '?'}</dd>
-							<dd class="aside"></dd>
-							<dt>Row</dt>
-							<dd>
+			{/if}
+		{/snippet}
+	</Section>
+
+	<Section label="Rows" tag="section">
+		{#snippet children(look)}
+			<div class="rows">
+				<div class="bar" class:narrow={look === 'narrow'}>
+					<span>{several(toTick.length, 'row to review', 'rows to review')}</span>
+					<label class="choice tick-all" class:off={!covered.length}>
+						<input
+							type="checkbox"
+							checked={allTicked}
+							disabled={!covered.length || busy}
+							onchange={() => markReviewed(allTicked ? covered : toTick, !allTicked)}
+						/>
+						Reviewed: all {covered.length}
+					</label>
+				</div>
+				{#each visible as row (rowKey(row))}
+					{@const s = i.statements.find((x) => x.position === row.statement)}
+					{@const code = s ? r.commodities.get(s.commodity_id)?.code : undefined}
+					{@const tx = row.match_transaction_id ? txs.get(row.match_transaction_id) : undefined}
+					{@const key = rowKey(row)}
+					{@const adds = row.decision === 'add' || row.decision === 'add_separately'}
+					{#snippet description()}
+						<div>{row.set_description ?? row.description}</div>
+						{#if row.set_description}<div class="muted">Bank: {row.description}</div>{/if}
+					{/snippet}
+					{#snippet amount()}<Amount value={row.amount} {code} />{/snippet}
+					{#snippet status()}
+						<RowStatus
+							tone={states[row.state].tone}
+							state={states[row.state].label}
+							words={statusWords(row)}
+						>
+							{#if row.transfer_pair}
+								{@const m = row.transfer_pair}
+								{@const a = r.accounts.get(m.account_id)}
+								{a ? accountLabel(a, r) : '?'}:
 								<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- sideLink resolves -->
 								<a href={sideLink(m)}
 									>{m.date} {m.description} <Amount value={negate(row.amount)} {code} /> ↗</a
 								>
-								{#if m.import_id !== i.id}<div class="muted small">
-										In {m.file_name ?? 'another import'}
-									</div>{/if}
-							</dd>
-							<dd class="aside"></dd>
-						{/if}
-						{#if row.match_transaction_id && (row.status === 'duplicate' || row.status === 'possible_duplicate')}
-							<dt>Of</dt>
-							<dd>
+								{#if m.import_id !== i.id}(in {m.file_name ?? 'another import'}){/if}
+							{:else if row.match_transaction_id && (row.status === 'duplicate' || row.status === 'possible_duplicate')}
 								<a href={resolve('/transactions/[id]', { id: row.match_transaction_id })}
 									>{#if tx}{tx.date}
 										{tx.description}
-										{#if s?.account_id}<Quantities items={effectOn(tx, s.account_id, r)} />{/if}
+										{#if s?.account_id}<Quantities
+												items={effectOn(tx, s.account_id, r)}
+												inline
+											/>{/if}
 									{:else}A transaction{/if} ↗</a
 								>
-							</dd>
-							<dd class="aside"></dd>
-						{/if}
-						{#if adds && row.splits.length}
-							{#each row.splits as p, k (k)}
-								{@const side = p.transfer_account_id
-									? { account: p.transfer_account_id }
-									: { counterparty: p.counterparty_id ?? null }}
-								<dt>Split {k + 1}</dt>
-								<dd>
-									{#if sideName(r, side)}{sideName(r, side)}{:else}<NoValue kind="unknown" />{/if}
-									<div><Amount value={p.amount} {code} /></div>
-								</dd>
+							{/if}
+						</RowStatus>
+					{/snippet}
+					{#snippet values()}
+						<Values>
+							{#if row.status === 'no_account'}
+								<dt>Account</dt>
+								<dd><NoValue kind="unknown" /></dd>
 								<dd class="aside"></dd>
-							{/each}
-						{:else if adds}
-							{#each labels as label (label)}
-								<!-- Added as one transfer, the other side is the pair's: shown as With. -->
-								{#if !row.not_applicable.includes(label) && !(label === 'counterparty' && row.transfer_pair && row.decision === 'add')}
-									{@const st = labelState(row, label)}
-									{@const v = valueOf(r, row, label)}
-									<dt>{labelNames[label]}</dt>
+							{/if}
+							{#if adds && row.splits.length}
+								{#each row.splits as p, k (k)}
+									{@const side = p.transfer_account_id
+										? { account: p.transfer_account_id }
+										: { counterparty: p.counterparty_id ?? null }}
+									<dt>Split {k + 1}</dt>
 									<dd>
-										{#if v}{v}{:else}<NoValue kind="unknown" />{/if}
+										{#if sideName(r, side)}{sideName(r, side)}{:else}<NoValue kind="unknown" />{/if}
+										<Amount value={p.amount} {code} />
 									</dd>
-									<dd class="aside">
-										{#if st.kind === 'suggested'}
-											<SuggestionBadge
-												suggestion={st.suggestion}
-												compact
-												onclick={() => why(row, label)}
-											/>
-										{/if}
-									</dd>
-								{/if}
-							{/each}
-						{/if}
-						{#if adds && row.tags.length}
-							<dt>Tags</dt>
-							<dd>{row.tags.join(', ')}</dd>
-							<dd class="aside"></dd>
-						{/if}
-					</dl>
-				</div>
-				<div class="r-options">
-					{#if row.options.length}
-						<fieldset class="options">
-							<legend>On commit</legend>
-							{#each row.options as d (d)}
-								<label class="choice">
-									<input
-										type="radio"
-										name="row-{key}"
-										checked={row.decision === d}
-										onchange={() => setRow(row, { decision: d })}
-									/>
-									{choiceName(row.status, d)}
-								</label>
-							{/each}
-						</fieldset>
-					{:else}
-						<p class="muted small">Waits for the statement's account</p>
-					{/if}
-					<div class="tools">
-						{#if row.state === 'to_review' || row.reviewed}
-							<label class="choice">
-								<input
-									type="checkbox"
-									checked={row.reviewed}
-									onchange={(e) => setRow(row, { reviewed: e.currentTarget.checked })}
-								/>
-								Reviewed
-							</label>
-						{/if}
-						<button class="details" aria-expanded={open === key} onclick={() => toggle(row)}
-							>Details</button
-						>
-					</div>
-				</div>
-				{#if open === key}
-					<div class="r-form" id="form-{anchor(row)}">
-						{#snippet facts()}
-							{#if row.native_id}<span>Bank ID {row.native_id}</span>{/if}
-							{#each Object.entries(row.raw as Record<string, unknown>) as [k, v] (k)}
-								<span>{k} {typeof v === 'string' ? v : JSON.stringify(v)}</span>
-							{/each}
-						{/snippet}
-						{#if form}
-							{@const f = form}
-							{@const bank = bankOf(row)}
-							{@const one = (n: number) =>
-								n === 0 && f.draft.splits.length === 1 && !row.splits.length}
-							{@const paired = !!row.transfer_pair && row.decision === 'add'}
-							{#snippet badge(n: number, field: SplitField)}
-								{@const label = field === 'other' ? 'counterparty' : field}
-								{@const st = labelState(row, label)}
-								{#if one(n) && st.kind === 'suggested' && !(paired && label === 'counterparty')}
-									<SuggestionBadge suggestion={st.suggestion} compact />
-								{/if}
-							{/snippet}
-							{#snippet status(n: number, field: SplitField)}
-								{@const label = field === 'other' ? 'counterparty' : field}
-								{@const st = labelState(row, label)}
-								{#if one(n) && paired && label === 'counterparty'}
-									The transfer pair's other row
-								{:else if one(n) && st.kind === 'suggested'}
-									{sourceNames[st.suggestion.suggester.kind]}: {st.suggestion.reason}
-								{/if}
-							{/snippet}
-							<RowForm
-								label="Edit {row.description}"
-								busy={f.busy}
-								issues={f.tried ? rowProblems(row, f.draft, r) : []}
-								failure={f.failure}
-								onsave={() => save(row)}
-								oncancel={() => toggle(row)}
-								onreload={load}
-								{facts}
-							>
-								<Field label="Description" id="description-{anchor(row)}">
-									<input
-										id="description-{anchor(row)}"
-										bind:value={f.draft.description}
-										placeholder={row.description}
-										maxlength="500"
-									/>
-								</Field>
-								<Field label="Tags" id="tags-{anchor(row)}">
-									<Tags
-										bind:tags={f.draft.tags}
-										known={sorted(r.tags).map((t) => t.name)}
-										id="tags-{anchor(row)}"
-										label="Tags"
-									/>
-								</Field>
-								{#if bank}
-									<SplitLines
-										bind:splits={f.draft.splits}
-										ref={r}
-										commodity={bank.commodity}
-										fixed={{ account: bank.account, side: fixedSide(row) }}
-										expected={whole(row)}
-										canAdd={adds && row.status !== 'transfer_pair'}
-										more={false}
-										{badge}
-										{status}
-									/>
-								{/if}
-							</RowForm>
+									<dd class="aside"></dd>
+								{/each}
+							{:else if adds}
+								{#each labels as label (label)}
+									<!-- Added as one transfer, the other side is the pair's: said in its status. -->
+									{#if !row.not_applicable.includes(label) && !(label === 'counterparty' && row.transfer_pair && row.decision === 'add')}
+										{@const st = labelState(row, label)}
+										{@const v = valueOf(r, row, label)}
+										<dt>{labelNames[label]}</dt>
+										<dd>
+											{#if v}{v}{:else}<NoValue kind="unknown" />{/if}
+										</dd>
+										<dd class="aside">
+											{#if st.kind === 'suggested'}
+												<SuggestionBadge suggestion={st.suggestion} compact />
+											{/if}
+										</dd>
+									{/if}
+								{/each}
+							{/if}
+							{#if adds && row.tags.length}
+								<dt>Tags</dt>
+								<dd>{row.tags.join(', ')}</dd>
+								<dd class="aside"></dd>
+							{/if}
+						</Values>
+					{/snippet}
+					{#snippet actions()}
+						{#if row.options.length}
+							<fieldset class="options">
+								<legend>On commit</legend>
+								{#each row.options as d (d)}
+									<label class="box">
+										<input
+											type="radio"
+											name="row-{key}"
+											checked={row.decision === d}
+											onchange={() => setRow(row, { decision: d })}
+										/>
+										{choiceName(row.status, d)}
+									</label>
+								{/each}
+							</fieldset>
 						{:else}
-							<p class="raw muted">{@render facts()}</p>
+							<p class="muted waits">Waits for the statement's account</p>
 						{/if}
-					</div>
-				{/if}
-			</article>
-		{:else}
-			<p class="muted none">No rows.</p>
-		{/each}
-	</div>
+						<div class="tools">
+							{#if row.state === 'to_review' || row.reviewed}
+								<label class="box">
+									<input
+										type="checkbox"
+										checked={row.reviewed}
+										onchange={(e) => setRow(row, { reviewed: e.currentTarget.checked })}
+									/>
+									Reviewed
+								</label>
+							{/if}
+							<button class="box" aria-expanded={open === key} onclick={() => toggle(row)}
+								>Edit</button
+							>
+						</div>
+					{/snippet}
+					{#snippet rowForm()}
+						<div id="form-{anchor(row)}">
+							{#snippet facts()}
+								{#if row.native_id}<span>Bank ID {row.native_id}</span>{/if}
+								{#each Object.entries(row.raw as Record<string, unknown>) as [k, v] (k)}
+									<span>{k} {typeof v === 'string' ? v : JSON.stringify(v)}</span>
+								{/each}
+							{/snippet}
+							{#if form}
+								{@const f = form}
+								{@const bank = bankOf(row)}
+								{@const one = (n: number) =>
+									n === 0 && f.draft.splits.length === 1 && !row.splits.length}
+								{@const paired = !!row.transfer_pair && row.decision === 'add'}
+								{#snippet badge(n: number, field: SplitField)}
+									{@const label = field === 'other' ? 'counterparty' : field}
+									{@const st = labelState(row, label)}
+									{#if one(n) && st.kind === 'suggested' && !(paired && label === 'counterparty')}
+										<SuggestionBadge suggestion={st.suggestion} compact />
+									{/if}
+								{/snippet}
+								{#snippet status(n: number, field: SplitField)}
+									{#if one(n) && paired && field === 'other'}The transfer pair's other row{/if}
+								{/snippet}
+								{#snippet more()}
+									{#if bank && adds && row.status !== 'transfer_pair'}
+										<button
+											type="button"
+											class="quiet"
+											onclick={() => lines?.add()}
+											disabled={f.busy}>Add split</button
+										>
+									{/if}
+								{/snippet}
+								<RowForm
+									label="Edit {row.description}"
+									busy={f.busy}
+									issues={f.tried ? rowProblems(row, f.draft, r) : []}
+									failure={f.failure}
+									onsave={() => save(row)}
+									oncancel={() => toggle(row)}
+									onreload={load}
+									actions={more}
+									{facts}
+								>
+									<Field label="Description" id="description-{anchor(row)}">
+										<input
+											id="description-{anchor(row)}"
+											bind:value={f.draft.description}
+											placeholder={row.description}
+											maxlength="500"
+										/>
+									</Field>
+									<Field label="Tags" id="tags-{anchor(row)}">
+										<Tags
+											bind:tags={f.draft.tags}
+											known={sorted(r.tags).map((t) => t.name)}
+											id="tags-{anchor(row)}"
+											label="Tags"
+										/>
+									</Field>
+									{#if bank}
+										<SplitLines
+											bind:this={lines}
+											bind:splits={f.draft.splits}
+											ref={r}
+											commodity={bank.commodity}
+											fixed={{ account: bank.account, side: fixedSide(row) }}
+											expected={whole(row)}
+											more={false}
+											{badge}
+											{status}
+										/>
+									{/if}
+								</RowForm>
+							{:else}
+								<p class="raw muted">{@render facts()}</p>
+							{/if}
+						</div>
+					{/snippet}
+					<TransactionRow
+						id="row-{anchor(row)}"
+						label="{row.date} {row.set_description ?? row.description}"
+						date={row.date}
+						tone={states[row.state].tone}
+						flash={flashed.has(key)}
+						muted={row.state === 'not_added'}
+						{description}
+						{amount}
+						{status}
+						{values}
+						{actions}
+						form={open === key ? rowForm : undefined}
+					/>
+				{:else}
+					<p class="muted none">No rows.</p>
+				{/each}
+			</div>
+		{/snippet}
+	</Section>
 {:else if failure}
 	<Failure error={failure} />
 {:else}
@@ -760,7 +764,6 @@
 <style>
 	.back {
 		margin: 0 0 var(--space-3);
-		font-size: var(--text-sm);
 	}
 	.file {
 		overflow-wrap: anywhere;
@@ -768,38 +771,26 @@
 	}
 	.uploaded {
 		margin: 0 0 var(--space-4);
-		font-size: var(--text-sm);
 	}
-	.small {
-		font-size: var(--text-sm);
-	}
-	/* A block with its colour: a strip down its left edge (docs/ux.md §6). */
-	.block,
-	.row {
-		--strip: var(--color-positive);
-		border-left: 4px solid var(--strip);
-	}
-	.needs_you {
-		--strip: var(--color-negative);
-	}
-	.to_review {
-		--strip: var(--color-warning);
-	}
-	.ready {
-		--strip: var(--color-positive);
-	}
-	.not_added {
-		--strip: var(--color-smoke);
-	}
+	/* A statement with its colour: a strip down its left edge. */
 	.block {
+		--strip: var(--color-positive);
 		margin-bottom: var(--space-3);
 		padding: var(--space-3) var(--space-4);
 		background: var(--color-surface);
-		border-top: var(--border-width) solid var(--color-border);
-		border-right: var(--border-width) solid var(--color-border);
-		border-bottom: var(--border-width) solid var(--color-border);
+		border: var(--border-width) solid var(--color-border);
+		border-left: 4px solid var(--strip);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-1);
+	}
+	.block.error {
+		--strip: var(--color-negative);
+	}
+	.block.warning {
+		--strip: var(--color-warning);
+	}
+	.block.off {
+		--strip: var(--color-smoke);
 	}
 	.head {
 		display: flex;
@@ -810,23 +801,16 @@
 		overflow-wrap: anywhere;
 	}
 	/* One item per line: names in a column, values using the rest, badges
-	   last. A value wraps; nothing is cut short. */
+	   last. */
 	.facts {
-		container: values / inline-size;
 		display: grid;
 		grid-template-columns: max-content minmax(0, 1fr) max-content;
 		gap: var(--space-1) var(--space-3);
 		align-items: baseline;
 		margin: 0;
-		font-size: var(--text-sm);
 	}
 	.facts dt {
 		color: var(--color-text-muted);
-	}
-	.facts dt.label {
-		grid-column: 1 / -1;
-		color: var(--color-text);
-		font-weight: var(--weight-strong);
 	}
 	.facts dd {
 		margin: 0;
@@ -835,72 +819,87 @@
 	}
 	.facts select {
 		width: 100%;
+		max-width: var(--field-max);
 	}
-	.facts .aside {
-		justify-self: end;
-	}
-	.why {
+	.under {
 		margin-top: var(--space-1);
-		font-size: var(--text-xs);
-		color: var(--color-text-muted);
 	}
 	.skipped {
 		margin: var(--space-1) 0 0;
 		padding-left: var(--space-4);
 	}
-	.summary {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		margin: var(--space-4) 0;
-	}
+	/* The filters: one row of equal buttons, or a list. */
 	.filters {
-		display: flex;
-		flex-direction: column;
-		max-width: 36rem;
+		display: grid;
+		grid-auto-flow: column;
+		grid-auto-columns: minmax(max-content, 1fr);
+		gap: var(--space-2);
+		margin: var(--space-4) 0 var(--space-3);
 	}
-	.filter-line {
+	.filters.narrow {
+		grid-auto-flow: row;
+		grid-auto-columns: auto;
+		gap: 0;
+	}
+	.filter {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-	}
-	.filter {
-		display: grid;
-		grid-template-columns: 1.25rem minmax(0, 1fr) 3rem;
-		align-items: center;
-		flex: 1;
-		min-height: var(--target);
-		padding: 0 var(--space-3);
-		border-color: transparent;
+		white-space: nowrap;
+		border-color: var(--color-border);
 		background: transparent;
 		color: var(--color-text);
 		text-align: left;
 	}
+	.filters.narrow .filter {
+		border-color: transparent;
+	}
 	.filter:hover {
 		background: var(--color-surface-alt);
 	}
-	.filter[aria-pressed='true'] {
-		border-color: var(--color-border);
+	.filters .filter[aria-pressed='true'] {
+		border-color: var(--color-accent);
 		background: var(--color-surface);
 		font-weight: var(--weight-strong);
 	}
-	.filter .all {
-		grid-column: 2;
+	.filter-name {
+		flex: 1;
+	}
+	.filter-name.all {
+		padding-left: calc(1ch + var(--space-2));
 	}
 	.n {
 		text-align: right;
 		font-variant-numeric: var(--numeric);
 	}
-	.commit {
+	/* The actions: Commit and its line on the left, the rest on the right; or
+	   all stacked. Commit never leaves its line. */
+	.actions {
 		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--space-2) var(--space-3);
+		justify-content: space-between;
+		gap: var(--space-3);
+		margin-bottom: var(--space-4);
 	}
-	.commit-line {
-		font-size: var(--text-sm);
+	.actions.narrow {
+		flex-direction: column;
+		align-items: flex-start;
+	}
+	.commit,
+	.others {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		white-space: nowrap;
+	}
+	.actions.narrow .commit {
+		white-space: normal;
+	}
+	.actions.narrow .others {
+		flex-direction: column;
+		align-items: flex-start;
 	}
 	.ask {
+		margin-bottom: var(--space-4);
 		padding: var(--space-3) var(--space-4);
 		border-left: 4px solid var(--color-warning);
 		border-radius: var(--radius-sm);
@@ -914,94 +913,53 @@
 		flex-wrap: wrap;
 		gap: var(--space-3);
 	}
-	.discard {
-		margin-top: var(--space-4);
-	}
 	.danger {
 		color: var(--color-negative);
 	}
 	.notice {
-		margin: 0;
+		margin: 0 0 var(--space-3);
 		padding: var(--space-3) var(--space-4);
 		border-radius: var(--radius-sm);
 		background: var(--color-surface-alt);
 	}
-	/* The rows: one block each, in one of two layouts by the list's width. */
 	.rows {
-		container: rows / inline-size;
 		background: var(--color-surface);
 		border: var(--border-width) solid var(--color-border);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-1);
 	}
+	/* Over the rows: how many are to review, and the box that ticks them all,
+	   in the column of the rows' own Reviewed boxes. */
+	.bar {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) var(--row-actions);
+		align-items: center;
+		gap: var(--space-3);
+		padding: var(--space-2) var(--space-3) var(--space-2) calc(var(--space-3) + 4px);
+		border-bottom: var(--border-width) solid var(--color-border);
+		background: var(--color-surface-alt);
+		border-radius: var(--radius-md) var(--radius-md) 0 0;
+	}
+	.bar.narrow {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: space-between;
+	}
+	.tick-all {
+		padding: 0 var(--space-2);
+	}
+	.tick-all.off {
+		color: var(--color-text-muted);
+		cursor: default;
+	}
 	.none {
 		margin: 0;
 		padding: var(--space-3);
 	}
-	/* Narrow (a phone): date and amount, the description, the values, then
-	   the choices. */
-	.row {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		grid-template-areas:
-			'date amount'
-			'desc desc'
-			'values values'
-			'options options'
-			'form form';
-		gap: var(--space-2) var(--space-3);
-		padding: var(--space-3);
-		border-top: var(--border-width) solid var(--color-border);
-	}
-	.row:first-child {
-		border-top: none;
-	}
-	.row.not_added > div:not(.r-options, .r-form) {
-		color: var(--color-text-muted);
-	}
-	/* Wide (a laptop, an iPad either way): date, description, amount and the
-	   choices on the first line; the values under them, from the date's edge
-	   to the choices. */
-	@container rows (min-width: 45rem) {
-		.row {
-			grid-template-columns: 6.5rem minmax(0, 1fr) 8rem 15rem;
-			/* Taller choices grow the values' row, never the first line. */
-			grid-template-rows: auto 1fr auto;
-			grid-template-areas:
-				'date desc amount options'
-				'values values values options'
-				'form form form form';
-			gap: var(--space-1) var(--space-3);
-		}
-	}
-	.r-date {
-		grid-area: date;
-		white-space: nowrap;
-		font-variant-numeric: var(--numeric);
-	}
-	.r-desc {
-		grid-area: desc;
-		overflow-wrap: anywhere;
-	}
-	.r-amount {
-		grid-area: amount;
-		text-align: right;
-		white-space: nowrap;
-	}
-	.r-values {
-		grid-area: values;
-		align-self: start;
-		min-width: 0;
-	}
-	.r-options {
-		grid-area: options;
+	.options {
 		display: flex;
 		flex-direction: column;
-	}
-	.r-form {
-		grid-area: form;
-	}
-	.options {
+		gap: var(--space-1);
 		margin: 0;
 		padding: 0;
 		border: none;
@@ -1014,35 +972,8 @@
 		clip-path: inset(50%);
 		white-space: nowrap;
 	}
-	.tools {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0 var(--space-3);
-	}
-	@container rows (min-width: 45rem) {
-		.tools {
-			flex-direction: column;
-			align-items: flex-start;
-		}
-	}
-	.details {
-		min-height: var(--target);
-		padding: 0;
-		border: none;
-		background: none;
-		color: var(--color-accent);
-		text-decoration: underline;
-	}
-	.details[aria-expanded='true'] {
-		font-weight: var(--weight-strong);
-	}
-	/* A badge would cost a value its room: the badge goes, never the text. */
-	@container values (max-width: 16rem) {
-		.facts .aside :global(.badge) {
-			display: none;
-		}
+	.waits {
+		margin: 0;
 	}
 	.raw {
 		display: flex;
@@ -1052,20 +983,5 @@
 		font-size: var(--text-xs);
 		font-family: var(--font-mono);
 		overflow-wrap: anywhere;
-	}
-	/* Just brought into view: a highlight that fades. */
-	.row.flash {
-		animation: flash 2s ease-out;
-	}
-	@keyframes flash {
-		from {
-			background: var(--color-warning-bg);
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.row.flash {
-			animation: none;
-			background: var(--color-warning-bg);
-		}
 	}
 </style>

@@ -18,13 +18,23 @@ export const statuses: Record<Status, string> = {
 	no_account: 'No account'
 };
 
+/** A row's status as the start of its sentence, when it's about something:
+ * "Duplicate of" a transaction, "Transfer pair with" an account. */
+export function statusWords(row: Schemas['StagedRow']): string {
+	const words = statuses[row.status];
+	const duplicate = row.status === 'duplicate' || row.status === 'possible_duplicate';
+	if (duplicate && row.match_transaction_id) return `${words} of`;
+	if (row.status === 'transfer_pair' && row.transfer_pair) return `${words} with`;
+	return words;
+}
+
 /** A choice in words: a transfer pair's `add` is one transfer. */
 export function choiceName(status: Status, d: Decision): string {
 	if (d === 'add') return status === 'transfer_pair' ? 'Add as one transfer' : 'Add';
 	return d === 'add_separately' ? 'Add separately' : "Don't add";
 }
 
-/** A state's mark (docs/ux.md §6), and its filter's words. */
+/** A state's mark (docs/ux.md §5), and its filter's words. */
 export const states: Record<State, { tone: Tone; label: string }> = {
 	needs_you: { tone: 'error', label: 'Needs you' },
 	to_review: { tone: 'warning', label: 'To review' },
