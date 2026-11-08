@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Where a value would be, something that isn't one (docs/ux.md §4): a
+	// Where a value would be, something that isn't one (docs/ux.md §5): a
 	// deliberate `none`, or an `unknown`, not set. A tag, so it can't be
 	// mistaken for data, a name like "Unknown" included.
 	let { kind }: { kind: 'none' | 'unknown' } = $props();

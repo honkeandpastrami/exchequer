@@ -1,5 +1,5 @@
 <script lang="ts">
-	// What committing an import did (ux.md §6): a block for the commit, and
+	// What committing an import did (docs/ux.md §5): a block for the commit, and
 	// one per balance check, each with its colour, one item per line.
 	import { resolve } from '$app/paths';
 	import type { Schemas } from '../api/client';
@@ -102,7 +102,6 @@
 	.go {
 		display: inline-flex;
 		align-items: center;
-		min-height: var(--target);
 		white-space: nowrap;
 	}
 </style>

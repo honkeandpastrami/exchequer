@@ -52,6 +52,7 @@
 	let issues = $derived(tried && draft && ref ? problems(draft, ref) : []);
 	let failure: unknown = $state(null);
 	let busy = $state(false);
+	let lines: SplitLines | undefined = $state();
 
 	const household = (r: Reference) => usd(r)?.id ?? [...r.commodities.keys()][0] ?? '';
 
@@ -165,9 +166,12 @@
 		<Field label="Notes" id="{uid}-notes">
 			<input id="{uid}-notes" bind:value={draft.notes} />
 		</Field>
-		<SplitLines bind:splits={draft.splits} {ref} commodity={household(ref)} />
+		<SplitLines bind:this={lines} bind:splits={draft.splits} {ref} commodity={household(ref)} />
 
 		{#snippet actions()}
+			<button type="button" class="quiet" onclick={() => lines?.add()} disabled={busy}
+				>Add split</button
+			>
 			{#if id && oncopy}
 				<button type="button" class="quiet" onclick={() => id && oncopy(id)} disabled={busy}
 					>Copy as new</button

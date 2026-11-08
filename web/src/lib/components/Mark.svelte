@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	/** What a status says, by its symbol and colour (docs/ux.md §6). */
+	/** What a status says, by its symbol and colour (docs/ux.md §5). */
 	export type Tone = 'ok' | 'warning' | 'error' | 'open' | 'progress' | 'off';
 </script>
 

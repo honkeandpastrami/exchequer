@@ -35,10 +35,13 @@
 	--border-width: 1px;
 	--layout-max: 76rem;
 	--gutter: var(--space-4);
-	/* A control's smallest height: a finger's width (docs/ux.md §9). */
-	--target: 2.75rem;
-	/* A checkbox or radio's box, drawn larger than the browser's. */
-	--check-size: 1.25rem;
+	/* The room to spare before a section goes back to its wide look
+	   (docs/ux.md §3, `layout.ts`). */
+	--switch-margin: 4rem;
+	/* A form's control at its widest, so it isn't stretched across a screen. */
+	--field-max: 28rem;
+	/* A transaction row's actions column, when wide. */
+	--row-actions: 13rem;
 
 	/* Color. */
 	--color-bg: #f6f4ef;
@@ -55,7 +58,7 @@
 	--color-warning: #9a6700;
 	--color-warning-bg: #fff4d6;
 	--color-error-bg: #fde8e6;
-	/* Not added: out of the way, but there (docs/ux.md §6). */
+	/* Not added: out of the way, but there (docs/ux.md §5). */
 	--color-smoke: #b9b3a6;
 	--color-focus: #2f81f7;
 	--shadow-1: 0 1px 2px rgb(0 0 0 / 0.06);

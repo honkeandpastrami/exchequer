@@ -4,7 +4,7 @@
 </script>
 
 <script lang="ts">
-	// A transaction's splits (ux.md §10): one field per line, in the order
+	// A transaction's splits (docs/ux.md §7): one field per line, in the order
 	// from, to, amount, category, For, note; with two or more, each split is
 	// a numbered block. Fields a split can't have stay in their place,
 	// disabled (see `preview`); the rarer ones (another commodity received, a
@@ -38,7 +38,6 @@
 		commodity,
 		fixed,
 		expected,
-		canAdd = true,
 		more: withMore = true,
 		badge,
 		status
@@ -52,8 +51,6 @@
 		/** What the splits must add up to: a bank row's amount, unsigned. One
 		 * split is the whole of it, and its amount can't change. */
 		expected?: string;
-		/** Whether Add split is offered. */
-		canAdd?: boolean;
 		/** Whether More fields (another commodity, a settled month) is offered. */
 		more?: boolean;
 		/** Split `i`'s field's badge: how sure its suggestion is. */
@@ -96,7 +93,9 @@
 		return preview(fixed.side === 'from' ? { ...s, to: outside } : { ...s, from: outside }, ref);
 	}
 
-	function add() {
+	/** Add split: a copy of the split above. The form offers it, next to Save
+	 * (`bind:this`). */
+	export function add() {
 		splits.push(blankSplit(commodity, splits.at(-1)));
 	}
 	function remove(i: number) {
@@ -267,35 +266,30 @@
 		</section>
 	{/each}
 </div>
-<div class="foot">
-	{#if canAdd}
-		<button type="button" class="quiet" onclick={add}>Add split</button>
-	{:else}
-		<span></span>
-	{/if}
-	{#if expected !== undefined && splits.length > 1 && left !== undefined}
-		{@const c = code(splits[0].commodity)}
-		<span class="total">
-			{#if !typed}
-				<Mark tone="open" label="Incomplete" /> every split needs an amount
-			{:else if sign(left) === 0}
-				<Mark tone="ok" label="Adds up" /> to the bank's <Amount value={expected} code={c} />
-			{:else if sign(left) > 0}
-				<Mark tone="error" label="Short" /><Amount value={left} code={c} /> left to split
-			{:else}
-				<Mark tone="error" label="Over" /><Amount value={left.slice(1)} code={c} /> more than the bank's
-				<Amount value={expected} code={c} />
-			{/if}
-		</span>
-	{:else if splits.length > 1 && totals.length}
-		<span class="total"
-			>Total {#each totals as t, k (k)}{k ? ', ' : ''}<Amount
-					value={t.value}
-					code={t.code}
-				/>{/each}</span
-		>
-	{/if}
-</div>
+{#if splits.length > 1}<div class="foot">
+		{#if expected !== undefined && splits.length > 1 && left !== undefined}
+			{@const c = code(splits[0].commodity)}
+			<span class="total">
+				{#if !typed}
+					<Mark tone="open" label="Incomplete" /> every split needs an amount
+				{:else if sign(left) === 0}
+					<Mark tone="ok" label="Adds up" /> to the bank's <Amount value={expected} code={c} />
+				{:else if sign(left) > 0}
+					<Mark tone="error" label="Short" /><Amount value={left} code={c} /> left to split
+				{:else}
+					<Mark tone="error" label="Over" /><Amount value={left.slice(1)} code={c} /> more than the bank's
+					<Amount value={expected} code={c} />
+				{/if}
+			</span>
+		{:else if splits.length > 1 && totals.length}
+			<span class="total"
+				>Total {#each totals as t, k (k)}{k ? ', ' : ''}<Amount
+						value={t.value}
+						code={t.code}
+					/>{/each}</span
+			>
+		{/if}
+	</div>{/if}
 
 <style>
 	.split {
@@ -305,7 +299,7 @@
 	.head {
 		margin: 0 0 var(--space-1);
 		font-family: var(--font-ui);
-		font-size: var(--text-sm);
+		font-size: var(--text-md);
 	}
 	.money {
 		display: flex;
@@ -330,16 +324,10 @@
 		padding-top: var(--space-1);
 	}
 	.foot {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-3);
 		padding-top: var(--space-2);
 		border-top: var(--border-width) solid var(--color-border);
 	}
 	.total {
-		font-size: var(--text-sm);
 		color: var(--color-text-muted);
 	}
 </style>

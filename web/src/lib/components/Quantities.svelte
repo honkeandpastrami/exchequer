@@ -2,9 +2,12 @@
 	import type { Quantity } from '../views/transactions';
 	import Amount from './Amount.svelte';
 
-	let { items }: { items: Quantity[] } = $props();
+	// `inline`: in a sentence, comma-separated, instead of one per line.
+	let { items, inline = false }: { items: Quantity[]; inline?: boolean } = $props();
 </script>
 
 {#each items as q, i (i)}
-	<div><Amount value={q.quantity} code={q.commodity?.code ?? '?'} /></div>
+	{#if inline}{i ? ', ' : ''}<Amount value={q.quantity} code={q.commodity?.code ?? '?'} />{:else}
+		<div><Amount value={q.quantity} code={q.commodity?.code ?? '?'} /></div>
+	{/if}
 {/each}

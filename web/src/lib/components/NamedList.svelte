@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Categories, counterparties or tags: add, edit, delete (ux.md §10). Add
+	// Categories, counterparties or tags: add, edit, delete (docs/ux.md §7). Add
 	// opens a form at the top of the list, Edit one under its row. Each edit
 	// reads the item first, so it carries the ETag of what's stored now.
 	import { resolve } from '$app/paths';

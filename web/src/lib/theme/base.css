@@ -10,6 +10,9 @@
 }
 
 html {
+	/* The scrollbar's room is always kept, so one appearing never changes a
+	   section's width (docs/ux.md §3). */
+	scrollbar-gutter: stable;
 	font-family: var(--font-ui);
 	font-size: var(--text-md);
 	line-height: var(--leading);
@@ -59,32 +62,23 @@ select {
 	color: inherit;
 }
 
-/* Every control a finger can hit (docs/ux.md §9). */
-button:not(.link),
-input:not([type='checkbox'], [type='radio']),
-select {
-	min-height: var(--target);
-}
 input[type='checkbox'],
 input[type='radio'] {
-	width: var(--check-size);
-	height: var(--check-size);
 	margin: 0;
 	flex: none;
 	accent-color: var(--color-accent);
 	cursor: pointer;
 }
-/* A choice's whole line is its target, its words included. */
+/* A choice's words are part of its click area. */
 label.choice {
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
-	min-height: var(--target);
 	cursor: pointer;
 }
 
 button {
-	padding: var(--space-2) var(--space-4);
+	padding: var(--space-1) var(--space-3);
 	border: var(--border-width) solid var(--color-accent);
 	border-radius: var(--radius-sm);
 	background: var(--color-accent);
@@ -106,7 +100,7 @@ button:disabled {
 
 input,
 select {
-	padding: var(--space-2) var(--space-3);
+	padding: var(--space-1) var(--space-2);
 	border: var(--border-width) solid var(--color-border);
 	border-radius: var(--radius-sm);
 	background: var(--color-surface);

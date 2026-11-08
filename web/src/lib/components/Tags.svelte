@@ -1,5 +1,5 @@
 <script lang="ts">
-	// A transaction's tags as chips (ux.md §10): typing offers the existing
+	// A transaction's tags as chips (docs/ux.md §7): typing offers the existing
 	// tags, Enter adds one, × removes it. A name no tag has is a new tag,
 	// made when the transaction is saved.
 	let {
@@ -70,16 +70,14 @@
 	.chip {
 		display: inline-flex;
 		align-items: center;
-		min-height: var(--target);
-		padding-left: var(--space-3);
+		padding-left: var(--space-2);
 		border: var(--border-width) solid var(--color-border);
 		border-radius: 999px;
 		background: var(--color-surface-alt);
 		overflow-wrap: anywhere;
 	}
 	.remove {
-		min-width: var(--target);
-		padding: 0;
+		padding: 0 var(--space-2);
 		border: none;
 		border-radius: 999px;
 		background: transparent;

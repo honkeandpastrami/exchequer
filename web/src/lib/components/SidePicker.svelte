@@ -1,6 +1,6 @@
 <script lang="ts">
 	// One side of a split, typed: an account or someone outside the
-	// household, chosen alike from what matches as you type (ux.md §10).
+	// household, chosen alike from what matches as you type (docs/ux.md §7).
 	// Text that's no account is a counterparty's name, a new one if no one
 	// has it; "Unknown" is someone outside, unknown who.
 	import type { Reference } from '../reference';

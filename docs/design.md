@@ -285,7 +285,7 @@ data through side channels:
 - **Clients.** The API returns account numbers as their last four digits. A client gets a
   full number only by asking for it explicitly, per request (`?reveal=numbers`), with a
   token; the web app asks only when the signed-in user has chosen to see full numbers
-  (`docs/ux.md` §8), a choice kept in that browser and never on the server. Masked or
+  (`docs/ux.md` §10), a choice kept in that browser and never on the server. Masked or
   not, numbers never go to logs.
 - **Remote AI calls** (§8) go through `outbound` (§15) and carry features, not
   identifiers: account numbers only as their last four, and descriptions normalized so
