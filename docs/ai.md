@@ -1,473 +1,233 @@
 # Exchequer — suggestions and AI
 
-How Exchequer suggests what an imported bank row is, and how you review those
-suggestions before anything enters the ledger. The design and its reasons are in
-[`design.md` §8](design.md#8-component-classification-rules-and-ai); this doc describes
-how it operates. It grows with the code: each part below says whether it's built yet.
+What suggestions do, as seen from a client or a reviewer: given these rows, this ledger and
+these choices, what each row is shown as and why. Why it works this way is in
+[design §8](design.md#8-component-classification-rules-and-ai); what matching finds and how
+review and commit treat a row are in [`import.md`](import.md).
 
-## What gets suggested
+> **How this doc is written.** Each rule appears once.
+>
+> **In:** behaviour visible at the API, the UI or a rules script, as rules (*when X, Y*), one
+> sentence each, present tense; the concepts, defined once in the table below, in design
+> §8's terms, no synonyms; tables for anything that enumerates; what's refused, and when.
+>
+> **Out:** why (design §8: link it); endpoints, fields and parameters (the spec: name the
+> endpoint at most); constant values (link the constant); step-by-step algorithms (the
+> source: state the rule they guarantee); history ("now", "was", versions, "not built
+> yet"); screen wording and layout (`ux.md`, the source); anything already in `design.md` or
+> `import.md` (link it); more than one example per rule.
+>
+> **Shape:** sections in design §8's order: what's suggested, transfers, matching, the stack,
+> what a suggestion records, review and commit, then one section per level. Each opens with
+> a one-line job, then its rules. Budget: about 20 lines a section, 40 for a level's
+> section with its tables, 250 for the doc. Over budget means detail crept in: cut, don't
+> make room.
 
-When a bank file is staged (design §6), suggestions are made in two passes:
+## Concepts
 
-1. **The statement's account,** when the file doesn't settle it: a CSV names no account,
-   and an OFX file may carry a number no account has yet.
-2. **Each row's labels** — **counterparty**, **purpose** (who the money was for) and
-   **category** — for every row that may be added. The three are
-   suggested together, as one proposal per row, since they depend on each other: the
-   counterparty mostly decides the category, and the two together with the account
-   mostly decide the purpose. Each label still gets its own confidence.
-3. **Each row's choice** — what committing does with it: add it, or don't (a duplicate
-   is then kept with what's already there). Matching suggests it: the label's default
-   (see [Matching](#matching)).
+| Term | Meaning |
+|---|---|
+| **Label** (to suggest) | A statement's account, or a row's counterparty, purpose or category |
+| **Other side** | A row's counterparty label: a counterparty, none, or one of your accounts (a transfer) |
+| **Potential transfer match** | A staged row that could be a row's other side ([`import.md` §6.4](import.md#64-transfers)) |
+| **Suggestion** | A proposed value for a label, with a confidence and a reason, made by a suggester |
+| **Suggester** | The exact system that made a suggestion: its level, name, version and what identifies it |
+| **Level** | Where a suggestion comes from: `rule`, `local`, `remote`, or `match` (matching) |
+| **Confident** | At or above [`CONFIDENT`](../server/crates/suggest/src/params.rs) |
+| **Certain** | At [`CERTAIN`](../server/crates/suggest/src/params.rs): short of it, a row or statement is `to_review` |
+| **Fact** | A label already settled for a row, by you or by a confident suggestion, given to a level |
 
-Bills and tags are not suggested yet.
+## What's suggested
+
+Job: every label commit needs has a value before you look at it.
+
+- A statement's account is suggested when the file doesn't settle it: a CSV names no
+  account, and an OFX file may carry a number no account has yet.
+- Each row that may be added gets its counterparty, purpose and category as one proposal,
+  each label with its own confidence.
+- Each row's choice is suggested by [matching](#matching).
+- Bills and tags aren't suggested.
 
 ## Transfers
 
-A card payment shows up twice: leaving checking, and arriving on the card. It's one
-transfer, never an expense plus an income.
+Job: a level can say a row is a transfer, the same way it says anything else.
 
-- **The other side.** The counterparty label is really a row's *other side*: a
-  counterparty, or **one of your accounts** — the row is then a transfer. Every level can
-  suggest an account there, and you can choose one in review. A transfer has no category
-  and no purpose (design §3.2), so once its other side is settled as an account, those
-  are settled as none and not asked. Between a liquid and a non-liquid account it's an
-  expense or income (design §3.2), which keeps them.
-- **Potential transfer matches.** Each row comes with the rows of every staged import
-  (this file's other statements, other files) that could be the other side of it: in
-  another of your accounts, with the opposite amount in the same currency, dated within
-  [`TRANSFER_DAYS`](../server/crates/suggest/src/params.rs). Every level sees them (`row.transfer_candidates` in rules); they're evidence, not a
-  verdict.
-- **Transfer pair.** A row and one of its potential transfer matches are a transfer
-  pair unless your choice says otherwise: a counterparty (or none) you chose for either.
-  Suggestions don't count; added as one transfer, the pair settles each row's other side
-  as the other's account, whatever was suggested. It's committed as one transfer, by
-  whichever file is committed first, with both bank rows. The pairing is logic
-  (`bank_import::matching`): one-to-one, rows you chose on both sides first, then the closest
-  dates; adding them as one transfer is matching's default, as sure as the dates are
-  close. *Add separately* makes each row a transaction of its own; *Don't add* leaves both
-  out. The two rows share one choice.
-- **Your choices win.** A row you chose as a transfer to one account, with a row in another
-  of your accounts that fits it, is a transfer pair too, but its default keeps your
-  choice: *Add separately*, short of sure, so it's to review. Ticking it reviewed
-  confirms; choosing *Add as one transfer* pairs them, and the other side you chose gives
-  way.
-- **A recorded transfer.** When the transfer is already in the ledger (committed from the
-  other account), its other side is a duplicate of it (recorded the same day) or a
-  possible duplicate: not added by default, and kept with that transfer.
-- One-sided transactions already in the ledger are never turned into transfers
-  afterwards: a transfer is recorded as one when its first side is committed.
+- Every level may suggest one of your accounts as a row's other side, and every level sees
+  the row's potential transfer matches.
+- Once a row's other side is settled as an account, its category and purpose are settled as
+  none and not asked (design §3.2); between a liquid and a non-liquid account, they're
+  asked as usual.
+- Whether two staged rows are one transfer is matching's, not a suggestion
+  ([`import.md` §6.4](import.md#64-transfers)): suggestions never prevent a pair, and a pair
+  added as one overrides what was suggested for either side.
 
 ## Matching
 
-Every row's default is a suggestion, made by **matching**: logic, like the rules, and a
-level of its own (kind `match`). It suggests the choice a row's label calls for, as sure
-as what it found:
+Job: each row's default choice is a suggestion, as sure as what matching found.
 
 | Row | Suggests | Confidence |
 |---|---|---|
-| New: nothing like it | *Add* | [`SURE`](../server/crates/bank-import/src/params.rs) |
-| Duplicate: the same bank row, unchanged since it was imported | *Don't add* | [`SURE`](../server/crates/bank-import/src/params.rs) |
-| Possible duplicate: the same bank row, changed since | *Don't add* | [`CHANGED`](../server/crates/bank-import/src/params.rs) |
-| Transfer pair, or a recorded transfer | *Add as one transfer* / *Don't add* | [`SURE`](../server/crates/bank-import/src/params.rs), less [`TRANSFER_DAY`](../server/crates/bank-import/src/params.rs) a day apart |
-| Possible duplicate: the same amount a few days apart | *Don't add* | the descriptions' likeness, less [`NEAR_DAY`](../server/crates/bank-import/src/params.rs) a day apart; **never above [`NEAR_MOST`](../server/crates/bank-import/src/params.rs)** |
-| Transfer pair your choice disagrees with | *Add separately* | [`DISAGREES`](../server/crates/bank-import/src/params.rs) |
+| `new` | add | [`SURE`](../server/crates/bank-import/src/params.rs) |
+| `duplicate`: the bank row, unchanged | don't add | [`SURE`](../server/crates/bank-import/src/params.rs) |
+| `possible_duplicate`: the bank row, changed since | don't add | [`CHANGED`](../server/crates/bank-import/src/params.rs) |
+| `transfer_pair`, or a recorded transfer | add (one transfer) · don't add | [`SURE`](../server/crates/bank-import/src/params.rs), less [`TRANSFER_DAY`](../server/crates/bank-import/src/params.rs) a day apart |
+| `possible_duplicate`: the same amount days apart | don't add | the descriptions' likeness, less [`NEAR_DAY`](../server/crates/bank-import/src/params.rs) a day apart, at most [`NEAR_MOST`](../server/crates/bank-import/src/params.rs) |
+| `transfer_pair` your choices disagree with | add separately | [`DISAGREES`](../server/crates/bank-import/src/params.rs) |
 
-A default short of certain ([`CERTAIN`](../server/crates/suggest/src/params.rs)) on a row that's added makes it to review. Choosing any option makes it yours. Calibrating matching is a new version of it (`matching` v2 now).
+- Matching's suggestions name it as their suggester, like any level's.
+- A new calibration of matching is a new version of its suggester
+  ([`MATCHER`](../server/crates/bank-import/src/params.rs)).
 
 ## The stack
 
-Suggestions come from three levels, tried in order:
+Job: each label gets the most confident value the levels can give, asking the costliest last.
 
-1. **Rules** — a Rhai script you write (below).
-2. **Local AI** — similarity to your own labeled history, computed in the server
-   (below).
-3. **Remote AI** — a decision model on Azure AI Foundry. Optional (below).
-
-A level runs while anything is still below the **confidence threshold** ([`CONFIDENT`](../server/crates/suggest/src/params.rs)). Labels
-already settled — by an earlier level at or above it, or by you — are given to the next
-level as facts, so it proposes the rest consistently with them. If no level reaches it
-for a label, the most confident suggestion any level made is kept, marked as unsure, and
-taken as the label's value: the row is to review (design §6.7).
-
-Suggestions are made when a file is uploaded: first the account of each statement that has
-none, then every row's labels. Changing a statement's account suggests its rows' labels
-again, with the new account as context. The whole stack runs again, for the labels that
-aren't yours or confidently suggested, on every other staged import whenever a file is
-uploaded or committed (its rows may be their potential transfer matches, and the ledger
-the levels learn from may have changed), and on one import on request (`POST
-/imports/{id}/refresh`, **Refresh suggestions** in review). A label you set yourself is
-never overwritten: it's given to every level as a fact; so is a confident suggestion, when
-suggesting again.
-
-Every level implements the same interface (`suggest::Suggester`): given rows, with the
-labels already settled as facts, it proposes the others, each with a confidence and a
-reason; given a statement's rows, it proposes an account. The stack only sees that
-interface, so a level can be replaced without touching the rest.
-
-Each level's tunable parameters (thresholds, weights, how much it's shown) are
-constants in its crate's `params` module: `suggest::params` (shared: the
-threshold, the transfer window), `suggest_rules::params`, `suggest_local_ai::params` (local AI),
-`suggest_remote_ai::params`, `bank_import::params` (matching), plus `api::params` (backtest and
-dry-run sizes).
-
-## Rules
-
-Rules are one [Rhai](https://rhai.rs) script, stored in the database. Rhai is a small
-scripting language for embedding in Rust, with Rust-like syntax. If/else is the rule
-language: there's no rule table and no trigger/action DSL. The script starts empty. Write
-rules where local AI is measurably wrong in a way a rule fixes, typically a purpose that
-depends on the account, the amount or the date. The backtest and the dry run show where.
-
-```rust
-// Coffee on the household card is the household's, whoever buys it.
-fn classify(row, s) {
-    let d = row.description.to_upper();
-    if d.contains("CORNER CAFE") && row.account == "Household · Joint Card" {
-        s.counterparty("Corner Cafe");
-        s.category("Dining");
-        s.purpose("Household");
-    } else if d.starts_with("ACME PAYROLL") && row.amount > amount("1000") {
-        s.counterparty("Acme");
-        s.category("Salary");
-        s.purpose("Alex");
-    }
-}
-
-// Files from the card's site are named card-2026-03.csv.
-fn account(file, s) {
-    if file.name != () && file.name.starts_with("card-") {
-        s.account("Household · Joint Card");
-    }
-}
-```
-
-**Entry points,** both optional:
-
-- `fn classify(row, s)` runs for each bank row being imported.
-- `fn account(file, s)` runs for each statement whose file doesn't say which account it is
-  for.
-
-**What a row has:**
-
-| Field | |
-|---|---|
-| `description` | The bank's text, as is |
-| `amount` | An amount: positive into the account. Compare it with `amount("12.50")` or a whole number (`row.amount < 0`); `abs()`, `+` and `-` work. There are no floats. |
-| `date`, `year`, `month`, `day`, `weekday` | `"2026-03-02"`; numbers; weekday 1 (Monday) to 7 |
-| `account`, `account_name`, `owner` | `"Owner · Name"`, the name alone, the owner's name; `()` when the statement has no account yet |
-| `raw` | The bank file's own fields, by name, as text (e.g. `row.raw.Memo`) |
-| `transfer_candidates` | Its potential transfer matches, closest first, each with `account` (`"Owner · Name"`), `account_name`, `owner`, `date` and `days` apart |
-
-A `file` has `name` (or `()`), `kind` (`"bank"`, `"credit_card"` or `()`) and `rows`.
-
-**What `s` sets:** `s.counterparty("…")`, by name or `()` for none; `s.category("…")` and
-`s.purpose("…")`, a category and a party by name (never none: design §4.1);
-`s.transfer("Owner · Name")`, the other side as one of your accounts (a transfer); and
-`s.account("Owner · Name")`. The name alone is
-enough for an account no other shares. If a setter is called twice, the last call wins.
-Whatever is set is a suggestion at full confidence, by the rules level: its reason is
-`rule v<version>:<line>`. Labels left unset go to local AI as usual, with the set ones as
-facts.
-
-For example, a card payment, when the card's side of it is staged:
-
-```rust
-fn classify(row, s) {
-    for c in row.transfer_candidates {
-        if c.account == "Household · Joint Card" && row.description.contains("PAYMENT") {
-            s.transfer("Household · Joint Card");
-        }
-    }
-}
-```
-
-**Validation.** `PUT /rules` refuses a script with each error and its line (`422`,
-`rules-invalid`, `errors: [{line, column, message}]`), and it never becomes active:
-
-- syntax errors, undefined variables, an entry point with other parameters;
-- **every name it uses:** in setters, and in comparisons of `row.account`,
-  `row.account_name` or `row.owner` with text. Setters take names written out
-  (`s.category("Dining")`, not a variable), so they can all be checked.
-
-A valid script is active at once. If a name it uses is deleted later, the script stops
-validating, and rules sit out (local AI still suggests) until it's fixed.
-
-**Sandboxed.** A script can't reach files, the network or other processes, and has no
-`eval`. A call that runs too long (a loop) is stopped: that row simply gets no rule
-suggestions.
-
-**Versions.** Every upload is a new version, and none is ever edited or deleted. Each
-records who uploaded it, when, and an optional note. The newest is active.
-
-- `GET /rules`: the active script (version 0, empty, when there's none). Its ETag goes in
-  `If-Match` for the next `PUT /rules` (`{ "source", "note" }`), so two edits can't
-  overwrite each other.
-- `GET /rules/versions`, `GET /rules/versions/{n}`.
-- `POST /rules/dry-run?from=&to=` with `{}` (the active script) or `{ "source": … }` (a
-  candidate) runs `classify` over the ledger's transactions in the range, those between
-  one of your accounts and the outside, and transfers (once from each side, with the
-  other side as a potential transfer match). It lists each one it would label differently
-  from the ledger, or fails on. It stores nothing. In a dry run `row.raw` is empty, and
-  `account` doesn't run.
-
-On the command line:
-
-```sh
-exchequer rules edit -m "why"     # $EDITOR on the active script; a refused one reopens at its error
-exchequer rules upload FILE -m "why"
-exchequer rules show [N]          # a version's script
-exchequer rules log               # versions, newest first
-exchequer rules diff 3 [4]        # what changed (against the active one by default)
-exchequer rules rollback 3        # v3's script, as a new version
-exchequer rules dry-run --month 2026-09 [--file candidate.rhai]
-```
-
-## Local AI
-
-Local AI learns from the ledger itself: every transaction with one split between one of
-your accounts and the outside, which is what an imported row becomes, and every one-split
-transfer between two of your accounts, once from each side (its other side is the other
-account). Adjustments, such as opening balances, are left out. It runs in the server, in pure Rust, with no model files
-and no training step to run: it's trained when needed, on the ledger as it is, and kept
-until the ledger changes.
-
-**Methods are interchangeable.** A local method is a `suggest::Method` in the
-`suggest-local-ai` crate: it trains from the history into a suggester. The server runs one,
-chosen by `EXCHEQUER_LOCAL_AI`:
-
-| Value | Method |
-|---|---|
-| `lexical-knn-v2` (default) | Lexical nearest neighbors, below |
-| `off` | No local AI |
-
-A new method (or a new version of one) gets its own ID. Switching is a configuration
-change, and its suggestions name it, so the two can be compared on what was committed
-(`suggestion_outcome`) and measured on the same past by the backtest.
-
-### `lexical-knn-v2`
-
-Version 2 learns transfers (version 1 didn't see them).
-
-1. **Normalization.** Bank texts are compared without what varies between rows of the
-   same merchant: payment processors' prefixes (`SQ *`, `TST*`, …), card and reference
-   numbers, store numbers, dates, digits and punctuation.
-2. **Nearest neighbors.** The labeled transactions whose texts are most alike (character
-   trigrams and words, TF-IDF, cosine similarity) vote on **the whole combination** of
-   counterparty, category and purpose. Each vote is weighted by similarity and by context:
-   the same account (else one with the same owner), the same direction, the same or a
-   similar amount, and recency; a past transfer to an account where the row has a
-   potential transfer match counts double. A label's score is the weight agreeing with the winning
-   combination, out of all of it plus a prior, so one lone neighbor never scores high.
-3. **Alias memory.** Rows with exactly the same normalized text, on this account if it has
-   any: how many of the latest five, in a row, had the same value.
-4. **Facts.** Labels already settled for a row (by you, or by an earlier level) narrow the
-   neighbors to transactions that agree with them; with a settled counterparty, all of its
-   transactions are neighbors, however their text reads.
-5. **The account.** For a statement without one, each row's neighbors vote for the
-   accounts they're in (only accounts that aren't archived, and of the statement's kind
-   when the file says: a credit card statement for a credit card). Transfers don't vote:
-   a transfer's text is one bank's, not necessarily this account's.
-6. **Calibration.** On training, the method suggests its latest [`CALIBRATION_ROWS`](../server/crates/suggest-local-ai/src/params.rs) transactions again,
-   each from only the ones before it, and each of the latest account-months as a
-   statement, from the months before. Each score is then mapped to how often it was right
-   (isotonic regression, smoothed so that thin evidence stays unsure). A confidence of *p*
-   means right about a fraction *p* of the time on this ledger's own data. With little
-   history, nothing reaches the threshold. A transfer's potential transfer matches are worked out from the
-   history as if its rows had been staged together; its category and purpose aren't
-   asked.
-
-Reasons read like *like 2026-03-12 “CORNER CAFE #”*, *the last 3 times
-as “corner cafe”*, or, for an account, *12 of 15 rows look like its past transactions*.
-The suggester's details record the data it learned from: a snapshot hash, the number of
-transactions and the latest date.
-
-### Backtest
-
-`GET /suggesters/backtest?from=YYYY-MM&to=YYYY-MM[&method=…][&remote=true]` measures a
-method on the ledger's own past. For each month, the method learns from everything before it, then
-suggests labels for the month's transactions (their account known, nothing settled, the
-month's other transactions as potential transfer matches) and an account for each
-account's transactions taken as one statement. A transfer is scored on its other side
-only. Per label and for
-accounts it reports how many were asked, guessed, right, confident, and right when
-confident, plus guesses and right answers by confidence bin, which shows whether a
-confidence of *p* really means right a fraction *p* of the time. Each score also has the usual measures (samples, coverage,
-precision, recall, F1, accuracy, and their macro means over values), over all guesses and
-over confident ones only, and the response totals them over all months. It reads only; nothing is stored. Any method can be named, so a
-replacement can be compared with the current one before switching.
-
-With `remote=true` (when remote AI is configured, and for at most [`BACKTEST_REMOTE_MONTHS`](../server/crates/api/src/params.rs) months), remote AI is
-asked too, as on upload: shown only what's before the month, about what the method left
-unsure. The scores are then the final suggestions', and `levels` says, per level, how
-many of them it made and how right they were. Its requests are real ones, and billed.
-
-For trying a method on a copy of a ledger's history outside the server, the `suggest-local-ai`
-crate has a dev tool reading the same history as a JSON file:
-`cargo run --release -p suggest-local-ai --example backtest -- history.json 2026-01 2026-08`
-(`BACKTEST_DUMP=out.json` also writes each row's guesses).
-
-## Remote AI
-
-Optional: a **decision model** deployed on Azure AI Foundry, such as Microsoft-Decision-1.
-A decision model generates no text: it's given a `state` (JSON) and named multiple-choice
-questions, and answers each with one of the options and a probability for every option.
-That fits the problem: pick a label among the ledger's own values, with a confidence the
-threshold can use directly.
-
-It's the last level: asked only about what rules and local AI left unsure, with what they
-settled as facts. Without it configured, or when the service fails, everything else works
-as before.
-
-**The questions** (version `q2`; `q1` didn't offer transfers). One request per row, with a
-question per open label, sharing one state; one request per statement without an account.
-
-| Question | Options |
-|---|---|
-| `counterparty` | The row's other side: the accounts of its potential transfer matches (a transfer), then the other sides of its similar past transactions and of those with the same text, at most [`CANDIDATES`](../server/crates/suggest-remote-ai/src/params.rs) — never the whole list — plus *none of these* and *cannot tell* |
-| `category` | Every category, plus *cannot tell* |
-| `purpose` | Every party, plus *cannot tell* |
-| `account` | Every account that isn't archived and fits the file's kind, plus *none of these* and *cannot tell* |
-
-Each option is a name and a description computed from the data on each request (a
-counterparty's recent bank text, usual category, purpose and amount, and how often it
-appears; a category's usual counterparties, amounts and purposes; a party's kind and usual
-categories; an account's kind, owner, last four digits, recent bank texts and latest
-transaction), so nothing goes stale. Options are shuffled (order sways the model), the same
-way for the same row. *Cannot tell* and *none of these* give no suggestion, so the model is
-never forced to choose; a new counterparty is never suggested, since it can't be offered.
-An answer that isn't one of the options is dropped.
-
-The wording (each question's instructions, how descriptions are phrased, the names of the
-fixed options) is in Jinja templates in
-[`server/crates/suggest-remote-ai/resources/`](../server/crates/suggest-remote-ai/resources/), built into the
-server; the code only computes what fills them.
-
-**What it's shown,** per row:
-
-- the transaction: its bank text normalized, date and weekday, amount and direction, the
-  bank's own fields saying what kind of transaction it is (a `Type` or `Category` column,
-  a merchant category code), whether the same amount recurred in recent months, and the
-  accounts where the same amount moved the other way (its potential transfer matches);
-- its account: name, kind, owner, and its purposes and top categories over [`USAGE`](../server/crates/suggest-remote-ai/src/params.rs);
-- the labels already settled, as facts;
-- the [`SIMILAR`](../server/crates/suggest-remote-ai/src/params.rs) most similar past transactions, from local AI, with their labels.
-
-For a statement: its file name, the last four digits of the number it names, its kind,
-dates and a few rows.
-
-**Never an identifier.** Bank texts and file names are normalized, so runs of five or more
-digits (card, reference and trace numbers) are replaced with `#`; account numbers go only
-as their last four digits; no other bank field is sent. A request the service refuses (`400`/`422`, e.g. a
-content filter) makes remote AI step aside for that row: it's logged (the status and the
-service's error code, never the request), and the import goes on. Any other failure (a bad
-key, a wrong endpoint, the service unreachable, still busy after retries) stops remote AI
-for the rest of that upload, logged once.
-
-**Suggestions** name the model as the service reports it and the questions' version
-(`microsoft-decision-1 q2`); the details record the provider and deployment. The reason is
-the model and its probability (*microsoft-decision-1: 0.94*). A new wording is a new
-version: measure it with the backtest before using it.
-
-**Configuration** (all three, or none):
-
-| Setting | |
-|---|---|
-| `EXCHEQUER_REMOTE_AI_ENDPOINT` | The Foundry resource's endpoint, `https://<resource>.services.ai.azure.com` |
-| `EXCHEQUER_REMOTE_AI_DEPLOYMENT` | The model's deployment name |
-| `REMOTE_AI_KEY_FILE` | A file holding the resource's key: a podman secret (`exchequer_remote_ai_key`) |
-| `EXCHEQUER_REMOTE_AI_CONCURRENCY` | Requests at once (default and range in [`config.rs`](../server/crates/server/src/config.rs)) |
-
-Requests go to `<endpoint>/providers/microsoft/v1/systemone` over HTTPS, with the key in
-the `api-key` header, each taking at most [`TIMEOUT`](../server/crates/external-calls/src/decision.rs); a busy
-service (`429`, `5xx`) is tried up to [`ATTEMPTS`](../server/crates/external-calls/src/decision.rs) times, after what `Retry-After` says (at most
-[`MAX_WAIT`](../server/crates/external-calls/src/decision.rs)). Remote AI runs while a file is uploaded (or a statement's
-account is changed), so a large statement takes a while: one request per unsure row. A
-deployment type that keeps inference within a data zone, rather than a global one, keeps
-the data in that zone.
+- The levels run in order, rules, local AI, remote AI, each only while some label is short
+  of confident; matching runs on its own.
+- Each level gets the labels already settled as facts, and proposes the rest consistently
+  with them.
+- When no level is confident about a label, the most confident suggestion any level made is
+  kept, as unsure.
+- A label you set is never overwritten, and a confident suggestion stays when suggesting
+  again.
+- On upload, statements' accounts are suggested first, then every row's labels.
+- Changing a statement's account suggests its rows' labels again, with the new account as
+  context.
+- Uploading or committing a file suggests again on every other staged import; refreshing an
+  import suggests again on it.
+- Each level's parameters are constants in its crate's `params` module; the shared ones
+  (the threshold, the transfer window) are in [`suggest::params`](../server/crates/suggest/src/params.rs).
 
 ## What a suggestion records
 
-Each suggestion keeps:
+Job: every suggestion says which system made it, so models can be measured and compared.
 
-- the **value** (an account, counterparty, category or party — or "none");
-- its **confidence**, stored per mille (an integer: 900 is 0.9);
-- a short **reason** (e.g. the past transaction it resembles);
-- **the exact system that made it**, a *suggester*: its kind (rule, local, remote, match), name
-  and version, plus whatever else identifies it — the rules' version, the data a local
-  model learned from, the remote model's version as the service reports it and the
-  version of the questions asked. When a model is upgraded or replaced, every suggestion
-  still says which one made it.
+- A suggestion keeps its value (or none), its confidence, a short reason, and its
+  suggester.
+- A suggester identifies the exact system: the rules' version, the data a local method
+  learned from, the remote model as the service reports it and the questions' version.
+- On commit, every suggestion for a committed row (its choice included), and every
+  statement's suggested account, is recorded with what was committed.
+- That record stays when the transactions are later edited or undone.
 
-## Review
+## Review and commit
 
-In the web app's import review, every suggested value carries a badge: one color per
-level, **solid when confident** ([`CONFIDENT`](../server/crates/suggest/src/params.rs) or more), **outlined when not**. Your own choices
-carry none, so "the AI said so" and "I said so" always look different. Hovering or
-tapping a badge shows the suggester and the reason in a bubble next to it, on the row and
-in its form alike. A suggestion is always the value shown, never an extra option to pick.
+Job: you see which values are suggestions, and change only what you disagree with.
 
-- **A statement's account.** A confident suggestion counts as the account: the rows are
-  checked against it (duplicates, transfer pairs). Short of certain, the statement is to
-  review; ticking it *Reviewed* makes it the statement's own. Picking or confirming an
-  account remembers the file's number for it. An unsure suggestion is shown, but the rows
-  wait until an account is picked.
-- **A row's labels.** Each row that's added shows its counterparty, category and purpose,
-  with their badges. In its form (**Edit**), you can change any of them; saving makes all it
-  shows yours. *Unknown* is a choice you can make explicitly for the counterparty. A
-  category always names something and a purpose someone (design §4.1). The counterparty
-  can be one of your accounts (typed by its `Owner · Name`): the row is then a transfer,
-  and its category and purpose don't apply.
-- **Transfers.** A transfer pair names its other row (account, date, text, and file if
-  it's another), linked to that row. A duplicate or possible duplicate names the
-  transaction it may be.
-- **A row's choice.** *On commit* lists the row's options, its default chosen. Choosing
-  any of them makes it yours.
+- Every suggested value shows its level and whether it's confident, and on request its
+  suggester and reason; values you set show none of that.
+- A suggestion is the value shown, never an extra option to pick.
+- A confident statement account counts as the account: the rows are matched against it. An
+  unsure one is shown, but the rows wait until an account is picked or the suggestion is
+  ticked reviewed.
+- Picking or confirming a statement's account remembers the file's account number for it.
+- Setting a label makes it yours; reverting it hands it back to its suggestion. Saving a
+  row's form makes every label it shows yours.
+- No counterparty is a choice you can make; a category and a purpose always name one
+  (design §4.1).
+- A row split into parts has no suggestions of its own: the parts' labels are all yours.
+- Commit takes suggestions where you made no choice, with no step to accept them; states,
+  ticks and refusals are in [`import.md`](import.md#66-review).
 
-## Commit
+## Rules
 
-**Commit takes what's on screen:** your choices, and suggestions where you made none.
-There's no separate step to accept them. With rows or statements to review left, the web
-app asks once first.
+Job: the household writes, in a [Rhai](https://rhai.rs) script, what local AI gets wrong.
 
-Commit is refused while information is missing:
+- The script starts empty, and may define `fn classify(row, s)`, run for each row, and
+  `fn account(file, s)`, run for each statement without an account.
+- Whatever it sets is a suggestion at [`CONFIDENCE`](../server/crates/suggest-rules/src/params.rs),
+  whose reason names the script's version and the line; a setter called twice keeps the last
+  call.
+- An upload is refused, with each error's line, for syntax errors, undefined variables, an
+  entry point with other parameters, or a name that doesn't exist; names must be written
+  out in setters and in comparisons of `row.account`, `row.account_name` or `row.owner`.
+- A valid upload is active at once; when a name it uses is deleted later, rules sit out
+  until the script is fixed.
+- A script can't reach files, the network or other processes; a call that runs too long
+  gives that row no rule suggestions.
+- Every upload is a new version, with who, when and a note; none is edited or deleted, and
+  an edit based on an older version is refused.
+- A dry run lists the ledger transactions in a date range that the script would label
+  differently, or fails on, and stores nothing; in it, `row.raw` is empty and `account`
+  doesn't run. `exchequer rules` edits, versions and dry-runs the script.
 
-- a statement has no account (neither its own nor a confident suggestion);
-- a row that's added has a label with neither your choice nor a suggestion (a row split
-  into parts has none of its own: the parts' labels are all yours, and its suggestions
-  don't apply).
+| A `row` has | |
+|---|---|
+| `description` | The bank's text, as is |
+| `amount` | Positive into the account; compared with `amount("12.50")` or a whole number, never a float |
+| `date`, `year`, `month`, `day`, `weekday` | `"2026-03-02"`; numbers, weekday 1 (Monday) to 7 |
+| `account`, `account_name`, `owner` | `"Owner · Name"`, the name, the owner; `()` without an account |
+| `raw` | The file's own fields, by name, as text |
+| `transfer_candidates` | Its potential transfer matches, closest first: `account`, `account_name`, `owner`, `date`, `days` |
 
-The web app shows such rows as needing you and disables *Commit*. The server enforces the
-same rule (`409`, problem type `urn:exchequer:problem:labels-missing`, naming the rows),
-so the command line leaves such an import staged, to finish in the web app.
+A `file` has `name` (or `()`), `kind` (`"bank"`, `"credit_card"` or `()`) and `rows`.
 
-On commit, every suggestion for a committed row (but a split one's labels), its choice included, and every
-statement's suggested account, is recorded with what was actually committed (`suggestion_outcome`). This
-measures each suggester — how often a confident suggestion was kept, an old model
-against its replacement — and doesn't depend on the ledger: it stays if the
-transactions are later edited or undone.
+| `s` sets | |
+|---|---|
+| `s.counterparty("…")` | The counterparty by name, or `()` for none |
+| `s.category("…")`, `s.purpose("…")` | A category, a party, by name |
+| `s.transfer("Owner · Name")` | The other side as one of your accounts |
+| `s.account("Owner · Name")` | The statement's account; the name alone when no other account shares it |
 
-## API
+## Local AI
 
-- `GET /imports/{id}`: each statement's `account_id` is the one the rows are checked
-  against; `account_suggested` says it's a suggestion's; `suggested_account` is the
-  suggestion, confident or not; `reviewed` says you ticked it.
-- `GET /imports/{id}/rows`: each row's `counterparty_id` (or `transfer_account_id`, for
-  a transfer), `category_id` and `purpose_id` are what a new transaction would get;
-  `chosen` lists the labels you set; `suggestions` has at most one per label (a
-  suggested transfer has `transfer_account_id`); `missing` lists, for a row that's
-  added, the labels commit still needs; `not_applicable` the labels a transfer doesn't
-  have; `transfer_pair` is a transfer pair's other row; `options` the row's choices,
-  `decision` the one it takes, `state` its colour.
-- `PATCH /imports/{id}/rows/{statement}/{position}`: setting a label (to a value or
-  `null`) makes it yours; `transfer_account_id` sets the other side to one of your
-  accounts (the counterparty label, yours); `"revert": ["category"]` hands it back to its
-  suggestion. `"decision": "add_separately"` on a transfer pair keeps its two rows apart.
-  `"splits": [...]` splits a row that's added into parts (two or more, adding up to its
-  amount), each with its own other side, category, purpose and note; `null` unsplits it.
-  `"tags": [...]` sets the new transaction's tags. `"reviewed": true` ticks the row as
-  reviewed (design §6.7): what it takes counts as yours while it shows what you ticked;
-  `false` unticks it. `POST /imports/{id}/review` ticks or unticks many rows at once.
-- `PATCH /imports/{id}/statements/{position}` with an `account_id` makes it the
-  statement's own; with `null`, it goes back to the suggestion, if any. `"reviewed":
-  true` makes the suggested account the statement's own; `false` hands it back.
+Job: suggest from the ledger's own past, with a confidence that means what it says.
+
+- Local AI learns from every transaction with one split between one of your accounts and
+  the outside, and every one-split transfer between two of yours, from each side;
+  adjustments are left out.
+- It's trained on the ledger as it is when needed, and kept until the ledger changes.
+- The server runs one method, chosen by `EXCHEQUER_LOCAL_AI` (the newest by default,
+  [`config.rs`](../server/crates/server/src/config.rs)), or none (`off`).
+- A method's suggestions name it and its version, so methods can be compared on what was
+  committed and on the same past.
+- A confidence of *p* means right about a fraction *p* of the time on this ledger's
+  history; with little history, nothing is confident.
+- Facts narrow what it learns from to transactions that agree with them.
+- For a statement's account, it votes only with accounts that aren't archived and fit the
+  file's kind; transfers don't vote.
+- Its reasons name what it resembles: a past transaction, the last times the same text was
+  seen, or how many rows look like an account's.
+
+**Backtest:** for each month of a range, a method learns from everything before it and
+suggests the month's labels and accounts; it reports per label how often guesses and
+confident guesses were right, and by confidence, whether *p* holds. It stores nothing, any
+method can be named, and with remote AI configured it can include remote AI (billed, for at
+most [`BACKTEST_REMOTE_MONTHS`](../server/crates/api/src/params.rs)). Outside the server,
+the [backtest example](../server/crates/suggest-local-ai/examples/backtest.rs) runs the same
+on a history file.
+
+## Remote AI
+
+Job: a decision model on Azure AI Foundry answers what the other levels left unsure.
+
+- Remote AI is optional: configured, it's asked last, only about labels still short of
+  confident, with the others as facts; without it, or when it fails, everything else works.
+- A row is one request, with a question per open label; a statement without an account is
+  one request.
+- Each answer is one of the options with a probability, which is the confidence; an answer
+  that isn't an option is dropped.
+- *Cannot tell* and *none of these* give no suggestion, and a new counterparty is never
+  suggested.
+- Options and their descriptions are computed from the ledger on each request; the wording
+  is in [templates](../server/crates/suggest-remote-ai/resources/).
+- It's shown the row, its account, the facts and the most similar past transactions, never
+  an identifier (design §19.2).
+- A request the service refuses makes remote AI step aside for that row; any other failure
+  stops it for the rest of that upload. Either is logged without the request.
+- A new wording is a new questions version, measured with the backtest before use.
+- A data-zone deployment keeps the data in that zone.
+
+| Question | Options |
+|---|---|
+| `counterparty` | Its potential transfer matches' accounts, then the other sides of similar past transactions, at most [`CANDIDATES`](../server/crates/suggest-remote-ai/src/params.rs); *none of these*; *cannot tell* |
+| `category` | Every category; *cannot tell* |
+| `purpose` | Every party; *cannot tell* |
+| `account` | Every account that isn't archived and fits the file's kind; *none of these*; *cannot tell* |
+
+| Setting (all of the first three, or none) | |
+|---|---|
+| `EXCHEQUER_REMOTE_AI_ENDPOINT` | The Foundry resource's endpoint |
+| `EXCHEQUER_REMOTE_AI_DEPLOYMENT` | The model's deployment name |
+| `REMOTE_AI_KEY_FILE` | A file holding the resource's key (podman secret `exchequer_remote_ai_key`) |
+| `EXCHEQUER_REMOTE_AI_CONCURRENCY` | Requests at once ([`config.rs`](../server/crates/server/src/config.rs)) |
