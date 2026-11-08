@@ -563,6 +563,9 @@ plus `api/` (the committed spec), `deploy/` (backup image, examples), `docs/`.
 - **Real bank files never enter the repo,** not even anonymized. Test files are synthetic,
   for the fictional household; tests on real files read a local path and run only on the
   operator's machine.
+- **Tests live in their own files:** Rust unit tests in a `tests.rs` beside the module
+  (`#[cfg(test)] mod tests;`), so code scanning can skip test code
+  ([`.github/codeql.yml`](../.github/codeql.yml)).
 - **Every check runs through the `justfile`,** locally and in CI.
 
 ### 16.4 License
