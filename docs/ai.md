@@ -376,7 +376,7 @@ version: measure it with the backtest before using it.
 | `EXCHEQUER_REMOTE_AI_CONCURRENCY` | Requests at once (default and range in [`config.rs`](../server/crates/server/src/config.rs)) |
 
 Requests go to `<endpoint>/providers/microsoft/v1/systemone` over HTTPS, with the key in
-the `api-key` header, each with a timeout ([`main.rs`](../server/crates/server/src/main.rs)); a busy
+the `api-key` header, each taking at most [`TIMEOUT`](../server/crates/outbound/src/decision.rs); a busy
 service (`429`, `5xx`) is tried up to [`ATTEMPTS`](../server/crates/outbound/src/decision.rs) times, after what `Retry-After` says (at most
 [`MAX_WAIT`](../server/crates/outbound/src/decision.rs)). Remote AI runs while a file is uploaded (or a statement's
 account is changed), so a large statement takes a while: one request per unsure row. A

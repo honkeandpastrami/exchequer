@@ -17,6 +17,8 @@ use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Deserialize;
 use serde::ser::{SerializeMap, Serializer};
 
+/// How long one request may take.
+pub const TIMEOUT: Duration = Duration::from_secs(30);
 /// Attempts per request when the service is busy (429, 5xx).
 const ATTEMPTS: u32 = 3;
 /// The longest wait between attempts.
