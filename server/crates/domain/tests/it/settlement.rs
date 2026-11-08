@@ -1,7 +1,7 @@
 //! Household settlement (design §4.2–§4.5) on the fictional household: Alex
 //! and Sam settle with the Household; Studio with its funder.
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeMap;
 

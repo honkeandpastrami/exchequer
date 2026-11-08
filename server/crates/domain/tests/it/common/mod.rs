@@ -1,6 +1,5 @@
 //! The fictional household (Alex, Sam, Studio) shared by the settlement and
 //! report tests.
-#![allow(dead_code)] // each test file uses a different subset
 
 use domain::settlement::{Effect, Item, MonthParams, SettlementError, SplitRef, effect};
 use domain::*;

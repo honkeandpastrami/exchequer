@@ -1,7 +1,7 @@
 //! `/api/v1/imports`: uploading bank files, resolving their accounts, and
 //! each row's label. Needs `just db-up`.
 
-mod common;
+use crate::common;
 
 use axum::http::StatusCode;
 use common::household::H;

@@ -1,7 +1,7 @@
 //! `/api/v1/query` and `/api/v1/reports` on the fictional household.
 //! Needs `just db-up`.
 
-mod common;
+use crate::common;
 
 use axum::http::StatusCode;
 use common::household::H;

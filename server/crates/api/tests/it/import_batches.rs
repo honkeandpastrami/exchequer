@@ -2,7 +2,7 @@
 //! undoing a batch, and the backfill of transactions stored before batches
 //! existed. Needs `just db-up`.
 
-mod common;
+use crate::common;
 
 use axum::http::StatusCode;
 use common::household::H;

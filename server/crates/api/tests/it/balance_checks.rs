@@ -2,7 +2,7 @@
 //! the sign convention for cards, and candidates for a mismatch.
 //! Needs `just db-up`.
 
-mod common;
+use crate::common;
 
 use axum::http::StatusCode;
 use common::call;

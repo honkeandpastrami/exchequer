@@ -1,7 +1,7 @@
 //! `/api/v1/prices` (design §3.4): manual prices, and valuations that
 //! prefer one price to a chain. Needs `just db-up`.
 
-mod common;
+use crate::common;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

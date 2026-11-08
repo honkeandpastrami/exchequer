@@ -81,9 +81,13 @@ jobs:
       - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
         with:
           tool: just,cargo-deny
+      # The key covers Cargo.lock and each crate's manifest, but not the
+      # workspace's own Cargo.toml: its profiles change every artifact, so it
+      # goes in by hand, or a profile change leaves a cache nothing can use.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: server
+          key: ${{ hashFiles('server/Cargo.toml') }}
       - name: Install sqlx-cli
         working-directory: server
         run: cargo install sqlx-cli --version 0.9.0 --locked --no-default-features --features postgres,rustls

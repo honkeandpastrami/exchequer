@@ -1,7 +1,7 @@
 //! Commodities, accounts, counterparties, categories and tags.
 //! Needs `just db-up`.
 
-mod common;
+use crate::common;
 
 use axum::http::StatusCode;
 use common::{Response, call, new_token};

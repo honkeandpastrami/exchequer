@@ -2,7 +2,7 @@
 //! decision model: what it's asked on upload, what its answers become, and
 //! the backtest with it. Needs `just db-up`.
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
