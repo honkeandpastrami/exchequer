@@ -3,7 +3,8 @@
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
 	import RowForm from '#lib/components/RowForm.svelte';
-	import { today } from '#lib/dates.ts';
+	import { dayName, today } from '#lib/dates.ts';
+	import DateField from '#lib/components/dates/DateField.svelte';
 	import { referenceState } from '#lib/reference-state.svelte.ts';
 	import { SETTLEMENT_CODE } from '#lib/settlement-currency.ts';
 
@@ -132,7 +133,7 @@
 	async function remove(p: Price) {
 		if (form?.id !== p.id) return;
 		const etag = form.etag;
-		const what = `1 ${code(p.base_id)} = ${p.rate} ${code(p.quote_id)} on ${p.date}`;
+		const what = `1 ${code(p.base_id)} = ${p.rate} ${code(p.quote_id)} on ${dayName(p.date)}`;
 		const again = p.source === 'manual' ? '' : ' It may be fetched again when needed.';
 		if (!confirm(`Delete the price ${what}?${again}`)) return;
 		await run(async () =>
@@ -179,10 +180,10 @@
 						{#each sorted as c (c.id)}<option value={c.id}>{c.code}</option>{/each}
 					</select>
 				</label>
-				<label class="field">
+				<div class="field">
 					<span>On</span>
-					<input type="date" bind:value={f.date} required />
-				</label>
+					<DateField label="On" bind:value={f.date} required max={today()} />
+				</div>
 			</div>
 		{:else}
 			{@const manual = f.price.source === 'manual'}
@@ -198,7 +199,7 @@
 						title={manual ? undefined : 'Fetched: delete it to fetch it again'}
 					/>
 				</label>
-				<span class="in">{code(f.price.quote_id)} on {f.price.date}</span>
+				<span class="in">{code(f.price.quote_id)} on {dayName(f.price.date)}</span>
 			</div>
 		{/if}
 		{#snippet actions()}
@@ -254,7 +255,7 @@
 				{/if}
 				{#each prices as p (p.id)}
 					<tr>
-						<td class="date">{p.date}</td>
+						<td class="date">{dayName(p.date)}</td>
 						<td>
 							1 {code(p.base_id)} = <Amount value={p.rate} code={code(p.quote_id)} />
 							{#if p.provisional}<span class="muted small">so far today</span>{/if}

@@ -7,8 +7,8 @@
 	import Chart from '#lib/charts/Chart.svelte';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
-	import MonthWindow from '#lib/components/MonthWindow.svelte';
-	import { lastDay, monthName, thisMonth, today } from '#lib/dates.ts';
+	import MonthRange from '#lib/components/dates/MonthRange.svelte';
+	import { dayName, lastDay, monthName, thisMonth, today } from '#lib/dates.ts';
 	import { hashQuery, withParam } from '#lib/query.ts';
 	import { holding, holdings, type Holding } from '#lib/labels.ts';
 	import { accountLabel, accountsByOwner } from '#lib/names.ts';
@@ -83,7 +83,8 @@
 			...[...r.accounts.values()].map((a) => [a.id, accountLabel(a, r)] as const),
 			...[...r.parties.values()].map((p) => [p.id, p.name] as const)
 		]);
-	const label = (b: string) => (bucket === 'month' ? monthName(b.slice(0, 7)) : b);
+	const label = (b: string) =>
+		bucket === 'month' ? monthName(b.slice(0, 7)) : dayName(b.slice(0, 10));
 
 	function view(rows: Schemas['Row'][], r: Reference, wanted: string | null) {
 		const commodities = commoditiesIn(rows, household(r));
@@ -97,7 +98,7 @@
 
 <div class="heading">
 	<h1>Balance history</h1>
-	<MonthWindow
+	<MonthRange
 		end={w.end}
 		span={w.span}
 		onchange={(end, span) => set({ end, span: String(span) })}

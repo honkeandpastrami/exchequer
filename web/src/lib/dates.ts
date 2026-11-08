@@ -44,3 +44,63 @@ export function lastDay(month: string): string {
 	const d = new Date(Date.UTC(y, m, 0)).getUTCDate();
 	return `${month}-${String(d).padStart(2, '0')}`;
 }
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** `2026-08-14` → `Aug 14, 2026`: how every day is shown (docs/ux.md §11). */
+export function dayName(day: string): string {
+	const [y, m, d] = day.split('-').map((x) => parseInt(x, 10));
+	return `${MONTHS[m - 1]} ${d}, ${y}`;
+}
+
+/** A timestamp's local day, shown as `Aug 14, 2026`. */
+export function stampName(timestamp: string): string {
+	return dayName(localDate(timestamp));
+}
+
+/** `2025-09`, `2026-08` → `Sep 2025 – Aug 2026`. */
+export function rangeName(from: string, to: string): string {
+	return `${monthName(from)} – ${monthName(to)}`;
+}
+
+/** `day` (`YYYY-MM-DD`) moved by `n` days. */
+export function addDays(day: string, n: number): string {
+	const [y, m, d] = day.split('-').map((x) => parseInt(x, 10));
+	return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+/** A typed day, `2026-08-14` or `Aug 14, 2026`, as `YYYY-MM-DD`; null when it isn't one. */
+export function parseDay(text: string): string | null {
+	const t = text.trim();
+	let y: number, m: number, d: number;
+	const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
+	const named = /^([A-Za-z]{3})[a-z]*\.? (\d{1,2}),? (\d{4})$/.exec(t);
+	if (iso) [y, m, d] = [iso[1], iso[2], iso[3]].map((x) => parseInt(x, 10));
+	else if (named) {
+		m = MONTHS.findIndex((n) => n.toLowerCase() === named[1].toLowerCase()) + 1;
+		[d, y] = [named[2], named[3]].map((x) => parseInt(x, 10));
+		if (m === 0) return null;
+	} else return null;
+	const day = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+	return m >= 1 && m <= 12 && d >= 1 && day <= lastDay(day.slice(0, 7)) ? day : null;
+}
+
+/** What a date picker picks: a day, a month or a year. */
+export type Granularity = 'day' | 'month' | 'year';
+
+/** The current day, month or year. */
+export function current(g: Granularity): string {
+	return g === 'day' ? today() : g === 'month' ? thisMonth() : today().slice(0, 4);
+}
+
+/** `value` moved by `n` of its own unit. */
+export function step(value: string, g: Granularity, n: number): string {
+	if (g === 'day') return addDays(value, n);
+	if (g === 'month') return addMonths(value, n);
+	return String(parseInt(value, 10) + n).padStart(4, '0');
+}
+
+/** How a day, month or year is shown. */
+export function periodName(value: string, g: Granularity): string {
+	return g === 'day' ? dayName(value) : g === 'month' ? monthName(value) : value;
+}

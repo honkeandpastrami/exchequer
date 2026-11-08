@@ -6,7 +6,7 @@
 	import Failure from '#lib/components/Failure.svelte';
 	import Mark from '#lib/components/Mark.svelte';
 	import NoValue from '#lib/components/NoValue.svelte';
-	import { localDate } from '#lib/dates.ts';
+	import { stampName } from '#lib/dates.ts';
 	import { accountLabel } from '#lib/names.ts';
 	import { reference, type Reference } from '#lib/reference.ts';
 	import { counted, states, unreviewedQuestion } from '#lib/views/imports.ts';
@@ -179,7 +179,7 @@
 				</div>
 				<dl class="facts">
 					<dt>Uploaded</dt>
-					<dd>{localDate(imp.created_at)}</dd>
+					<dd>{stampName(imp.created_at)}</dd>
 					<dd class="aside">
 						{#if st !== 'needs_you'}
 							<button disabled={committing || busy} onclick={() => tryCommit(imp)}>Commit</button>

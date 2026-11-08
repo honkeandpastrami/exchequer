@@ -19,7 +19,7 @@
 	import Tags from '#lib/components/Tags.svelte';
 	import TransactionRow from '#lib/components/TransactionRow.svelte';
 	import Values from '#lib/components/Values.svelte';
-	import { localDate } from '#lib/dates.ts';
+	import { dayName, stampName } from '#lib/dates.ts';
 	import { negate } from '#lib/money.ts';
 	import { hashQuery } from '#lib/query.ts';
 	import { accountLabel, accountsByOwner } from '#lib/names.ts';
@@ -391,7 +391,7 @@
 	{@const i = imp}
 	{@const line = commitLine(i.readiness)}
 	<h1 class="file">{name}</h1>
-	<p class="muted uploaded">Uploaded {localDate(i.created_at)}</p>
+	<p class="muted uploaded">Uploaded {stampName(i.created_at)}</p>
 
 	<Section label="Import" tag="section">
 		{#snippet children(look)}
@@ -450,7 +450,7 @@
 						<dd class="aside"></dd>
 						{#if s.ledger}
 							<dt>Balance</dt>
-							<dd><Amount value={s.ledger.amount} {code} /> on {s.ledger.date}</dd>
+							<dd><Amount value={s.ledger.amount} {code} /> on {dayName(s.ledger.date)}</dd>
 							<dd class="aside"></dd>
 						{/if}
 						{#if s.skipped.length}
@@ -560,12 +560,14 @@
 								{a ? accountLabel(a, r) : '?'}:
 								<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- sideLink resolves -->
 								<a href={sideLink(m)}
-									>{m.date} {m.description} <Amount value={negate(row.amount)} {code} /> ↗</a
+									>{dayName(m.date)}
+									{m.description}
+									<Amount value={negate(row.amount)} {code} /> ↗</a
 								>
 								{#if m.import_id !== i.id}(in {m.file_name ?? 'another import'}){/if}
 							{:else if row.match_transaction_id && (row.status === 'duplicate' || row.status === 'possible_duplicate')}
 								<a href={resolve('/transactions/[id]', { id: row.match_transaction_id })}
-									>{#if tx}{tx.date}
+									>{#if tx}{dayName(tx.date)}
 										{tx.description}
 										{#if s?.account_id}<Quantities
 												items={effectOn(tx, s.account_id, r)}
@@ -737,7 +739,7 @@
 					{/snippet}
 					<TransactionRow
 						id="row-{anchor(row)}"
-						label="{row.date} {row.set_description ?? row.description}"
+						label="{dayName(row.date)} {row.set_description ?? row.description}"
 						date={row.date}
 						tone={states[row.state].tone}
 						flash={flashed.has(key)}

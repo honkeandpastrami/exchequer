@@ -1,11 +1,13 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, ok, type Schemas } from '#lib/api/client.ts';
 	import BarList from '#lib/charts/BarList.svelte';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
-	import { addMonths, lastDay, monthName, thisMonth } from '#lib/dates.ts';
+	import DateStepper from '#lib/components/dates/DateStepper.svelte';
+	import { lastDay, thisMonth } from '#lib/dates.ts';
 	import { fetched, latest } from '#lib/price-fetching.svelte.ts';
 	import { minus, negate, sign, sum, zero } from '#lib/money.ts';
 	import { hashQuery } from '#lib/query.ts';
@@ -54,13 +56,14 @@
 </script>
 
 <div class="heading">
-	<h1>Household pool, {monthName(month)}</h1>
-	<nav class="months">
-		<a href={at(addMonths(month, -1))}>← {monthName(addMonths(month, -1))}</a>
-		{#if month < thisMonth()}
-			<a href={at(addMonths(month, 1))}>{monthName(addMonths(month, 1))} →</a>
-		{/if}
-	</nav>
+	<h1>Household pool</h1>
+	<DateStepper
+		value={month}
+		granularity="month"
+		max={thisMonth()}
+		name="Month"
+		onchange={(m) => goto(at(m))}
+	/>
 </div>
 
 {#await data.promise}
@@ -145,11 +148,6 @@
 		flex-wrap: wrap;
 		align-items: baseline;
 		gap: var(--space-2) var(--space-5);
-	}
-	.months {
-		display: flex;
-		gap: var(--space-4);
-		font-size: var(--text-sm);
 	}
 	.card {
 		padding: var(--space-4);

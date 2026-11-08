@@ -8,7 +8,7 @@
 	import Chart from '#lib/charts/Chart.svelte';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
-	import MonthWindow from '#lib/components/MonthWindow.svelte';
+	import MonthRange from '#lib/components/dates/MonthRange.svelte';
 	import { lastDay, monthName, monthsBetween } from '#lib/dates.ts';
 	import { hashQuery, withParam } from '#lib/query.ts';
 	import { reference, sorted, type Reference } from '#lib/reference.ts';
@@ -72,7 +72,7 @@
 
 <div class="heading">
 	<h1>{kind === 'expense' ? 'Spending' : 'Income'} by category</h1>
-	<MonthWindow
+	<MonthRange
 		end={w.end}
 		span={w.span}
 		onchange={(end, span) => set({ end, span: String(span) })}

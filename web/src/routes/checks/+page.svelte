@@ -8,7 +8,8 @@
 	import Failure from '#lib/components/Failure.svelte';
 	import Mark from '#lib/components/Mark.svelte';
 	import RowForm from '#lib/components/RowForm.svelte';
-	import { today } from '#lib/dates.ts';
+	import { dayName, today } from '#lib/dates.ts';
+	import DateField from '#lib/components/dates/DateField.svelte';
 	import { candidateReasons } from '#lib/labels.ts';
 	import { negate } from '#lib/money.ts';
 	import { hashQuery } from '#lib/query.ts';
@@ -107,7 +108,7 @@
 	}
 
 	async function remove(c: Check) {
-		if (!confirm(`Delete the check of ${c.date}?`)) return;
+		if (!confirm(`Delete the check of ${dayName(c.date)}?`)) return;
 		failure = null;
 		try {
 			const r = await api.GET('/api/v1/balance-checks/{id}', { params: { path: { id: c.id } } });
@@ -181,7 +182,7 @@
 						</select>
 					</label>
 					<label class="field">
-						<span>Bank balance</span>
+						<span>Bank balance{owed(r.accounts.get(f.account)) ? ', owed positive' : ''}</span>
 						<span class="money">
 							<input class="qty" inputmode="decimal" bind:value={f.amount} required />
 							{#if r.commodities.size > 1}
@@ -192,15 +193,11 @@
 								</select>
 							{/if}
 						</span>
-						<!-- Always there, so picking an account never moves the form (ux.md §2). -->
-						<span class="muted hint" class:unseen={!owed(r.accounts.get(f.account))}
-							>Owed amounts positive</span
-						>
 					</label>
-					<label class="field">
+					<div class="field">
 						<span>On</span>
-						<input type="date" bind:value={f.date} />
-					</label>
+						<DateField label="On" bind:value={f.date} max={today()} />
+					</div>
 				</div>
 			</RowForm>
 		</div>
@@ -222,7 +219,7 @@
 			<tbody>
 				{#each history as c (c.id)}
 					<tr class:selected={shown?.check.id === c.id}>
-						<td>{c.date}</td>
+						<td>{dayName(c.date)}</td>
 						<td class="num"><Amount value={c.amount} code={code(c.commodity_id)} /></td>
 						<td class="num"><Amount value={c.ledger} /></td>
 						<td class="num">
@@ -244,7 +241,7 @@
 							<td colspan="5">
 								<section class="panel" class:ok={c.matches}>
 									{#if c.matches}
-										<h2>Matches on {c.date}</h2>
+										<h2>Matches on {dayName(c.date)}</h2>
 										<p>
 											The ledger shows <Amount value={c.ledger} code={code(c.commodity_id)} />.
 											Verified through {d.check.verified_through}.
@@ -252,7 +249,7 @@
 									{:else}
 										<h2>Off by <Amount value={c.difference} code={code(c.commodity_id)} /></h2>
 										<p>
-											On {c.date} the bank shows <Amount value={c.amount} /> and the ledger
+											On {dayName(c.date)} the bank shows <Amount value={c.amount} /> and the ledger
 											<Amount value={c.ledger} />.
 											{#if d.check.searched_after}Searched the transactions after {d.check
 													.searched_after}, the last date that matched.{:else}Searched every
@@ -265,7 +262,7 @@
 													{@const tx = d.txs.get(sp.transaction_id)}
 													{@const q = movement(tx, sp.position)}
 													<div class="line">
-														<span class="date">{tx?.date ?? ''}</span>
+														<span class="date">{tx ? dayName(tx.date) : ''}</span>
 														<span class="desc">{tx?.description ?? '?'}</span>
 														{#if q}<Amount value={q} />{/if}
 														<a href={resolve('/transactions/[id]', { id: sp.transaction_id })}
@@ -309,12 +306,6 @@
 	.toolbar,
 	.adding {
 		margin-bottom: var(--space-4);
-	}
-	.hint {
-		font-size: var(--text-sm);
-	}
-	.unseen {
-		visibility: hidden;
 	}
 	.money {
 		display: flex;

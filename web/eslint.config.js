@@ -43,5 +43,20 @@ export default defineConfig(
 				{ name: 'Number', message: 'Amounts stay strings: use src/lib/money.ts.' }
 			]
 		}
+	},
+	{
+		files: ['**/*.svelte'],
+		rules: {
+			// One date system (docs/ux.md §11): a page never adds a date control
+			// of its own; the components in src/lib/components/dates/ are the only ones.
+			'no-restricted-syntax': [
+				'error',
+				{
+					selector:
+						"SvelteAttribute[key.name='type'] > SvelteLiteral[value=/^(date|month|week|datetime-local|time)$/]",
+					message: 'Use DateStepper, MonthRange or DateField from src/lib/components/dates/.'
+				}
+			]
+		}
 	}
 );

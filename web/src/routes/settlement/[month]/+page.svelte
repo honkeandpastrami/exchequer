@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, ok, type Schemas } from '#lib/api/client.ts';
@@ -7,7 +8,8 @@
 	import LegName from '#lib/components/LegName.svelte';
 	import MonthControls from '#lib/components/MonthControls.svelte';
 	import StatusMark from '#lib/components/StatusMark.svelte';
-	import { addMonths, monthName, thisMonth } from '#lib/dates.ts';
+	import DateStepper from '#lib/components/dates/DateStepper.svelte';
+	import { dayName, thisMonth } from '#lib/dates.ts';
 	import { fetched, latest } from '#lib/price-fetching.svelte.ts';
 	import { lineKinds } from '#lib/labels.ts';
 	import { reference } from '#lib/reference.ts';
@@ -54,16 +56,15 @@
 </script>
 
 <div class="heading">
-	<h1>{monthName(month)}</h1>
-	<nav class="months">
-		<a href={resolve('/settlement/[month]', { month: addMonths(month, -1) })}
-			>← {monthName(addMonths(month, -1))}</a
-		>
-		<a href={resolve(`/settlement?year=${month.slice(0, 4)}`)}>Year</a>
-		<a href={resolve('/settlement/[month]', { month: addMonths(month, 1) })}
-			>{monthName(addMonths(month, 1))} →</a
-		>
-	</nav>
+	<h1>Settlement</h1>
+	<a href={resolve(`/settlement?year=${month.slice(0, 4)}`)}>Year</a>
+	<DateStepper
+		value={month}
+		granularity="month"
+		max={thisMonth()}
+		name="Month"
+		onchange={(m) => goto(resolve('/settlement/[month]', { month: m }))}
+	/>
 </div>
 
 {#await data.promise}
@@ -106,7 +107,7 @@
 						{#each e.lines as l (`${l.transaction_id}/${l.position}/${l.kind}`)}
 							{@const s = split(txs, l)}
 							<tr>
-								<td class="date">{l.date}</td>
+								<td class="date">{dayName(l.date)}</td>
 								<td class="muted">{lineKinds[l.kind]}</td>
 								<td>
 									{s.tx?.description ?? '?'}
@@ -150,11 +151,6 @@
 		flex-wrap: wrap;
 		align-items: baseline;
 		gap: var(--space-5);
-	}
-	.months {
-		display: flex;
-		gap: var(--space-4);
-		font-size: var(--text-sm);
 	}
 	.card {
 		margin-bottom: var(--space-5);
