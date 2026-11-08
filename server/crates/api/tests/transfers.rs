@@ -1,8 +1,8 @@
 //! Transfers in staging (design §6.4, docs/ai.md): a row's other side may
 //! be one of your accounts; two staged rows, in different files, that are
-//! the two sides of one transfer become a transfer match and are committed
-//! as one transfer; a transfer already in the ledger makes its other side a
-//! transfer duplicate. Needs `just db-up`.
+//! the two sides of one transfer are a transfer pair and are committed as
+//! one transfer; a transfer already in the ledger makes its other side a
+//! duplicate or a possible one. Needs `just db-up`.
 
 mod common;
 
@@ -83,12 +83,12 @@ async fn two_files_two_sides_one_transfer(pool: PgPool) {
         (
             status(payment),
             &payment["transfer_account_id"],
-            &payment["transfer_match"]["import_id"],
-            &payment["transfer_match"]["account_id"],
+            &payment["transfer_pair"]["import_id"],
+            &payment["transfer_pair"]["account_id"],
             &payment["missing"],
         ),
         (
-            (&json!("transfer_match"), &json!("match")),
+            (&json!("transfer_pair"), &json!("add")),
             &json!(h.alex_credit),
             &json!(card),
             &json!(h.alex_credit),
@@ -109,40 +109,38 @@ async fn two_files_two_sides_one_transfer(pool: PgPool) {
     )
     .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
-    assert_eq!(status(&r.body), (&json!("transfer_match"), &json!("match")));
+    assert_eq!(status(&r.body), (&json!("transfer_pair"), &json!("add")));
     let deposit = &rows(&pool, &h, &card).await[0];
     assert_eq!(
         (
             status(deposit),
             &deposit["transfer_account_id"],
-            &deposit["transfer_match"]["import_id"],
+            &deposit["transfer_pair"]["import_id"],
             &deposit["missing"],
         ),
         (
-            (&json!("transfer_match"), &json!("match")),
+            (&json!("transfer_pair"), &json!("add")),
             &json!(h.alex_checking),
             &json!(checking),
             &json!([])
         ),
         "{deposit}"
     );
-    let counts = &read(&pool, &h, &card).await.body["statements"][0]["counts"];
-    assert_eq!(counts["transfer_match"], json!(1));
-
-    // Matching suggests merging them, sure of two sides a day apart: no
-    // decision needed.
+    // Matching's default is one transfer, short of sure of two sides a day
+    // apart: to review.
     let side = &rows(&pool, &h, &checking).await[0]["suggested_decision"];
     assert_eq!(
         (&side["decision"], &side["confidence"], &side["reason"]),
         (
-            &json!("match"),
+            &json!("add"),
             &json!(970),
             &json!("the other side of a transfer, a day apart")
         )
     );
+    assert_eq!(deposit["state"], json!("to_review"));
     assert_eq!(
-        read(&pool, &h, &checking).await.body["readiness"]["undecided"],
-        json!(0)
+        read(&pool, &h, &card).await.body["readiness"]["adds"],
+        json!(1)
     );
 
     // Committing either side records the one transfer, dated and described
@@ -150,7 +148,7 @@ async fn two_files_two_sides_one_transfer(pool: PgPool) {
     let r = commit(&pool, &h, &card).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_eq!(
-        (&r.body["created"], &r.body["transfers"]),
+        (&r.body["added"], &r.body["transfers"]),
         (&json!(1), &json!(1))
     );
     let batch = r.body["import_batch_id"].as_str().unwrap();
@@ -189,14 +187,14 @@ async fn two_files_two_sides_one_transfer(pool: PgPool) {
     let payment = &rows(&pool, &h, &checking).await[0];
     assert_eq!(
         (status(payment), &payment["match_transaction_id"]),
-        ((&json!("duplicate"), &json!("match")), &t["id"])
+        ((&json!("duplicate"), &json!("dont_add")), &t["id"])
     );
-    set_row(&pool, &h, &checking, 1, json!({ "decision": "skip" })).await;
+    set_row(&pool, &h, &checking, 1, json!({ "decision": "dont_add" })).await;
     let r = commit(&pool, &h, &checking).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_eq!(
-        (&r.body["created"], &r.body["matched"]),
-        (&json!(0), &json!(1))
+        (&r.body["added"], &r.body["not_added"]),
+        (&json!(0), &json!(2))
     );
     let n: i64 = sqlx::query_scalar("SELECT count(*) FROM transaction")
         .fetch_one(&pool)
@@ -218,46 +216,79 @@ async fn a_pair_can_be_split_and_a_lone_transfer_committed(pool: PgPool) {
         json!({ "transfer_account_id": h.alex_credit }),
     )
     .await;
-    // Keep separate transactions, you say: both sides are added as new, and stay
-    // a potential match, so you can change your mind.
-    let r = set_row(&pool, &h, &checking, 0, json!({ "decision": "new" })).await;
+    // Add separately, you say: both rows are, and stay a transfer pair, so
+    // you can change your mind.
+    let r = set_row(
+        &pool,
+        &h,
+        &checking,
+        0,
+        json!({ "decision": "add_separately" }),
+    )
+    .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_eq!(
-        (status(&r.body), &r.body["decided"]),
-        ((&json!("transfer_match"), &json!("new")), &json!(true))
+        (status(&r.body), &r.body["decided"], &r.body["state"]),
+        (
+            (&json!("transfer_pair"), &json!("add_separately")),
+            &json!(true),
+            &json!("ready")
+        )
     );
     assert_eq!(
         status(&rows(&pool, &h, &card).await[0]),
-        (&json!("transfer_match"), &json!("new"))
+        (&json!("transfer_pair"), &json!("add_separately"))
     );
     // Back to one transfer, from either side.
-    let r = set_row(&pool, &h, &card, 0, json!({ "decision": "match" })).await;
+    let r = set_row(&pool, &h, &card, 0, json!({ "decision": "add" })).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_eq!(
         status(&rows(&pool, &h, &checking).await[0]),
-        (&json!("transfer_match"), &json!("match"))
+        (&json!("transfer_pair"), &json!("add"))
     );
-    set_row(&pool, &h, &checking, 0, json!({ "decision": "new" })).await;
+    // Not added: neither row.
+    set_row(&pool, &h, &checking, 0, json!({ "decision": "dont_add" })).await;
+    let deposit = &rows(&pool, &h, &card).await[0];
+    assert_eq!(
+        (status(deposit), &deposit["state"]),
+        (
+            (&json!("transfer_pair"), &json!("dont_add")),
+            &json!("not_added")
+        )
+    );
+    set_row(
+        &pool,
+        &h,
+        &checking,
+        0,
+        json!({ "decision": "add_separately" }),
+    )
+    .await;
     assert_eq!(
         status(&rows(&pool, &h, &card).await[0]),
-        (&json!("transfer_match"), &json!("new"))
+        (&json!("transfer_pair"), &json!("add_separately"))
     );
     // Still a transfer to the card, alone: committed as one.
-    set_row(&pool, &h, &checking, 1, json!({ "decision": "skip" })).await;
+    set_row(&pool, &h, &checking, 1, json!({ "decision": "dont_add" })).await;
     let r = commit(&pool, &h, &checking).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_eq!(
-        (&r.body["created"], &r.body["transfers"]),
+        (&r.body["added"], &r.body["transfers"]),
         (&json!(1), &json!(0))
     );
-    // The card's row is now its other side, already recorded.
+    // The card's row is now its other side, already recorded a day apart:
+    // a possible duplicate, which a new label starts over at its default.
     let deposit = &rows(&pool, &h, &card).await[0];
     assert_eq!(
-        status(deposit),
-        (&json!("transfer_duplicate"), &json!("match"))
+        (status(deposit), &deposit["match_kind"], &deposit["decided"]),
+        (
+            (&json!("possible_duplicate"), &json!("dont_add")),
+            &json!("transfer"),
+            &json!(false)
+        )
     );
-    // You decide: it can still be added as new.
-    let r = set_row(&pool, &h, &card, 0, json!({ "decision": "new" })).await;
+    // You decide: it can still be added.
+    let r = set_row(&pool, &h, &card, 0, json!({ "decision": "add" })).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
 }
 
@@ -293,14 +324,14 @@ fn classify(row, s) {
             &payment["suggestions"][0]["reason"],
         ),
         (
-            (&json!("transfer_match"), &json!("match")),
+            (&json!("transfer_pair"), &json!("add")),
             &json!(h.alex_credit),
             &json!("rule v1:5")
         ),
         "{payment}"
     );
     assert_eq!(
-        rows(&pool, &h, &card).await[0]["transfer_match"]["import_id"],
+        rows(&pool, &h, &card).await[0]["transfer_pair"]["import_id"],
         json!(checking)
     );
     // Discarding one side ends the match.
@@ -313,7 +344,7 @@ fn classify(row, s) {
     assert_eq!(r.status, StatusCode::NO_CONTENT);
     assert_eq!(
         status(&rows(&pool, &h, &card).await[0]),
-        (&json!("new"), &json!("new"))
+        (&json!("new"), &json!("add"))
     );
 }
 
@@ -419,15 +450,15 @@ async fn both_sides_in_one_file(pool: PgPool) {
     )
     .await;
     assert_eq!(
-        (&r.body["status"], &r.body["transfer_match"]["statement"]),
-        (&json!("transfer_match"), &json!(1)),
+        (&r.body["status"], &r.body["transfer_pair"]["statement"]),
+        (&json!("transfer_pair"), &json!(1)),
         "{}",
         r.body
     );
     let r = commit(&pool, &h, &id).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_eq!(
-        (&r.body["created"], &r.body["transfers"]),
+        (&r.body["added"], &r.body["transfers"]),
         (&json!(1), &json!(1))
     );
     // One transfer, with both bank rows.
@@ -474,7 +505,7 @@ async fn an_upload_suggests_the_other_staged_imports_again(pool: PgPool) {
     let before = read(&pool, &h, &card).await.etag();
     assert_eq!(
         status(&rows(&pool, &h, &card).await[0]),
-        (&json!("new"), &json!("new"))
+        (&json!("new"), &json!("add"))
     );
     // The payment's upload suggests the deposit again: now it's settled as
     // the transfer, and the two are matched.
@@ -486,12 +517,12 @@ async fn an_upload_suggests_the_other_staged_imports_again(pool: PgPool) {
             &deposit["suggestions"][0]["transfer_account_id"]
         ),
         (
-            (&json!("transfer_match"), &json!("match")),
+            (&json!("transfer_pair"), &json!("add")),
             &json!(h.alex_checking)
         ),
         "{deposit}"
     );
-    assert_eq!(deposit["transfer_match"]["import_id"], json!(checking));
+    assert_eq!(deposit["transfer_pair"]["import_id"], json!(checking));
     assert_ne!(read(&pool, &h, &card).await.etag(), before);
 }
 
@@ -518,7 +549,7 @@ async fn refresh_suggests_again_but_keeps_your_labels(pool: PgPool) {
             .any(|s| s.get("transfer_account_id").is_some())
     };
     let deposit = &rows(&pool, &h, &card).await[0];
-    assert_eq!(status(deposit), (&json!("transfer_match"), &json!("match")));
+    assert_eq!(status(deposit), (&json!("transfer_pair"), &json!("add")));
     assert!(!transfer_suggested(deposit), "{deposit}");
     // A rule written after both files were staged changes nothing yet.
     put_rules(&pool, &h, DEPOSIT_RULE).await;
@@ -539,7 +570,7 @@ async fn refresh_suggests_again_but_keeps_your_labels(pool: PgPool) {
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_ne!(r.etag(), stale);
     let deposit = &rows(&pool, &h, &card).await[0];
-    assert_eq!(status(deposit), (&json!("transfer_match"), &json!("match")));
+    assert_eq!(status(deposit), (&json!("transfer_pair"), &json!("add")));
     assert!(transfer_suggested(deposit), "{deposit}");
     // Your choice on the other import is still yours.
     let coffee = &rows(&pool, &h, &checking).await[1];
@@ -575,11 +606,11 @@ async fn a_wrong_suggestion_doesnt_keep_a_pair_apart(pool: PgPool) {
         (
             status(deposit),
             &deposit["transfer_account_id"],
-            &deposit["transfer_match"]["import_id"],
+            &deposit["transfer_pair"]["import_id"],
             &deposit["suggestions"][0]["transfer_account_id"],
         ),
         (
-            (&json!("transfer_match"), &json!("match")),
+            (&json!("transfer_pair"), &json!("add")),
             &json!(h.alex_checking),
             &json!(checking),
             &json!(h.alex_brokerage),
@@ -589,12 +620,12 @@ async fn a_wrong_suggestion_doesnt_keep_a_pair_apart(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
-async fn a_transfer_chosen_elsewhere_waits_for_you(pool: PgPool) {
+async fn a_transfer_chosen_elsewhere_keeps_your_choice(pool: PgPool) {
     let h = H::new(&pool).await;
     let card = upload(&pool, &h, &h.alex_credit, CARD).await;
     let checking = upload(&pool, &h, &h.alex_checking, CHECKING).await;
     // You say the deposit came from savings, but the payment from checking
-    // fits it: a conflict, not a pair.
+    // fits it: a transfer pair, added separately as you said, to review.
     let r = set_row(
         &pool,
         &h,
@@ -607,52 +638,81 @@ async fn a_transfer_chosen_elsewhere_waits_for_you(pool: PgPool) {
     assert_eq!(
         (
             status(&r.body),
-            &r.body["transfer_conflict"]["import_id"],
-            &r.body["transfer_conflict"]["account_id"],
-            &r.body["suggested_decision"]["confident"],
+            &r.body["transfer_pair"]["import_id"],
+            &r.body["transfer_pair"]["account_id"],
+            &r.body["transfer_account_id"],
+            &r.body["state"],
         ),
         (
-            (&json!("new"), &json!("new")),
+            (&json!("transfer_pair"), &json!("add_separately")),
             &json!(checking),
             &json!(h.alex_checking),
-            &json!(false),
+            &json!(h.joint_savings),
+            &json!("to_review"),
         ),
         "{}",
         r.body
     );
+    assert_eq!(
+        r.body["suggested_decision"]["reason"],
+        json!("it fits as the other side, but you chose another account")
+    );
     let payment = &rows(&pool, &h, &checking).await[0];
     assert_eq!(
-        (status(payment), &payment["transfer_conflict"]["import_id"]),
-        ((&json!("new"), &json!("new")), &json!(card)),
+        (status(payment), &payment["transfer_pair"]["import_id"]),
+        (
+            (&json!("transfer_pair"), &json!("add_separately")),
+            &json!(card)
+        ),
         "{payment}"
     );
-    // It waits for you.
-    assert_eq!(
-        read(&pool, &h, &card).await.body["readiness"]["undecided"],
-        json!(1)
-    );
-    let r = commit(&pool, &h, &card).await;
-    assert_eq!(r.status, StatusCode::CONFLICT, "{}", r.body);
+    // Ticking confirms it.
+    let r = set_row(&pool, &h, &card, 0, json!({ "reviewed": true })).await;
+    assert_eq!(r.body["state"], json!("ready"), "{}", r.body);
 
-    // Deciding either row settles it: the payment is its own transaction.
-    set_row(&pool, &h, &checking, 0, json!({ "decision": "new" })).await;
-    let deposit = &rows(&pool, &h, &card).await[0];
-    assert_eq!(deposit.get("transfer_conflict"), None, "{deposit}");
-    assert_eq!(
-        read(&pool, &h, &card).await.body["readiness"]["undecided"],
-        json!(0)
-    );
-
-    // Or change your mind: with the choices gone, the two pair.
-    set_row(&pool, &h, &checking, 0, json!({ "decision": null })).await;
-    set_row(&pool, &h, &card, 0, json!({ "revert": ["counterparty"] })).await;
+    // Adding them as one transfer, from either row, pairs them: the other
+    // side you chose gives way.
+    let r = set_row(&pool, &h, &checking, 0, json!({ "decision": "add" })).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     let deposit = &rows(&pool, &h, &card).await[0];
     assert_eq!(
-        (status(deposit), &deposit["transfer_match"]["import_id"]),
         (
-            (&json!("transfer_match"), &json!("match")),
-            &json!(checking)
+            status(deposit),
+            &deposit["decided"],
+            &deposit["transfer_account_id"],
+            &deposit["transfer_pair"]["import_id"],
+            &deposit["state"],
+        ),
+        (
+            (&json!("transfer_pair"), &json!("add")),
+            &json!(true),
+            &json!(h.alex_checking),
+            &json!(checking),
+            &json!("ready"),
         ),
         "{deposit}"
+    );
+    // Undone: back to the default, one transfer.
+    set_row(&pool, &h, &card, 0, json!({ "decision": null })).await;
+    assert_eq!(
+        status(&rows(&pool, &h, &checking).await[0]),
+        (&json!("transfer_pair"), &json!("add"))
+    );
+}
+
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn a_new_label_starts_the_choice_over(pool: PgPool) {
+    let h = H::new(&pool).await;
+    let checking = upload(&pool, &h, &h.alex_checking, CHECKING).await;
+    let r = set_row(&pool, &h, &checking, 0, json!({ "decision": "dont_add" })).await;
+    assert_eq!(status(&r.body), (&json!("new"), &json!("dont_add")));
+    // The card's file makes the payment a transfer pair: your choice was
+    // about something else.
+    upload(&pool, &h, &h.alex_credit, CARD).await;
+    let payment = &rows(&pool, &h, &checking).await[0];
+    assert_eq!(
+        (status(payment), &payment["decided"]),
+        ((&json!("transfer_pair"), &json!("add")), &json!(false)),
+        "{payment}"
     );
 }

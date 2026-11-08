@@ -10,12 +10,12 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
-T = TypeVar("T", bound="TransferMatch")
+T = TypeVar("T", bound="TransferPair")
 
 
 @_attrs_define
-class TransferMatch:
-    """A transfer match's other side.
+class TransferPair:
+    """A transfer pair's other row.
 
     Attributes:
         account_id (UUID):
@@ -96,7 +96,7 @@ class TransferMatch:
 
         file_name = _parse_file_name(d.pop("file_name", UNSET))
 
-        transfer_match = cls(
+        transfer_pair = cls(
             account_id=account_id,
             date=date,
             description=description,
@@ -106,8 +106,8 @@ class TransferMatch:
             file_name=file_name,
         )
 
-        transfer_match.additional_properties = d
-        return transfer_match
+        transfer_pair.additional_properties = d
+        return transfer_pair
 
     @property
     def additional_keys(self) -> list[str]:

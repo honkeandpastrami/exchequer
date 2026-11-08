@@ -1,6 +1,6 @@
 //! Staged imports (design §6): uploaded bank files waiting for review. A
 //! file has statements (one per account), and a statement has rows, each
-//! with its status: new, a duplicate of an existing transaction, and so on.
+//! with its label: new, a duplicate of an existing transaction, and so on.
 
 use domain::AccountNumber;
 use rust_decimal::Decimal;
@@ -32,6 +32,8 @@ pub struct StatementRow {
     pub ledger_date: Option<Date>,
     pub skipped: Value,
     pub suggestion: Option<AccountSuggestion>,
+    /// Whether `account_id` came from ticking the suggestion as reviewed.
+    pub reviewed: bool,
 }
 
 impl StatementRow {
@@ -74,9 +76,14 @@ pub struct RowRow {
     pub native_id: Option<String>,
     pub fingerprint: String,
     pub raw: Value,
+    /// `new`, `duplicate`, `possible_duplicate`, `transfer_pair` or
+    /// `no_account`.
     pub status: String,
     pub match_transaction_id: Option<Uuid>,
-    /// `match`, `new`, `skip`, or `None` for the status's default.
+    /// How a duplicate's match was found: `bank_id`, `transfer` or `amount`.
+    pub match_kind: Option<String>,
+    /// `add`, `add_separately`, `dont_add`, or `None` for the label's
+    /// default.
     pub decision: Option<String>,
     pub set_description: Option<String>,
     pub counterparty_id: Option<Uuid>,
@@ -105,14 +112,8 @@ pub struct RowRow {
     /// alike their descriptions are (thousandths).
     pub match_days: Option<i16>,
     pub match_similarity: Option<i16>,
-}
-
-/// How many of a statement's rows have each status.
-#[derive(Debug, Clone)]
-pub struct StatusCount {
-    pub statement: i16,
-    pub status: String,
-    pub count: i64,
+    /// Tag names for the new transaction.
+    pub tags: Vec<String>,
 }
 
 pub async fn insert(
@@ -263,7 +264,7 @@ pub async fn statements(
     let rows = sqlx::query!(
         "SELECT import_id, position, account_number, account_id, kind, commodity_id,
                 ledger_amount, ledger_date, skipped, suggested_account_id,
-                account_suggester_id, account_confidence, account_reason
+                account_suggester_id, account_confidence, account_reason, reviewed
          FROM staged_statement WHERE import_id = ANY($1) ORDER BY import_id, position",
         imports
     )
@@ -299,55 +300,32 @@ pub async fn statements(
                         }
                         _ => None,
                     },
+                    reviewed: r.reviewed,
                 },
             )
         })
         .collect())
 }
 
+/// Sets a statement's own account; `reviewed`: from ticking its suggestion.
 pub async fn set_account(
     db: impl PgExecutor<'_>,
     import_id: Uuid,
     statement: i16,
     account_id: Option<Uuid>,
+    reviewed: bool,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "UPDATE staged_statement SET account_id = $3 WHERE import_id = $1 AND position = $2",
+        "UPDATE staged_statement SET account_id = $3, reviewed = $4
+         WHERE import_id = $1 AND position = $2",
         import_id,
         statement,
-        account_id
+        account_id,
+        reviewed
     )
     .execute(db)
     .await?;
     Ok(())
-}
-
-/// Row counts by statement and status.
-pub async fn counts(
-    db: impl PgExecutor<'_>,
-    imports: &[Uuid],
-) -> Result<Vec<(Uuid, StatusCount)>, sqlx::Error> {
-    let rows = sqlx::query!(
-        r#"SELECT import_id, statement, status, count(*) AS "count!" FROM staged_row
-           WHERE import_id = ANY($1) GROUP BY import_id, statement, status
-           ORDER BY import_id, statement, status"#,
-        imports
-    )
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|r| {
-            (
-                r.import_id,
-                StatusCount {
-                    statement: r.statement,
-                    status: r.status,
-                    count: r.count,
-                },
-            )
-        })
-        .collect())
 }
 
 /// Rows in order, optionally of one statement and one status, after
@@ -363,10 +341,11 @@ pub async fn rows(
     sqlx::query_as!(
         RowRow,
         "SELECT statement, position, date, amount, description, native_id, fingerprint, raw,
-                status, match_transaction_id, decision, set_description, counterparty_id,
-                transfer_account_id, category_id, purpose_id, chosen, pair_import_id,
-                pair_statement, pair_position, conflict_import_id, conflict_statement,
-                conflict_position, reviewed, match_days, match_similarity
+                status, match_transaction_id, match_kind, decision, set_description,
+                counterparty_id, transfer_account_id, category_id, purpose_id, chosen,
+                pair_import_id, pair_statement, pair_position, conflict_import_id,
+                conflict_statement, conflict_position, reviewed, match_days,
+                match_similarity, tags
          FROM staged_row
          WHERE import_id = $1
            AND ($2::int2 IS NULL OR statement = $2)
@@ -384,21 +363,21 @@ pub async fn rows(
     .await
 }
 
-/// A row's status, as [`set_statuses`] sets it.
+/// A row's label, as [`set_statuses`] sets it.
 #[derive(Debug, Clone)]
 pub struct StatusUpdate {
     pub position: i32,
     pub status: String,
-    /// The transaction it matches.
+    /// The transaction it matches, and how it was found.
     pub transaction: Option<Uuid>,
+    pub kind: Option<String>,
     pub days: Option<i16>,
     pub similarity: Option<i16>,
 }
 
-/// Sets each row's status and match, by position, in one statement.
-/// A row found in the ledger after all (a duplicate of some kind) starts
-/// over at that status's default: a decision made before was about
-/// something else. A skip stays.
+/// Sets each row's label and match, by position, in one statement. A row
+/// whose label or match changes goes back to the new label's default, and
+/// a row that's no longer new loses its transfer pair.
 pub async fn set_statuses(
     db: impl PgExecutor<'_>,
     import_id: Uuid,
@@ -408,24 +387,36 @@ pub async fn set_statuses(
     let positions: Vec<i32> = rows.iter().map(|r| r.position).collect();
     let statuses: Vec<String> = rows.iter().map(|r| r.status.clone()).collect();
     let matches: Vec<Option<Uuid>> = rows.iter().map(|r| r.transaction).collect();
+    let kinds: Vec<Option<String>> = rows.iter().map(|r| r.kind.clone()).collect();
     let days: Vec<Option<i16>> = rows.iter().map(|r| r.days).collect();
     let similarity: Vec<Option<i16>> = rows.iter().map(|r| r.similarity).collect();
     sqlx::query!(
         "UPDATE staged_row r SET status = u.status, match_transaction_id = u.match,
-                match_days = u.days, match_similarity = u.similarity,
+                match_kind = u.kind, match_days = u.days, match_similarity = u.similarity,
                 decision = CASE WHEN r.status <> u.status
-                                 AND u.status IN ('duplicate', 'near_duplicate',
-                                                  'transfer_duplicate')
-                                 AND r.decision IS DISTINCT FROM 'skip'
-                                THEN NULL ELSE r.decision END
-         FROM unnest($3::int4[], $4::text[], $5::uuid[], $6::int2[], $7::int2[])
-              AS u(position, status, match, days, similarity)
+                                  OR r.match_transaction_id IS DISTINCT FROM u.match
+                                THEN NULL ELSE r.decision END,
+                pair_import_id = CASE WHEN u.status IN ('new', 'transfer_pair')
+                                      THEN r.pair_import_id END,
+                pair_statement = CASE WHEN u.status IN ('new', 'transfer_pair')
+                                      THEN r.pair_statement END,
+                pair_position = CASE WHEN u.status IN ('new', 'transfer_pair')
+                                     THEN r.pair_position END,
+                conflict_import_id = CASE WHEN u.status IN ('new', 'transfer_pair')
+                                          THEN r.conflict_import_id END,
+                conflict_statement = CASE WHEN u.status IN ('new', 'transfer_pair')
+                                          THEN r.conflict_statement END,
+                conflict_position = CASE WHEN u.status IN ('new', 'transfer_pair')
+                                         THEN r.conflict_position END
+         FROM unnest($3::int4[], $4::text[], $5::uuid[], $6::text[], $7::int2[], $8::int2[])
+              AS u(position, status, match, kind, days, similarity)
          WHERE r.import_id = $1 AND r.statement = $2 AND r.position = u.position",
         import_id,
         statement,
         &positions,
         &statuses,
         &matches as &[Option<Uuid>],
+        &kinds as &[Option<String>],
         &days as &[Option<i16>],
         &similarity as &[Option<i16>],
     )
@@ -434,25 +425,76 @@ pub async fn set_statuses(
     Ok(())
 }
 
-/// Of `fingerprints`, those already imported into the account, with the
-/// transaction each became.
+/// A row ID already imported into an account: the transaction it became,
+/// and the row's fields as each file had them.
+#[derive(Debug, Clone)]
+pub struct KnownFingerprint {
+    /// The ID asked about.
+    pub asked: String,
+    /// The ID recorded: the one asked about, or it with a suffix (`~2`) for
+    /// a row added again after it changed.
+    pub fingerprint: String,
+    pub transaction_id: Uuid,
+    pub raws: Vec<Value>,
+}
+
+/// Of `fingerprints`, those already imported into the account, suffixed
+/// ones included.
 pub async fn known_fingerprints(
     db: impl PgExecutor<'_>,
     account_id: Uuid,
     fingerprints: &[String],
-) -> Result<Vec<(String, Uuid)>, sqlx::Error> {
-    let rows = sqlx::query!(
-        "SELECT fingerprint, transaction_id FROM import_fingerprint
-         WHERE account_id = $1 AND fingerprint = ANY($2)",
+) -> Result<Vec<KnownFingerprint>, sqlx::Error> {
+    sqlx::query_as!(
+        KnownFingerprint,
+        r#"SELECT u.fp AS "asked!", f.fingerprint, f.transaction_id,
+                  coalesce(array_agg(r.raw ORDER BY r.imported_at)
+                               FILTER (WHERE r.raw IS NOT NULL), '{}') AS "raws!"
+           FROM unnest($2::text[]) AS u(fp)
+           JOIN import_fingerprint f
+             ON f.account_id = $1
+            AND (f.fingerprint = u.fp OR starts_with(f.fingerprint, u.fp || '~'))
+           LEFT JOIN imported_row r
+             ON r.account_id = f.account_id AND r.fingerprint = f.fingerprint
+           GROUP BY u.fp, f.fingerprint, f.transaction_id
+           ORDER BY u.fp, f.fingerprint"#,
         account_id,
         fingerprints
     )
     .fetch_all(db)
+    .await
+}
+
+/// A row ID for a row added again: `fingerprint` if the account has no such
+/// ID yet, else it with the first free suffix (`~2`, `~3`…), within the
+/// column's 200 characters.
+pub async fn free_fingerprint(
+    db: impl PgExecutor<'_>,
+    account_id: Uuid,
+    fingerprint: &str,
+) -> Result<String, sqlx::Error> {
+    let taken: Vec<String> = sqlx::query_scalar!(
+        "SELECT fingerprint FROM import_fingerprint
+         WHERE account_id = $1 AND (fingerprint = $2 OR starts_with(fingerprint, $2 || '~'))",
+        account_id,
+        fingerprint
+    )
+    .fetch_all(db)
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(|r| (r.fingerprint, r.transaction_id))
-        .collect())
+    if !taken.iter().any(|t| t == fingerprint) {
+        return Ok(fingerprint.to_owned());
+    }
+    let mut n = 2_u32;
+    loop {
+        let suffix = format!("~{n}");
+        let room = 200_usize.saturating_sub(suffix.len());
+        let base: String = fingerprint.chars().take(room).collect();
+        let candidate = format!("{base}{suffix}");
+        if !taken.contains(&candidate) {
+            return Ok(candidate);
+        }
+        n += 1;
+    }
 }
 
 /// A staged row and an existing transaction that may be the same: same
@@ -499,7 +541,7 @@ pub async fn near_candidates(
 }
 
 /// Staged rows whose other side may already be in the ledger as a transfer
-/// (a transfer duplicate): a one-split transfer between the account and
+/// (a recorded transfer): a one-split transfer between the account and
 /// another of yours, moving the same amount of the commodity the same way,
 /// dated within `days`, and not yet holding a bank row of this account.
 pub async fn transfer_duplicates(
@@ -595,7 +637,7 @@ pub async fn matchable(db: impl PgExecutor<'_>) -> Result<Vec<Matchable>, sqlx::
 /// A staged row, by its import, statement and position.
 pub type RowKey = (Uuid, i16, i32);
 
-/// A staged row as its transfer match shows it.
+/// A staged row as its transfer pair shows it.
 #[derive(Debug, Clone)]
 pub struct PairRow {
     pub import_id: Uuid,
@@ -611,6 +653,7 @@ pub struct PairRow {
     pub set_description: Option<String>,
     pub fingerprint: String,
     pub raw: Value,
+    pub tags: Vec<String>,
 }
 
 /// These rows, in any staged imports.
@@ -627,7 +670,8 @@ pub async fn pair_rows(
                   coalesce(st.account_id,
                            CASE WHEN st.account_confidence >= $4
                                 THEN st.suggested_account_id END) AS account_id,
-                  r.date, r.amount, r.description, r.set_description, r.fingerprint, r.raw
+                  r.date, r.amount, r.description, r.set_description, r.fingerprint, r.raw,
+                  r.tags
            FROM unnest($1::uuid[], $2::int2[], $3::int4[]) AS u(i, s, p)
            JOIN staged_row r
              ON r.import_id = u.i AND r.statement = u.s AND r.position = u.p
@@ -643,11 +687,12 @@ pub async fn pair_rows(
     .await
 }
 
-/// What transfer matching sets on a row: its status, transfer match and
+/// What transfer matching sets on a new row: its label, transfer pair and
 /// transfer conflict (`None`: none).
 pub type PairUpdate = (RowKey, String, Option<RowKey>, Option<RowKey>);
 
-/// Sets rows' status, transfer match and transfer conflict.
+/// Sets new rows' label, transfer pair and transfer conflict. A row whose
+/// label, pair or conflict changes goes back to the new label's default.
 pub async fn set_pairs(db: impl PgExecutor<'_>, rows: &[PairUpdate]) -> Result<(), sqlx::Error> {
     let imports: Vec<Uuid> = rows.iter().map(|r| r.0.0).collect();
     let statements: Vec<i16> = rows.iter().map(|r| r.0.1).collect();
@@ -660,15 +705,22 @@ pub async fn set_pairs(db: impl PgExecutor<'_>, rows: &[PairUpdate]) -> Result<(
     let conflict_statements: Vec<Option<i16>> = rows.iter().map(|r| r.3.map(|c| c.1)).collect();
     let conflict_positions: Vec<Option<i32>> = rows.iter().map(|r| r.3.map(|c| c.2)).collect();
     sqlx::query!(
-        "UPDATE staged_row r SET status = u.status, match_transaction_id = NULL,
-                                 match_days = NULL, match_similarity = NULL,
-                                 pair_import_id = u.pi, pair_statement = u.ps,
-                                 pair_position = u.pp, conflict_import_id = u.ci,
-                                 conflict_statement = u.cs, conflict_position = u.cp
+        "UPDATE staged_row r SET status = u.status, pair_import_id = u.pi,
+                                 pair_statement = u.ps, pair_position = u.pp,
+                                 conflict_import_id = u.ci, conflict_statement = u.cs,
+                                 conflict_position = u.cp,
+                                 decision = CASE WHEN r.status <> u.status
+                                     OR (r.pair_import_id, r.pair_statement, r.pair_position)
+                                        IS DISTINCT FROM (u.pi, u.ps, u.pp)
+                                     OR (r.conflict_import_id, r.conflict_statement,
+                                         r.conflict_position)
+                                        IS DISTINCT FROM (u.ci, u.cs, u.cp)
+                                     THEN NULL ELSE r.decision END
          FROM unnest($1::uuid[], $2::int2[], $3::int4[], $4::text[], $5::uuid[], $6::int2[],
                      $7::int4[], $8::uuid[], $9::int2[], $10::int4[])
               AS u(i, s, p, status, pi, ps, pp, ci, cs, cp)
-         WHERE r.import_id = u.i AND r.statement = u.s AND r.position = u.p",
+         WHERE r.import_id = u.i AND r.statement = u.s AND r.position = u.p
+           AND r.status IN ('new', 'transfer_pair')",
         &imports,
         &statements,
         &positions,
@@ -685,8 +737,8 @@ pub async fn set_pairs(db: impl PgExecutor<'_>, rows: &[PairUpdate]) -> Result<(
     Ok(())
 }
 
-/// The other side of a transfer match takes the same decision: both rows
-/// are one transfer, or neither is. A skipped row keeps its skip.
+/// The other row of a transfer pair takes the same choice: the pair is one
+/// transfer, two transactions, or not added.
 pub async fn set_pair_decision(
     db: impl PgExecutor<'_>,
     key: RowKey,
@@ -695,7 +747,7 @@ pub async fn set_pair_decision(
     sqlx::query!(
         "UPDATE staged_row SET decision = $4
          WHERE import_id = $1 AND statement = $2 AND position = $3
-           AND status = 'transfer_match' AND decision IS DISTINCT FROM 'skip'",
+           AND status = 'transfer_pair'",
         key.0,
         key.1,
         key.2,
@@ -779,7 +831,7 @@ pub async fn recorded_fingerprints(
     .await
 }
 
-/// One row's decision and labels, replacing what it had.
+/// One row's decision, labels and tags, replacing what it had.
 pub async fn set_decision(
     db: impl PgExecutor<'_>,
     import_id: Uuid,
@@ -788,7 +840,7 @@ pub async fn set_decision(
     let done = sqlx::query!(
         "UPDATE staged_row SET decision = $4, set_description = $5, counterparty_id = $6,
                                category_id = $7, purpose_id = $8, chosen = $9,
-                               transfer_account_id = $10
+                               transfer_account_id = $10, tags = $11
          WHERE import_id = $1 AND statement = $2 AND position = $3",
         import_id,
         r.statement,
@@ -800,10 +852,32 @@ pub async fn set_decision(
         r.purpose_id,
         &r.chosen,
         r.transfer_account_id,
+        &r.tags,
     )
     .execute(db)
     .await?;
     Ok(done.rows_affected() > 0)
+}
+
+/// You chose one of your accounts as a row's other side.
+pub async fn choose_transfer(
+    db: impl PgExecutor<'_>,
+    key: RowKey,
+    account_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE staged_row SET transfer_account_id = $4, counterparty_id = NULL,
+                               chosen = CASE WHEN 'counterparty' = ANY(chosen) THEN chosen
+                                             ELSE chosen || 'counterparty'::text END
+         WHERE import_id = $1 AND statement = $2 AND position = $3",
+        key.0,
+        key.1,
+        key.2,
+        account_id,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 /// Ticks rows as reviewed, each with what it showed, or unticks them
@@ -970,7 +1044,7 @@ pub async fn rows_of_transaction(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SuggesterRow {
     pub id: Uuid,
-    /// `rule`, `local` or `remote`.
+    /// `rule`, `local`, `remote` or `match`.
     pub kind: String,
     pub name: String,
     pub version: String,

@@ -80,10 +80,10 @@ def sync_detailed(
     body: Review,
     if_match: str,
 ) -> Response[Import | Problem]:
-    """Tick rows as reviewed, or untick them (design §6.7): a ticked row's AI
-    suggestions count as yours, so an import whose rows you ticked is ready
-    to commit. A row that needs a label or a decision isn't ticked. Each
-    tick goes by itself when its row changes under it.
+    """Tick rows as reviewed, or untick them (design §6.7): what a ticked row
+    takes counts as yours, so an import whose rows you ticked is ready to
+    commit. A row that needs you, or isn't added, isn't ticked. Each tick
+    goes by itself when its row changes under it.
 
     Args:
         id (UUID):
@@ -118,10 +118,10 @@ def sync(
     body: Review,
     if_match: str,
 ) -> Import | Problem | None:
-    """Tick rows as reviewed, or untick them (design §6.7): a ticked row's AI
-    suggestions count as yours, so an import whose rows you ticked is ready
-    to commit. A row that needs a label or a decision isn't ticked. Each
-    tick goes by itself when its row changes under it.
+    """Tick rows as reviewed, or untick them (design §6.7): what a ticked row
+    takes counts as yours, so an import whose rows you ticked is ready to
+    commit. A row that needs you, or isn't added, isn't ticked. Each tick
+    goes by itself when its row changes under it.
 
     Args:
         id (UUID):
@@ -151,10 +151,10 @@ async def asyncio_detailed(
     body: Review,
     if_match: str,
 ) -> Response[Import | Problem]:
-    """Tick rows as reviewed, or untick them (design §6.7): a ticked row's AI
-    suggestions count as yours, so an import whose rows you ticked is ready
-    to commit. A row that needs a label or a decision isn't ticked. Each
-    tick goes by itself when its row changes under it.
+    """Tick rows as reviewed, or untick them (design §6.7): what a ticked row
+    takes counts as yours, so an import whose rows you ticked is ready to
+    commit. A row that needs you, or isn't added, isn't ticked. Each tick
+    goes by itself when its row changes under it.
 
     Args:
         id (UUID):
@@ -187,10 +187,10 @@ async def asyncio(
     body: Review,
     if_match: str,
 ) -> Import | Problem | None:
-    """Tick rows as reviewed, or untick them (design §6.7): a ticked row's AI
-    suggestions count as yours, so an import whose rows you ticked is ready
-    to commit. A row that needs a label or a decision isn't ticked. Each
-    tick goes by itself when its row changes under it.
+    """Tick rows as reviewed, or untick them (design §6.7): what a ticked row
+    takes counts as yours, so an import whose rows you ticked is ready to
+    commit. A row that needs you, or isn't added, isn't ticked. Each tick
+    goes by itself when its row changes under it.
 
     Args:
         id (UUID):

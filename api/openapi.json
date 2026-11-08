@@ -2741,7 +2741,7 @@
         "tags": [
           "imports"
         ],
-        "summary": "Commit the import: all or nothing. Every row's status is worked out\nagain first; if any changed (the ledger moved on since), nothing is\ncommitted and the import comes back with a 409 to review again. Then each\nrow's decision is carried out: new transactions go into one `file`\nimport batch; transfer matches turn the matched transaction into a\ntransfer; every row that's now in the ledger is recorded as imported, so\nthe same row is a duplicate next time, and what this file says about it is\nkept with its transaction (once per file, whatever its name). Each\nstatement's ledger balance becomes a balance check. The staged import is\nthen gone.",
+        "summary": "Commit the import: all or nothing. Every row's label is worked out again\nfirst; if any changed (the ledger moved on since), nothing is committed\nand the import comes back with a 409 to review again. Then each row's\nchoice is carried out: new transactions go into one `file` import\nbatch, a transfer pair added as one becomes one transfer, and every row\nthat's now in the ledger is recorded as imported, so the same row is a\nduplicate next time, and what this file says about it is kept with its\ntransaction (once per file, whatever its name). Each statement's ledger\nbalance becomes a balance check. The staged import is then gone. Rows to\nreview don't stop it; rows that need you do.",
         "operationId": "imports_commit",
         "parameters": [
           {
@@ -2785,7 +2785,7 @@
             }
           },
           "409": {
-            "description": "A statement has no account, a row's status changed, or a month is closed",
+            "description": "A statement has no account, a row needs a label, a row's label changed, or a month is closed",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2900,7 +2900,7 @@
         "tags": [
           "imports"
         ],
-        "summary": "Tick rows as reviewed, or untick them (design §6.7): a ticked row's AI\nsuggestions count as yours, so an import whose rows you ticked is ready\nto commit. A row that needs a label or a decision isn't ticked. Each\ntick goes by itself when its row changes under it.",
+        "summary": "Tick rows as reviewed, or untick them (design §6.7): what a ticked row\ntakes counts as yours, so an import whose rows you ticked is ready to\ncommit. A row that needs you, or isn't added, isn't ticked. Each tick\ngoes by itself when its row changes under it.",
         "operationId": "imports_review",
         "parameters": [
           {
@@ -3018,7 +3018,7 @@
           {
             "name": "status",
             "in": "query",
-            "description": "Only rows with this status.",
+            "description": "Only rows with this label.",
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/RowStatus"
@@ -3079,7 +3079,7 @@
         "tags": [
           "imports"
         ],
-        "summary": "Decide what committing does with a row, and label the transaction it\nwill become.",
+        "summary": "Choose what committing does with a row, and label the transaction it\nwill become.",
         "operationId": "imports_set_row",
         "parameters": [
           {
@@ -3191,7 +3191,7 @@
         "tags": [
           "imports"
         ],
-        "summary": "Set the account a statement is for; its rows' statuses are worked out\nagain, and their labels suggested again (yours stay).",
+        "summary": "Set the account a statement is for, or tick its suggested account as\nreviewed; either remembers the file's account number for the account.\nIts rows' labels are worked out again, and their suggestions made again\n(yours stay).",
         "operationId": "imports_set_statement",
         "parameters": [
           {
@@ -7397,26 +7397,24 @@
         "type": "object",
         "description": "What a commit did.",
         "required": [
-          "created",
+          "added",
           "transfers",
-          "matched",
-          "replaced",
-          "skipped",
+          "not_added",
           "balance_checks"
         ],
         "properties": {
+          "added": {
+            "type": "integer",
+            "format": "int64",
+            "description": "New transactions.",
+            "minimum": 0
+          },
           "balance_checks": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/BalanceCheck"
             },
             "description": "One per statement with a ledger balance: the bank's balance against\nthe ledger's."
-          },
-          "created": {
-            "type": "integer",
-            "format": "int64",
-            "description": "New transactions.",
-            "minimum": 0
           },
           "import_batch_id": {
             "type": [
@@ -7426,27 +7424,16 @@
             "format": "uuid",
             "description": "The batch the new transactions are in; absent if there were none."
           },
-          "matched": {
+          "not_added": {
             "type": "integer",
             "format": "int64",
-            "description": "Rows recorded as already in the ledger (duplicates, near-duplicates,\ntransfer duplicates).",
-            "minimum": 0
-          },
-          "replaced": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Existing transactions replaced by their rows.",
-            "minimum": 0
-          },
-          "skipped": {
-            "type": "integer",
-            "format": "int64",
+            "description": "Rows not added: duplicates recorded as what they matched, and rows\nleft out.",
             "minimum": 0
           },
           "transfers": {
             "type": "integer",
             "format": "int64",
-            "description": "Of them, transfers made of a transfer match: two rows, one\ntransaction.",
+            "description": "Of them, transfers made of a transfer pair: two rows, one\ntransaction.",
             "minimum": 0
           }
         }
@@ -7588,15 +7575,14 @@
         "type": "string",
         "description": "What committing does with a row.",
         "enum": [
-          "match",
-          "new",
-          "skip",
-          "replace"
+          "add",
+          "add_separately",
+          "dont_add"
         ]
       },
       "DecisionSuggestion": {
         "type": "object",
-        "description": "What matching suggests committing does with a row.",
+        "description": "What matching suggests choosing for a row: the label's default.",
         "required": [
           "decision",
           "confidence",
@@ -7612,7 +7598,7 @@
           },
           "confident": {
             "type": "boolean",
-            "description": "Whether it's confident enough (at least 900) to be committed unless\nyou choose otherwise. A near duplicate never is."
+            "description": "Whether it's confident (at least 900)."
           },
           "decision": {
             "$ref": "#/components/schemas/Decision"
@@ -8399,7 +8385,7 @@
           },
           "confident": {
             "type": "boolean",
-            "description": "Whether it's confident enough (at least 900) to be committed unless\nyou choose otherwise."
+            "description": "Whether it's confident (at least 900): the level below isn't asked."
           },
           "label": {
             "$ref": "#/components/schemas/Label"
@@ -8525,6 +8511,15 @@
         "enum": [
           "claim",
           "payment"
+        ]
+      },
+      "MatchKind": {
+        "type": "string",
+        "description": "How a duplicate or possible duplicate was found.",
+        "enum": [
+          "bank_id",
+          "transfer",
+          "amount"
         ]
       },
       "Me": {
@@ -9603,8 +9598,11 @@
                 "amount",
                 "description",
                 "status",
+                "options",
                 "decided",
                 "reviewed",
+                "state",
+                "tags",
                 "chosen",
                 "suggestions",
                 "missing",
@@ -9638,7 +9636,7 @@
                     "null"
                   ],
                   "format": "uuid",
-                  "description": "The labels below are what a new transaction gets: your choice, else a\nconfident suggestion. For a new transaction: who's on the outside\nside (unknown if absent and there's no `transfer_account_id`)."
+                  "description": "The labels below are what a new transaction gets: your choice, else a\nsuggestion. For a new transaction: who's on the outside side\n(unknown if absent and there's no `transfer_account_id`)."
                 },
                 "date": {
                   "type": "string",
@@ -9646,13 +9644,13 @@
                 },
                 "decided": {
                   "type": "boolean",
-                  "description": "Whether `decision` is the client's choice rather than the default."
+                  "description": "Whether `decision` is your choice rather than the default."
                 },
                 "decision": {
                   "oneOf": [
                     {
                       "$ref": "#/components/schemas/Decision",
-                      "description": "What committing does with the row: the client's choice, else the\ndefault for its status. Absent while the statement has no account."
+                      "description": "What committing does with the row: your choice, else the label's\ndefault. Absent while the statement has no account."
                     },
                     {
                       "type": "null"
@@ -9662,20 +9660,31 @@
                 "description": {
                   "type": "string"
                 },
+                "match_kind": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/MatchKind",
+                      "description": "How that match was found."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "match_transaction_id": {
                   "type": [
                     "string",
                     "null"
                   ],
                   "format": "uuid",
-                  "description": "The existing transaction a duplicate or transfer duplicate is of."
+                  "description": "The existing transaction a duplicate or possible duplicate may be."
                 },
                 "missing": {
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/Label"
                   },
-                  "description": "For a row that will be a new transaction: the labels that are\nneither yours nor confidently suggested. Commit refuses while any row\nhas some."
+                  "description": "For a row that will be added: the labels with neither your choice\nnor a suggestion. Commit refuses while any row has some."
                 },
                 "native_id": {
                   "type": [
@@ -9690,6 +9699,13 @@
                     "$ref": "#/components/schemas/Label"
                   },
                   "description": "Labels that don't apply: a transfer's category and purpose (design\n§3.2)."
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Decision"
+                  },
+                  "description": "The choices the row has, in the order shown: `add` and `dont_add`,\nand for a transfer pair `add` (one transfer), `add_separately` and\n`dont_add`. None while the statement has no account."
                 },
                 "position": {
                   "type": "integer",
@@ -9709,7 +9725,7 @@
                 },
                 "reviewed": {
                   "type": "boolean",
-                  "description": "Whether you ticked the row as reviewed, and it still shows what you\nsaw then: the AI suggestions it takes count as yours."
+                  "description": "Whether you ticked the row as reviewed, and it still shows what you\nsaw then: what it takes counts as yours."
                 },
                 "set_description": {
                   "type": [
@@ -9723,20 +9739,25 @@
                   "items": {
                     "$ref": "#/components/schemas/RowSplit"
                   },
-                  "description": "The row split into parts, each a split of the new transaction; empty\nif it isn't split. A split row is added as new, and its labels are\nthe parts': the row's own, and its suggestions, don't apply."
+                  "description": "The row split into parts, each a split of the new transaction; empty\nif it isn't split. A split row is added, and its labels are the\nparts': the row's own, and its suggestions, don't apply."
+                },
+                "state": {
+                  "$ref": "#/components/schemas/ReviewState",
+                  "description": "Its colour: what it needs."
                 },
                 "statement": {
                   "type": "integer",
                   "format": "int32"
                 },
                 "status": {
-                  "$ref": "#/components/schemas/RowStatus"
+                  "$ref": "#/components/schemas/RowStatus",
+                  "description": "What matching found: the row's label."
                 },
                 "suggested_decision": {
                   "oneOf": [
                     {
                       "$ref": "#/components/schemas/DecisionSuggestion",
-                      "description": "What matching suggests `decision` be; absent while the statement has\nno account."
+                      "description": "What matching suggests `decision` be (the label's default, and how\nsure); absent while the statement has no account."
                     },
                     {
                       "type": "null"
@@ -9750,30 +9771,26 @@
                   },
                   "description": "At most one per label, confident or not."
                 },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The new transaction's tags."
+                },
                 "transfer_account_id": {
                   "type": [
                     "string",
                     "null"
                   ],
                   "format": "uuid",
-                  "description": "The other side when it's one of your accounts: the row is a transfer,\nwhose category and purpose don't apply (unless one account is liquid\nand the other isn't: an expense or income).\nA transfer match's is its other side's account."
+                  "description": "The other side when it's one of your accounts: the row is a transfer,\nwhose category and purpose don't apply (unless one account is liquid\nand the other isn't: an expense or income). A transfer pair added as\none transfer has its other row's account."
                 },
-                "transfer_conflict": {
+                "transfer_pair": {
                   "oneOf": [
                     {
-                      "$ref": "#/components/schemas/TransferMatch",
-                      "description": "A transfer conflict: you chose the row as a transfer to one account,\nand this staged row, in another of your accounts, fits as its other\nside. Matching isn't sure of the row's decision until you choose its\nother side again or decide either row."
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "transfer_match": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/TransferMatch",
-                      "description": "For a transfer match: the staged row that is the transfer's other\nside."
+                      "$ref": "#/components/schemas/TransferPair",
+                      "description": "For a transfer pair: the staged row that is the transfer's other\nside."
                     },
                     {
                       "type": "null"
@@ -10284,59 +10301,42 @@
       },
       "Readiness": {
         "type": "object",
-        "description": "An import's readiness, and why.",
+        "description": "How close an import is to committing (design §6.7).",
         "required": [
           "state",
+          "rows",
           "no_account",
-          "unlabeled",
-          "undecided",
-          "suggested_accounts",
-          "suggested_rows"
+          "accounts_to_review",
+          "adds"
         ],
         "properties": {
+          "accounts_to_review": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Statements whose account is a suggestion short of certain, not\nticked as reviewed.",
+            "minimum": 0
+          },
+          "adds": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Transactions a commit would add now: a transfer pair added as one\ntransfer is one.",
+            "minimum": 0
+          },
           "no_account": {
             "type": "integer",
             "format": "int32",
-            "description": "Statements with no account. Needs work.",
+            "description": "Statements with no account.",
             "minimum": 0
+          },
+          "rows": {
+            "$ref": "#/components/schemas/StateCounts",
+            "description": "Its rows by state; a statement without an account counts its rows\nas needing you."
           },
           "state": {
-            "$ref": "#/components/schemas/ReadinessState"
-          },
-          "suggested_accounts": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Statements whose account is a confident suggestion short of 100%,\nnot yet chosen.",
-            "minimum": 0
-          },
-          "suggested_rows": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Rows that would take a confident AI suggestion short of 100%, not\nticked as reviewed.",
-            "minimum": 0
-          },
-          "undecided": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Rows whose decision is neither yours nor confidently suggested (a\nnear duplicate never is). Needs work.",
-            "minimum": 0
-          },
-          "unlabeled": {
-            "type": "integer",
-            "format": "int32",
-            "description": "New rows with a label neither chosen nor confidently suggested.\nNeeds work.",
-            "minimum": 0
+            "$ref": "#/components/schemas/ReviewState",
+            "description": "Needs you if a statement or a row does; else to review if one is;\nelse ready. Never not added."
           }
         }
-      },
-      "ReadinessState": {
-        "type": "string",
-        "description": "How close an import is to committing (design §6.7): `ready` commits as\nshown, with nothing left to a guess (a rule's suggestion is yours);\n`suggested` would commit too, on confident AI suggestions you haven't\nconfirmed; `needs_work` needs you first.",
-        "enum": [
-          "ready",
-          "suggested",
-          "needs_work"
-        ]
       },
       "ReadyCommitted": {
         "type": "object",
@@ -10476,7 +10476,7 @@
         "properties": {
           "reviewed": {
             "type": "boolean",
-            "description": "`true` ticks the rows that don't need a label or a decision (the\nothers stay as they are); `false` unticks them all."
+            "description": "`true` ticks the rows that can be (not those that need you or\naren't added; they stay as they are); `false` unticks them all."
           },
           "rows": {
             "type": "array",
@@ -10487,6 +10487,16 @@
           }
         },
         "additionalProperties": false
+      },
+      "ReviewState": {
+        "type": "string",
+        "description": "What a row, a statement or an import needs (design §6.7), shown as its\ncolour.",
+        "enum": [
+          "needs_you",
+          "to_review",
+          "ready",
+          "not_added"
+        ]
       },
       "RevokedAll": {
         "type": "object",
@@ -10579,44 +10589,6 @@
           }
         }
       },
-      "RowCounts": {
-        "type": "object",
-        "description": "How many rows have each status.",
-        "required": [
-          "new",
-          "duplicate",
-          "near_duplicate",
-          "transfer_match",
-          "transfer_duplicate",
-          "needs_account"
-        ],
-        "properties": {
-          "duplicate": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "near_duplicate": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "needs_account": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "new": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "transfer_duplicate": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "transfer_match": {
-            "type": "integer",
-            "format": "int64"
-          }
-        }
-      },
       "RowRef": {
         "type": "object",
         "description": "A staged row of the import.",
@@ -10692,14 +10664,13 @@
       },
       "RowStatus": {
         "type": "string",
-        "description": "What a row would become.",
+        "description": "What matching found for a row (design §6.6): its label.",
         "enum": [
           "new",
           "duplicate",
-          "near_duplicate",
-          "transfer_match",
-          "transfer_duplicate",
-          "needs_account"
+          "possible_duplicate",
+          "transfer_pair",
+          "no_account"
         ]
       },
       "RowUpdate": {
@@ -10724,7 +10695,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Decision",
-                "description": "`null`: back to the default for the row's status."
+                "description": "One of the row's `options`; `null`: back to the label's default. A\ntransfer pair's other row takes the same choice."
               },
               {
                 "type": "null"
@@ -10750,7 +10721,7 @@
               "boolean",
               "null"
             ],
-            "description": "`true` ticks the row as reviewed, as it is after this change: you\nagree with what it shows, so the AI suggestions it takes count as\nyours. Not for a row that needs a label or a decision. `false`\nunticks it. The tick goes by itself when the row changes under it: a\nnew suggestion, or a transfer match made or undone."
+            "description": "`true` ticks the row as reviewed, as it is after this change: you\nagree with what it shows, so what it takes counts as yours. Not for\na row that needs you or isn't added. `false` unticks it. The tick\ngoes by itself when the row changes under it: a new suggestion, a\nnew label, a transfer pair made or undone."
           },
           "set_description": {
             "type": [
@@ -10766,7 +10737,17 @@
             "items": {
               "$ref": "#/components/schemas/RowSplit"
             },
-            "description": "Split the row into these parts (two or more, adding up to its\namount), each a split of the new transaction; `null` or `[]`: not\nsplit. Only for a row added as new that isn't a transfer match; a\nsplit row can't change its decision until the parts are cleared."
+            "description": "Split the row into these parts (two or more, adding up to its\namount), each a split of the new transaction; `null` or `[]`: not\nsplit. Only for a row that's added and isn't a transfer pair; a split\nrow can't change its decision until the parts are cleared."
+          },
+          "tags": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The new transaction's tags, by name (1-100 characters each; new ones\nare created on commit), replacing the row's."
           },
           "transfer_account_id": {
             "type": [
@@ -11196,8 +11177,11 @@
           "amount",
           "description",
           "status",
+          "options",
           "decided",
           "reviewed",
+          "state",
+          "tags",
           "chosen",
           "suggestions",
           "missing",
@@ -11231,7 +11215,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "The labels below are what a new transaction gets: your choice, else a\nconfident suggestion. For a new transaction: who's on the outside\nside (unknown if absent and there's no `transfer_account_id`)."
+            "description": "The labels below are what a new transaction gets: your choice, else a\nsuggestion. For a new transaction: who's on the outside side\n(unknown if absent and there's no `transfer_account_id`)."
           },
           "date": {
             "type": "string",
@@ -11239,13 +11223,13 @@
           },
           "decided": {
             "type": "boolean",
-            "description": "Whether `decision` is the client's choice rather than the default."
+            "description": "Whether `decision` is your choice rather than the default."
           },
           "decision": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Decision",
-                "description": "What committing does with the row: the client's choice, else the\ndefault for its status. Absent while the statement has no account."
+                "description": "What committing does with the row: your choice, else the label's\ndefault. Absent while the statement has no account."
               },
               {
                 "type": "null"
@@ -11255,20 +11239,31 @@
           "description": {
             "type": "string"
           },
+          "match_kind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MatchKind",
+                "description": "How that match was found."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "match_transaction_id": {
             "type": [
               "string",
               "null"
             ],
             "format": "uuid",
-            "description": "The existing transaction a duplicate or transfer duplicate is of."
+            "description": "The existing transaction a duplicate or possible duplicate may be."
           },
           "missing": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Label"
             },
-            "description": "For a row that will be a new transaction: the labels that are\nneither yours nor confidently suggested. Commit refuses while any row\nhas some."
+            "description": "For a row that will be added: the labels with neither your choice\nnor a suggestion. Commit refuses while any row has some."
           },
           "native_id": {
             "type": [
@@ -11283,6 +11278,13 @@
               "$ref": "#/components/schemas/Label"
             },
             "description": "Labels that don't apply: a transfer's category and purpose (design\n§3.2)."
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Decision"
+            },
+            "description": "The choices the row has, in the order shown: `add` and `dont_add`,\nand for a transfer pair `add` (one transfer), `add_separately` and\n`dont_add`. None while the statement has no account."
           },
           "position": {
             "type": "integer",
@@ -11302,7 +11304,7 @@
           },
           "reviewed": {
             "type": "boolean",
-            "description": "Whether you ticked the row as reviewed, and it still shows what you\nsaw then: the AI suggestions it takes count as yours."
+            "description": "Whether you ticked the row as reviewed, and it still shows what you\nsaw then: what it takes counts as yours."
           },
           "set_description": {
             "type": [
@@ -11316,20 +11318,25 @@
             "items": {
               "$ref": "#/components/schemas/RowSplit"
             },
-            "description": "The row split into parts, each a split of the new transaction; empty\nif it isn't split. A split row is added as new, and its labels are\nthe parts': the row's own, and its suggestions, don't apply."
+            "description": "The row split into parts, each a split of the new transaction; empty\nif it isn't split. A split row is added, and its labels are the\nparts': the row's own, and its suggestions, don't apply."
+          },
+          "state": {
+            "$ref": "#/components/schemas/ReviewState",
+            "description": "Its colour: what it needs."
           },
           "statement": {
             "type": "integer",
             "format": "int32"
           },
           "status": {
-            "$ref": "#/components/schemas/RowStatus"
+            "$ref": "#/components/schemas/RowStatus",
+            "description": "What matching found: the row's label."
           },
           "suggested_decision": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/DecisionSuggestion",
-                "description": "What matching suggests `decision` be; absent while the statement has\nno account."
+                "description": "What matching suggests `decision` be (the label's default, and how\nsure); absent while the statement has no account."
               },
               {
                 "type": "null"
@@ -11343,30 +11350,26 @@
             },
             "description": "At most one per label, confident or not."
           },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The new transaction's tags."
+          },
           "transfer_account_id": {
             "type": [
               "string",
               "null"
             ],
             "format": "uuid",
-            "description": "The other side when it's one of your accounts: the row is a transfer,\nwhose category and purpose don't apply (unless one account is liquid\nand the other isn't: an expense or income).\nA transfer match's is its other side's account."
+            "description": "The other side when it's one of your accounts: the row is a transfer,\nwhose category and purpose don't apply (unless one account is liquid\nand the other isn't: an expense or income). A transfer pair added as\none transfer has its other row's account."
           },
-          "transfer_conflict": {
+          "transfer_pair": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/TransferMatch",
-                "description": "A transfer conflict: you chose the row as a transfer to one account,\nand this staged row, in another of your accounts, fits as its other\nside. Matching isn't sure of the row's decision until you choose its\nother side again or decide either row."
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "transfer_match": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/TransferMatch",
-                "description": "For a transfer match: the staged row that is the transfer's other\nside."
+                "$ref": "#/components/schemas/TransferPair",
+                "description": "For a transfer pair: the staged row that is the transfer's other\nside."
               },
               {
                 "type": "null"
@@ -11381,9 +11384,11 @@
         "required": [
           "position",
           "account_suggested",
+          "reviewed",
+          "state",
           "commodity_id",
           "skipped",
-          "counts"
+          "rows"
         ],
         "properties": {
           "account_id": {
@@ -11392,7 +11397,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "The account the rows are worked out against: the one the file's\nnumber belongs to, or the client's choice, else a confident suggestion\n(`account_suggested`). `null` until there is one."
+            "description": "The account the rows are worked out against: the one the file's\nnumber belongs to, or the one you picked, else a confident\nsuggestion (`account_suggested`). `null` until there is one."
           },
           "account_suggested": {
             "type": "boolean",
@@ -11401,9 +11406,6 @@
           "commodity_id": {
             "type": "string",
             "format": "uuid"
-          },
-          "counts": {
-            "$ref": "#/components/schemas/RowCounts"
           },
           "kind": {
             "oneOf": [
@@ -11437,11 +11439,23 @@
             "type": "integer",
             "format": "int32"
           },
+          "reviewed": {
+            "type": "boolean",
+            "description": "Whether you ticked the suggested account as reviewed, making it the\nstatement's own."
+          },
+          "rows": {
+            "$ref": "#/components/schemas/StateCounts",
+            "description": "Its rows by state."
+          },
           "skipped": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SkippedLine"
             }
+          },
+          "state": {
+            "$ref": "#/components/schemas/ReviewState",
+            "description": "Needs you without an account; to review while the account is a\nsuggestion short of certain; else ready."
           },
           "suggested_account": {
             "oneOf": [
@@ -11488,6 +11502,38 @@
           }
         },
         "additionalProperties": false
+      },
+      "StateCounts": {
+        "type": "object",
+        "description": "How many rows are in each state.",
+        "required": [
+          "needs_you",
+          "to_review",
+          "ready",
+          "not_added"
+        ],
+        "properties": {
+          "needs_you": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "not_added": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "ready": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "to_review": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "Statement": {
         "type": "object",
@@ -11546,6 +11592,7 @@
       },
       "StatementUpdate": {
         "type": "object",
+        "description": "One of the two: pick the account, or tick or untick its suggestion.\nPicking an account, or ticking its suggestion, also adds the file's\naccount number to it, so its next files resolve by themselves.",
         "properties": {
           "account_id": {
             "type": [
@@ -11555,9 +11602,12 @@
             "format": "uuid",
             "description": "The account the statement is for; `null` to unset it."
           },
-          "remember_number": {
-            "type": "boolean",
-            "description": "Also add the file's account number to the account, so its next\nfiles resolve by themselves."
+          "reviewed": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`true` ticks the suggested account as reviewed: it becomes the\nstatement's own. `false` unticks it: back to the suggestion."
           }
         },
         "additionalProperties": false
@@ -11744,9 +11794,9 @@
           }
         }
       },
-      "TransferMatch": {
+      "TransferPair": {
         "type": "object",
-        "description": "A transfer match's other side.",
+        "description": "A transfer pair's other row.",
         "required": [
           "import_id",
           "statement",

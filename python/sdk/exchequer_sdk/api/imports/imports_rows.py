@@ -93,7 +93,7 @@ def sync_detailed(
     Args:
         id (UUID):
         statement (int | Unset):
-        status (RowStatus | Unset): What a row would become.
+        status (RowStatus | Unset): What matching found for a row (design §6.6): its label.
         limit (int | Unset):
         cursor (str | Unset):
 
@@ -134,7 +134,7 @@ def sync(
     Args:
         id (UUID):
         statement (int | Unset):
-        status (RowStatus | Unset): What a row would become.
+        status (RowStatus | Unset): What matching found for a row (design §6.6): its label.
         limit (int | Unset):
         cursor (str | Unset):
 
@@ -170,7 +170,7 @@ async def asyncio_detailed(
     Args:
         id (UUID):
         statement (int | Unset):
-        status (RowStatus | Unset): What a row would become.
+        status (RowStatus | Unset): What matching found for a row (design §6.6): its label.
         limit (int | Unset):
         cursor (str | Unset):
 
@@ -209,7 +209,7 @@ async def asyncio(
     Args:
         id (UUID):
         statement (int | Unset):
-        status (RowStatus | Unset): What a row would become.
+        status (RowStatus | Unset): What matching found for a row (design §6.6): its label.
         limit (int | Unset):
         cursor (str | Unset):
 

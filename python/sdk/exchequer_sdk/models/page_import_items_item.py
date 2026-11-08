@@ -27,7 +27,7 @@ class PageImportItemsItem:
         file_sha256 (str): The file's identity: its bytes' SHA-256 (hex), whatever it's called.
         format_ (FileFormat):
         id (UUID):
-        readiness (Readiness): An import's readiness, and why.
+        readiness (Readiness): How close an import is to committing (design §6.7).
         statements (list[StagedStatement]):
         file_name (None | str | Unset):
     """

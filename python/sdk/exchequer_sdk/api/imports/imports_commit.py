@@ -78,16 +78,16 @@ def sync_detailed(
     client: AuthenticatedClient,
     if_match: str,
 ) -> Response[Committed | Problem]:
-    """Commit the import: all or nothing. Every row's status is worked out
-    again first; if any changed (the ledger moved on since), nothing is
-    committed and the import comes back with a 409 to review again. Then each
-    row's decision is carried out: new transactions go into one `file`
-    import batch; transfer matches turn the matched transaction into a
-    transfer; every row that's now in the ledger is recorded as imported, so
-    the same row is a duplicate next time, and what this file says about it is
-    kept with its transaction (once per file, whatever its name). Each
-    statement's ledger balance becomes a balance check. The staged import is
-    then gone.
+    """Commit the import: all or nothing. Every row's label is worked out again
+    first; if any changed (the ledger moved on since), nothing is committed
+    and the import comes back with a 409 to review again. Then each row's
+    choice is carried out: new transactions go into one `file` import
+    batch, a transfer pair added as one becomes one transfer, and every row
+    that's now in the ledger is recorded as imported, so the same row is a
+    duplicate next time, and what this file says about it is kept with its
+    transaction (once per file, whatever its name). Each statement's ledger
+    balance becomes a balance check. The staged import is then gone. Rows to
+    review don't stop it; rows that need you do.
 
     Args:
         id (UUID):
@@ -119,16 +119,16 @@ def sync(
     client: AuthenticatedClient,
     if_match: str,
 ) -> Committed | Problem | None:
-    """Commit the import: all or nothing. Every row's status is worked out
-    again first; if any changed (the ledger moved on since), nothing is
-    committed and the import comes back with a 409 to review again. Then each
-    row's decision is carried out: new transactions go into one `file`
-    import batch; transfer matches turn the matched transaction into a
-    transfer; every row that's now in the ledger is recorded as imported, so
-    the same row is a duplicate next time, and what this file says about it is
-    kept with its transaction (once per file, whatever its name). Each
-    statement's ledger balance becomes a balance check. The staged import is
-    then gone.
+    """Commit the import: all or nothing. Every row's label is worked out again
+    first; if any changed (the ledger moved on since), nothing is committed
+    and the import comes back with a 409 to review again. Then each row's
+    choice is carried out: new transactions go into one `file` import
+    batch, a transfer pair added as one becomes one transfer, and every row
+    that's now in the ledger is recorded as imported, so the same row is a
+    duplicate next time, and what this file says about it is kept with its
+    transaction (once per file, whatever its name). Each statement's ledger
+    balance becomes a balance check. The staged import is then gone. Rows to
+    review don't stop it; rows that need you do.
 
     Args:
         id (UUID):
@@ -155,16 +155,16 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     if_match: str,
 ) -> Response[Committed | Problem]:
-    """Commit the import: all or nothing. Every row's status is worked out
-    again first; if any changed (the ledger moved on since), nothing is
-    committed and the import comes back with a 409 to review again. Then each
-    row's decision is carried out: new transactions go into one `file`
-    import batch; transfer matches turn the matched transaction into a
-    transfer; every row that's now in the ledger is recorded as imported, so
-    the same row is a duplicate next time, and what this file says about it is
-    kept with its transaction (once per file, whatever its name). Each
-    statement's ledger balance becomes a balance check. The staged import is
-    then gone.
+    """Commit the import: all or nothing. Every row's label is worked out again
+    first; if any changed (the ledger moved on since), nothing is committed
+    and the import comes back with a 409 to review again. Then each row's
+    choice is carried out: new transactions go into one `file` import
+    batch, a transfer pair added as one becomes one transfer, and every row
+    that's now in the ledger is recorded as imported, so the same row is a
+    duplicate next time, and what this file says about it is kept with its
+    transaction (once per file, whatever its name). Each statement's ledger
+    balance becomes a balance check. The staged import is then gone. Rows to
+    review don't stop it; rows that need you do.
 
     Args:
         id (UUID):
@@ -194,16 +194,16 @@ async def asyncio(
     client: AuthenticatedClient,
     if_match: str,
 ) -> Committed | Problem | None:
-    """Commit the import: all or nothing. Every row's status is worked out
-    again first; if any changed (the ledger moved on since), nothing is
-    committed and the import comes back with a 409 to review again. Then each
-    row's decision is carried out: new transactions go into one `file`
-    import batch; transfer matches turn the matched transaction into a
-    transfer; every row that's now in the ledger is recorded as imported, so
-    the same row is a duplicate next time, and what this file says about it is
-    kept with its transaction (once per file, whatever its name). Each
-    statement's ledger balance becomes a balance check. The staged import is
-    then gone.
+    """Commit the import: all or nothing. Every row's label is worked out again
+    first; if any changed (the ledger moved on since), nothing is committed
+    and the import comes back with a 409 to review again. Then each row's
+    choice is carried out: new transactions go into one `file` import
+    batch, a transfer pair added as one becomes one transfer, and every row
+    that's now in the ledger is recorded as imported, so the same row is a
+    duplicate next time, and what this file says about it is kept with its
+    transaction (once per file, whatever its name). Each statement's ledger
+    balance becomes a balance check. The staged import is then gone. Rows to
+    review don't stop it; rows that need you do.
 
     Args:
         id (UUID):

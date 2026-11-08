@@ -1,4 +1,4 @@
-//! Committing staged imports: decisions, new transactions, transfers,
+//! Committing staged imports: choices, new transactions, transfers,
 //! recorded rows, balance checks, and refusals. Needs `just db-up`.
 
 mod common;
@@ -76,7 +76,7 @@ async fn set_row(pool: &PgPool, h: &H, id: &str, position: i32, body: Value) -> 
     .await
 }
 
-/// Gives every new row's missing labels an explicit value (none for the
+/// Gives every added row's missing labels an explicit value (none for the
 /// counterparty; Alex and Shopping for the purpose and category, which are
 /// never none), as commit needs (design §8).
 async fn label_none(pool: &PgPool, h: &H, id: &str) {
@@ -121,14 +121,14 @@ async fn a_card_statement_becomes_transactions_and_a_balance_check(pool: PgPool)
     call(&pool, "PATCH", format!("/api/v1/imports/{id}/statements/0"))
         .token(&h.t)
         .if_match(&etag)
-        .json(json!({ "account_id": h.alex_credit, "remember_number": true }))
+        .json(json!({ "account_id": h.alex_credit }))
         .send()
         .await;
     assert_eq!(
         commit(&pool, &h, &id, &etag).await.status,
         StatusCode::PRECONDITION_FAILED
     );
-    // New rows need their labels: yours or confidently suggested.
+    // Rows that are added need their labels: yours or suggested.
     let r = commit(&pool, &h, &id, &read(&pool, &h, &id).await.etag()).await;
     assert_eq!(r.status, StatusCode::CONFLICT, "{}", r.body);
     assert_eq!(
@@ -147,13 +147,8 @@ async fn a_card_statement_becomes_transactions_and_a_balance_check(pool: PgPool)
     let r = commit(&pool, &h, &id, &read(&pool, &h, &id).await.etag()).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_eq!(
-        (
-            &r.body["created"],
-            &r.body["transfers"],
-            &r.body["matched"],
-            &r.body["skipped"]
-        ),
-        (&json!(2), &json!(0), &json!(0), &json!(0))
+        (&r.body["added"], &r.body["transfers"], &r.body["not_added"]),
+        (&json!(2), &json!(0), &json!(0))
     );
     let check = &r.body["balance_checks"][0];
     assert_eq!(
@@ -257,22 +252,28 @@ async fn a_card_statement_becomes_transactions_and_a_balance_check(pool: PgPool)
     // and nothing more to say about the rows.
     let r = upload(&pool, &h, "?file_name=copy.ofx", &ofx()).await;
     assert_eq!(r.body["file_sha256"], json!(sha));
-    assert_eq!(r.body["statements"][0]["counts"]["duplicate"], json!(2));
+    assert_eq!(r.body["statements"][0]["rows"]["not_added"], json!(2));
+    assert_eq!(r.body["readiness"]["state"], json!("ready"));
     let r = commit(&pool, &h, &r.id(), &r.etag()).await;
     assert_eq!(
         (
-            &r.body["created"],
-            &r.body["matched"],
+            &r.body["added"],
+            &r.body["not_added"],
             r.body.get("import_batch_id")
         ),
         (&json!(0), &json!(2), None)
     );
     assert_eq!(count(&pool, "SELECT count(*) FROM imported_row").await, 2);
-    // Another file with the same rows adds what it says to the same
-    // transactions.
+    // Another file with the same rows, one of them changed: not added, it
+    // adds what it says to the same transaction.
     let other = ofx().replace("<NAME>GROCER", "<NAME>GROCER<MEMO>store 12");
     let r = upload(&pool, &h, "", &other).await;
     assert_ne!(r.body["file_sha256"], json!(sha));
+    let changed = rows(&pool, &h, &r.id()).await;
+    assert_eq!(
+        (&changed[0]["status"], &changed[0]["decision"]),
+        (&json!("possible_duplicate"), &json!("dont_add"))
+    );
     commit(&pool, &h, &r.id(), &r.etag()).await;
     let now = seen(pool.clone(), grocer.clone(), h.t.clone()).await;
     let memos: Vec<_> = now
@@ -300,15 +301,21 @@ async fn a_card_statement_becomes_transactions_and_a_balance_check(pool: PgPool)
         .await;
     assert_eq!(r.status, StatusCode::NO_CONTENT);
     let r = upload(&pool, &h, "", &ofx()).await;
-    assert_eq!(r.body["statements"][0]["counts"]["new"], json!(2));
+    let again: Vec<_> = rows(&pool, &h, &r.id())
+        .await
+        .iter()
+        .map(|r| r["status"].clone())
+        .collect();
+    assert_eq!(again, [json!("new"), json!("new")]);
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
-async fn decisions_labels_and_transfers(pool: PgPool) {
+async fn choices_labels_and_transfers(pool: PgPool) {
     let h = H::new(&pool).await;
     let savings = h.acct(&h.joint_savings);
     // A transfer from savings into checking, already recorded (from the
-    // savings side): checking's row of it is a transfer duplicate.
+    // savings side), three days off: checking's row of it is a possible
+    // duplicate.
     let pay = h
         .send(
             &pool,
@@ -332,14 +339,14 @@ async fn decisions_labels_and_transfers(pool: PgPool) {
     assert_eq!(
         decisions,
         [
-            (json!("new"), json!("new")),
-            (json!("new"), json!("new")),
-            (json!("transfer_duplicate"), json!("match")),
+            (json!("new"), json!("add")),
+            (json!("new"), json!("add")),
+            (json!("possible_duplicate"), json!("dont_add")),
         ]
     );
     assert_eq!(all[2]["match_transaction_id"], json!(pay));
-    // Each decision is matching's suggestion: sure of a new row, less of a
-    // transfer recorded four days off.
+    // Each default is matching's suggestion: sure of a new row, less of a
+    // transfer recorded three days off.
     let suggested = |r: &Value| {
         let s = &r["suggested_decision"];
         (
@@ -353,7 +360,7 @@ async fn decisions_labels_and_transfers(pool: PgPool) {
     assert_eq!(
         suggested(&all[0]),
         (
-            json!("new"),
+            json!("add"),
             json!(1000),
             json!(true),
             json!("nothing like it in the ledger"),
@@ -363,23 +370,34 @@ async fn decisions_labels_and_transfers(pool: PgPool) {
     assert_eq!(
         suggested(&all[2]),
         (
-            json!("match"),
+            json!("dont_add"),
             json!(910),
             json!(true),
             json!("the transfer is already recorded, 3 days apart"),
             json!("match")
         )
     );
-    set_row(&pool, &h, &id, 2, json!({ "decision": "match" })).await;
+    // Not added: grey, nothing to review.
+    assert_eq!(all[2]["state"], json!("not_added"));
+    let r = set_row(&pool, &h, &id, 2, json!({ "reviewed": true })).await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
 
-    // Can't match a row with nothing to match; skip one coffee, label the other.
-    let r = set_row(&pool, &h, &id, 0, json!({ "decision": "match" })).await;
+    // A new row isn't a transfer pair; leave one coffee out, label the
+    // other.
+    let r = set_row(&pool, &h, &id, 0, json!({ "decision": "add_separately" })).await;
     assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY);
-    let r = set_row(&pool, &h, &id, 0, json!({ "decision": "skip" })).await;
+    let r = set_row(&pool, &h, &id, 0, json!({ "decision": "dont_add" })).await;
     assert_eq!(
-        (r.body["decision"].clone(), r.body["decided"].clone()),
-        (json!("skip"), json!(true))
+        (&r.body["decision"], &r.body["decided"], &r.body["state"]),
+        (&json!("dont_add"), &json!(true), &json!("not_added"))
     );
+    // Back to the default.
+    let r = set_row(&pool, &h, &id, 0, json!({ "decision": null })).await;
+    assert_eq!(
+        (&r.body["decision"], &r.body["decided"]),
+        (&json!("add"), &json!(false))
+    );
+    set_row(&pool, &h, &id, 0, json!({ "decision": "dont_add" })).await;
     let r = set_row(
         &pool,
         &h,
@@ -427,13 +445,8 @@ async fn decisions_labels_and_transfers(pool: PgPool) {
     let r = commit(&pool, &h, &id, &read(&pool, &h, &id).await.etag()).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_eq!(
-        (
-            &r.body["created"],
-            &r.body["transfers"],
-            &r.body["matched"],
-            &r.body["skipped"]
-        ),
-        (&json!(1), &json!(0), &json!(1), &json!(1))
+        (&r.body["added"], &r.body["transfers"], &r.body["not_added"]),
+        (&json!(1), &json!(0), &json!(2))
     );
     // The transfer stays as it was, now holding checking's bank row too.
     let t = h
@@ -466,7 +479,7 @@ async fn decisions_labels_and_transfers(pool: PgPool) {
     let coffee = &list.body["items"][0];
     assert_eq!(coffee["description"], json!("Morning coffee"));
     assert_eq!(coffee["splits"][0]["to"]["counterparty_id"], json!(h.store));
-    // Skipped rows aren't recorded; the other two are.
+    // Rows left out aren't recorded; the other two are.
     assert_eq!(
         count(&pool, "SELECT count(*) FROM import_fingerprint").await,
         2
@@ -497,30 +510,9 @@ async fn commit_rechecks_and_is_all_or_nothing(pool: PgPool) {
     assert_eq!(count(&pool, "SELECT count(*) FROM transaction").await, 1);
     let now = read(&pool, &h, &id).await;
     assert_ne!(now.etag(), etag);
-    assert_eq!(
-        now.body["statements"][0]["counts"]["near_duplicate"],
-        json!(1)
-    );
-
-    // A near duplicate is a guess: commit waits for your decision, even
-    // the default one.
+    // A possible duplicate now: not added by default.
+    assert_eq!(now.body["statements"][0]["rows"]["not_added"], json!(1));
     label_none(&pool, &h, &id).await;
-    let r = commit(&pool, &h, &id, &read(&pool, &h, &id).await.etag()).await;
-    assert_eq!(
-        (r.status, &r.body["type"]),
-        (
-            StatusCode::CONFLICT,
-            &json!("urn:exchequer:problem:decisions-missing")
-        ),
-        "{}",
-        r.body
-    );
-    assert_eq!(
-        read(&pool, &h, &id).await.body["readiness"]["undecided"],
-        json!(1)
-    );
-    let r = set_row(&pool, &h, &id, 2, json!({ "decision": "match" })).await;
-    assert_eq!(r.body["decided"], json!(true), "{}", r.body);
 
     // A closed month refuses the whole commit.
     let now = read(&pool, &h, &id).await;
@@ -552,7 +544,7 @@ async fn commit_rechecks_and_is_all_or_nothing(pool: PgPool) {
     let r = commit(&pool, &h, &id, &now.etag()).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     assert_eq!(
-        (&r.body["created"], &r.body["matched"]),
+        (&r.body["added"], &r.body["not_added"]),
         (&json!(2), &json!(1))
     );
     // The bank's row is kept with the transaction entered by hand.
@@ -573,119 +565,85 @@ async fn commit_rechecks_and_is_all_or_nothing(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "store::MIGRATOR")]
-async fn a_row_can_replace_the_transaction_it_matches(pool: PgPool) {
+async fn a_duplicate_can_be_added_again_with_tags(pool: PgPool) {
     let h = H::new(&pool).await;
-    // The pay, typed by hand two days off, with notes and a tag.
-    let salary = h
-        .send(
-            &pool,
-            "POST",
-            "/api/v1/transactions",
-            Some(
-                json!({ "date": "2026-03-01", "description": "Salary", "notes": "March",
-                        "tags": ["work"], "splits": [{
-            "from": h.leg(("counterparty_id", &h.store), "1500.00"),
-            "to": h.leg(h.acct(&h.alex_checking), "1500.00"), "purpose_id": h.alex, "category_id": h.shopping }] }),
-            ),
-        )
-        .await
-        .id();
-    // A coffee typed as two splits can't be replaced by one bank row.
-    h.send(
-        &pool,
-        "POST",
-        "/api/v1/transactions",
-        Some(
-            json!({ "date": "2026-03-01", "description": "Coffees", "splits": [
-            { "from": h.leg(h.acct(&h.alex_checking), "4.50"),
-              "to": h.leg(("counterparty_id", &h.store), "4.50"), "purpose_id": h.alex, "category_id": h.shopping },
-            { "from": h.leg(h.acct(&h.alex_checking), "4.50"),
-              "to": h.leg(("counterparty_id", &h.store), "4.50"), "purpose_id": h.alex, "category_id": h.shopping }] }),
-        ),
-    )
-    .await;
-    let r = upload(&pool, &h, &format!("?account_id={}", h.alex_checking), CSV).await;
+    let r = upload(&pool, &h, &format!("?account_id={}", h.alex_credit), &ofx()).await;
     let id = r.id();
-    let all = rows(&pool, &h, &id).await;
-    let statuses: Vec<_> = all.iter().map(|r| r["status"].clone()).collect();
-    assert_eq!(
-        statuses,
-        [
-            json!("near_duplicate"),
-            json!("new"),
-            json!("near_duplicate")
-        ]
-    );
-
-    let r = set_row(&pool, &h, &id, 0, json!({ "decision": "replace" })).await;
-    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
-    assert!(r.body["detail"].as_str().unwrap().contains("one split"));
-    // A new row has nothing to replace.
-    let r = set_row(&pool, &h, &id, 1, json!({ "decision": "replace" })).await;
-    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY);
-    let wages = common::household::create(
-        &pool,
-        &h.t,
-        "/api/v1/categories",
-        json!({ "name": "Wages" }),
-    )
-    .await;
+    // Tags go on the new transaction.
     let r = set_row(
         &pool,
         &h,
         &id,
-        2,
-        json!({ "decision": "replace", "category_id": wages }),
+        0,
+        json!({ "tags": [" trip ", "trip", "food"] }),
     )
     .await;
-    assert_eq!(
-        (&r.body["decision"], &r.body["missing"]),
-        (&json!("replace"), &json!([])),
-        "{}",
-        r.body
-    );
+    assert_eq!(r.body["tags"], json!(["food", "trip"]), "{}", r.body);
+    let r = set_row(&pool, &h, &id, 0, json!({ "tags": [""] })).await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY);
     label_none(&pool, &h, &id).await;
-    set_row(&pool, &h, &id, 0, json!({ "decision": "match" })).await;
     let r = commit(&pool, &h, &id, &read(&pool, &h, &id).await.etag()).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
-    assert_eq!(
-        (&r.body["replaced"], &r.body["matched"], &r.body["created"]),
-        (&json!(1), &json!(1), &json!(1))
-    );
-    // Same transaction: the bank's date and text, its own counterparty,
-    // notes and tags, the category chosen in review.
-    let t = h
+    let batch = r.body["import_batch_id"].as_str().unwrap().to_owned();
+    let list = h
         .send(
             &pool,
             "GET",
-            &format!("/api/v1/transactions/{salary}"),
+            &format!("/api/v1/transactions?import_batch_id={batch}&q=GROCER"),
             None,
         )
         .await;
-    let s = &t.body["splits"][0];
+    assert_eq!(list.body["items"][0]["tags"], json!(["food", "trip"]));
+
+    // The bank changed the row since: added anyway, it's a transaction of
+    // its own, with a bank ID of its own.
+    let changed = ofx().replace("<NAME>GROCER", "<NAME>GROCER<MEMO>store 12");
+    let r = upload(&pool, &h, "", &changed).await;
+    let id = r.id();
+    let row = &rows(&pool, &h, &id).await[0];
     assert_eq!(
-        (
-            &t.body["date"],
-            &t.body["description"],
-            &t.body["notes"],
-            &t.body["tags"],
-            &s["from"]["counterparty_id"],
-            &s["category_id"],
-            &s["to"]["quantity"]
-        ),
-        (
-            &json!("2026-03-03"),
-            &json!("PAYROLL"),
-            &json!("March"),
-            &json!(["work"]),
-            &json!(h.store),
-            &json!(wages),
-            &json!("1500.00")
-        )
+        (&row["status"], &row["options"]),
+        (&json!("possible_duplicate"), &json!(["add", "dont_add"]))
     );
-    // And the row is recorded with it: next time it's a duplicate.
-    let r = upload(&pool, &h, &format!("?account_id={}", h.alex_checking), CSV).await;
-    assert_eq!(r.body["statements"][0]["counts"]["duplicate"], json!(3));
+    let r = set_row(&pool, &h, &id, 0, json!({ "decision": "add" })).await;
+    assert_eq!(r.body["state"], json!("needs_you"), "{}", r.body);
+    label_none(&pool, &h, &id).await;
+    let r = commit(&pool, &h, &id, &read(&pool, &h, &id).await.etag()).await;
+    assert_eq!(
+        (&r.body["added"], &r.body["not_added"]),
+        (&json!(1), &json!(1)),
+        "{}",
+        r.body
+    );
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT fingerprint FROM import_fingerprint WHERE fingerprint LIKE 'F1%' ORDER BY 1",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(ids, ["F1", "F1~2"]);
+    // That version again is a duplicate of the second transaction; the
+    // first is a duplicate of the first, and can be added again too.
+    let r = upload(&pool, &h, "", &changed).await;
+    assert_eq!(
+        rows(&pool, &h, &r.id()).await[0]["status"],
+        json!("duplicate")
+    );
+    let r = upload(&pool, &h, "", &ofx()).await;
+    let id = r.id();
+    assert_eq!(rows(&pool, &h, &id).await[0]["status"], json!("duplicate"));
+    set_row(&pool, &h, &id, 0, json!({ "decision": "add" })).await;
+    label_none(&pool, &h, &id).await;
+    let r = commit(&pool, &h, &id, &read(&pool, &h, &id).await.etag()).await;
+    assert_eq!(r.body["added"], json!(1), "{}", r.body);
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM import_fingerprint WHERE fingerprint LIKE 'F1%'"
+        )
+        .await,
+        3
+    );
 }
 
 async fn commit_ready(pool: &PgPool, h: &H, ids: &[&str]) -> Vec<Value> {
@@ -709,8 +667,8 @@ async fn ready_imports_are_committed_together(pool: PgPool) {
     let ready = |r: &Response| r.body["readiness"].clone();
     assert_eq!(
         ready(&card),
-        json!({ "state": "needs_work", "no_account": 1, "unlabeled": 0, "undecided": 0,
-                "suggested_accounts": 0, "suggested_rows": 0 })
+        json!({ "state": "needs_you", "no_account": 1, "accounts_to_review": 0, "adds": 0,
+                "rows": { "needs_you": 2, "to_review": 0, "ready": 0, "not_added": 0 } })
     );
     let r = call(
         &pool,
@@ -728,9 +686,10 @@ async fn ready_imports_are_committed_together(pool: PgPool) {
         (
             &ready(&r)["state"],
             &ready(&r)["no_account"],
-            &ready(&r)["unlabeled"]
+            &ready(&r)["rows"]["needs_you"],
+            &ready(&r)["adds"]
         ),
-        (&json!("needs_work"), &json!(0), &json!(2))
+        (&json!("needs_you"), &json!(0), &json!(2), &json!(2))
     );
     label_none(&pool, &h, &card_id).await;
     assert_eq!(
@@ -750,7 +709,7 @@ async fn ready_imports_are_committed_together(pool: PgPool) {
     assert_eq!(of(&cash_id)["skipped"], json!("it isn't ready"));
     assert_eq!(
         (
-            &of(&card_id)["committed"]["created"],
+            &of(&card_id)["committed"]["added"],
             &of(&card_id)["file_name"]
         ),
         (&json!(2), &json!("march.ofx"))
@@ -824,13 +783,13 @@ async fn a_split_row_becomes_one_transaction_of_its_parts(pool: PgPool) {
             r.body
         );
     }
-    // Only a row added as new is split.
+    // Only a row that's added is split.
     let r = set_row(
         &pool,
         &h,
         &id,
         0,
-        json!({ "decision": "skip", "splits": two }),
+        json!({ "decision": "dont_add", "splits": two }),
     )
     .await;
     assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
@@ -841,7 +800,7 @@ async fn a_split_row_becomes_one_transaction_of_its_parts(pool: PgPool) {
     assert_eq!(r.body["missing"], json!([]));
     assert_eq!(r.body["splits"].as_array().unwrap().len(), 2);
     assert_eq!(r.body["splits"][0]["description"], json!("food"));
-    let r = set_row(&pool, &h, &id, 0, json!({ "decision": "skip" })).await;
+    let r = set_row(&pool, &h, &id, 0, json!({ "decision": "dont_add" })).await;
     assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.body);
     assert!(
         r.body["detail"]
@@ -866,7 +825,7 @@ async fn a_split_row_becomes_one_transaction_of_its_parts(pool: PgPool) {
     assert_eq!(r.body["readiness"]["state"], json!("ready"), "{}", r.body);
     let r = commit(&pool, &h, &id, &r.etag()).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
-    assert_eq!(r.body["created"], json!(2));
+    assert_eq!(r.body["added"], json!(2));
     let batch = r.body["import_batch_id"].as_str().unwrap().to_owned();
     let list = h
         .send(

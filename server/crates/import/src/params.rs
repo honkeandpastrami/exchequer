@@ -3,7 +3,7 @@
 //! makes it a new version ([`MATCHER`]).
 
 /// Matching as a suggester: its name and version.
-pub const MATCHER: (&str, &str) = ("matching", "1");
+pub const MATCHER: (&str, &str) = ("matching", "2");
 /// How far apart, in days, a near duplicate's date may be.
 pub const NEAR_DAYS: i32 = 3;
 
@@ -14,6 +14,12 @@ pub const SURE: i32 = 1000;
 pub const TRANSFER_DAY: i32 = 30;
 /// A transfer matched before the days apart were kept.
 pub const UNMEASURED: i32 = 500;
+/// The same bank row, changed since it was imported: very likely the
+/// transaction it was, but not sure.
+pub const CHANGED: i32 = 890;
+/// A transfer pair whose rows you gave another other side: your choice
+/// stays the default, short of sure.
+pub const DISAGREES: i32 = 500;
 /// A near duplicate: this share of its descriptions' likeness, in percent,
 /// less a day's worth for each day apart.
 pub const NEAR_LIKENESS: i32 = 89;

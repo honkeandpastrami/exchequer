@@ -17,7 +17,7 @@ use import::matching::{
     Near, Side, Staged, near_confidence, one_to_one, transfer_confidence, transfer_conflicts,
     transfer_matches,
 };
-use import::params::{MATCHER, NEAR_DAYS, SURE};
+use import::params::{CHANGED, DISAGREES, MATCHER, NEAR_DAYS, SURE};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -40,9 +40,7 @@ use crate::common::{audit, nullable, write_error};
 use crate::conventions::{IfMatch, Page, PageParams, etag};
 use crate::problem::{Json, Path, Problem, Query};
 use crate::suggestions;
-use crate::transactions::{
-    Leg, MAX_SPLITS, NewSplit, NewTransaction, Relabel, create_in, replace_with_row, replaceable,
-};
+use crate::transactions::{Leg, MAX_SPLITS, NewSplit, NewTransaction, create_in};
 
 /// Bank files bigger than this are refused.
 const MAX_FILE: usize = 10 * 1024 * 1024;
@@ -67,25 +65,24 @@ pub fn routes() -> OpenApiRouter<AppState> {
 
 // ------------------------------------------------------------- Schemas ----
 
-/// What a row would become.
+/// What matching found for a row (design §6.6): its label.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RowStatus {
-    /// A new transaction.
+    /// Nothing like it in the ledger.
     New,
-    /// Already imported: the same row (by the bank's ID, or its date,
-    /// description and amount) is in the account.
+    /// Already in the ledger: this bank row, unchanged since it was imported,
+    /// or the transfer it's part of, recorded the same day.
     Duplicate,
-    /// Probably already in the account under a slightly different form.
-    NearDuplicate,
-    /// The other side of a transfer staged in another of your accounts (in
-    /// this import or another): the two become one transfer.
-    TransferMatch,
-    /// The other side of a transfer already in the ledger, from another of
-    /// your accounts.
-    TransferDuplicate,
+    /// A ledger transaction that may be it: the same bank row changed since
+    /// it was imported, a transfer recorded a few days apart, or the same
+    /// amount a few days apart.
+    PossibleDuplicate,
+    /// The other side of a transfer, staged in another of your accounts (in
+    /// this import or another).
+    TransferPair,
     /// The statement has no account yet.
-    NeedsAccount,
+    NoAccount,
 }
 
 impl RowStatus {
@@ -93,10 +90,9 @@ impl RowStatus {
         match self {
             Self::New => "new",
             Self::Duplicate => "duplicate",
-            Self::NearDuplicate => "near_duplicate",
-            Self::TransferMatch => "transfer_match",
-            Self::TransferDuplicate => "transfer_duplicate",
-            Self::NeedsAccount => "needs_account",
+            Self::PossibleDuplicate => "possible_duplicate",
+            Self::TransferPair => "transfer_pair",
+            Self::NoAccount => "no_account",
         }
     }
 
@@ -104,12 +100,88 @@ impl RowStatus {
         Ok(match s {
             "new" => Self::New,
             "duplicate" => Self::Duplicate,
-            "near_duplicate" => Self::NearDuplicate,
-            "transfer_match" => Self::TransferMatch,
-            "transfer_duplicate" => Self::TransferDuplicate,
-            "needs_account" => Self::NeedsAccount,
+            "possible_duplicate" => Self::PossibleDuplicate,
+            "transfer_pair" => Self::TransferPair,
+            "no_account" => Self::NoAccount,
             _ => return Err(Problem::internal()),
         })
+    }
+
+    /// Whether a match in the ledger was found.
+    const fn matched(self) -> bool {
+        matches!(self, Self::Duplicate | Self::PossibleDuplicate)
+    }
+}
+
+/// How a duplicate or possible duplicate was found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchKind {
+    /// The bank's ID for the row (or, without one, its date, description and
+    /// amount) was imported before.
+    BankId,
+    /// A transfer between the account and another of yours already moved
+    /// the same amount the same way.
+    Transfer,
+    /// A transaction in the account has the same amount, a few days apart.
+    Amount,
+}
+
+impl MatchKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::BankId => "bank_id",
+            Self::Transfer => "transfer",
+            Self::Amount => "amount",
+        }
+    }
+
+    fn parse(s: &str) -> Result<Self, Problem> {
+        Ok(match s {
+            "bank_id" => Self::BankId,
+            "transfer" => Self::Transfer,
+            "amount" => Self::Amount,
+            _ => return Err(Problem::internal()),
+        })
+    }
+}
+
+/// What a row, a statement or an import needs (design §6.7), shown as its
+/// colour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewState {
+    /// Red: a value is missing (a label, a statement's account). Commit
+    /// refuses.
+    NeedsYou,
+    /// Yellow: complete, but something shown is a suggestion or a default
+    /// short of certain, not ticked as reviewed. Commit goes ahead.
+    ToReview,
+    /// Green: it commits exactly as shown.
+    Ready,
+    /// Grey: a row set to don't add, by you or by default. Nothing to
+    /// commit, nothing to review.
+    NotAdded,
+}
+
+/// How many rows are in each state.
+#[derive(Debug, Clone, Copy, Default, Serialize, ToSchema)]
+pub struct StateCounts {
+    needs_you: u32,
+    to_review: u32,
+    ready: u32,
+    not_added: u32,
+}
+
+impl StateCounts {
+    fn add(&mut self, state: ReviewState) {
+        let slot = match state {
+            ReviewState::NeedsYou => &mut self.needs_you,
+            ReviewState::ToReview => &mut self.to_review,
+            ReviewState::Ready => &mut self.ready,
+            ReviewState::NotAdded => &mut self.not_added,
+        };
+        *slot += 1;
     }
 }
 
@@ -143,31 +215,6 @@ pub struct SkippedLine {
     reason: String,
 }
 
-/// How many rows have each status.
-#[derive(Debug, Clone, Default, Serialize, ToSchema)]
-pub struct RowCounts {
-    new: i64,
-    duplicate: i64,
-    near_duplicate: i64,
-    transfer_match: i64,
-    transfer_duplicate: i64,
-    needs_account: i64,
-}
-
-impl RowCounts {
-    fn add(&mut self, status: RowStatus, n: i64) {
-        let slot = match status {
-            RowStatus::New => &mut self.new,
-            RowStatus::Duplicate => &mut self.duplicate,
-            RowStatus::NearDuplicate => &mut self.near_duplicate,
-            RowStatus::TransferMatch => &mut self.transfer_match,
-            RowStatus::TransferDuplicate => &mut self.transfer_duplicate,
-            RowStatus::NeedsAccount => &mut self.needs_account,
-        };
-        *slot += n;
-    }
-}
-
 /// One account's part of the file.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct StagedStatement {
@@ -177,11 +224,17 @@ pub struct StagedStatement {
     #[schema(example = "6789")]
     number_last4: Option<String>,
     /// The account the rows are worked out against: the one the file's
-    /// number belongs to, or the client's choice, else a confident suggestion
-    /// (`account_suggested`). `null` until there is one.
+    /// number belongs to, or the one you picked, else a confident
+    /// suggestion (`account_suggested`). `null` until there is one.
     account_id: Option<Uuid>,
     /// Whether `account_id` is the suggestion's, not yet the statement's own.
     account_suggested: bool,
+    /// Whether you ticked the suggested account as reviewed, making it the
+    /// statement's own.
+    reviewed: bool,
+    /// Needs you without an account; to review while the account is a
+    /// suggestion short of certain; else ready.
+    state: ReviewState,
     /// A suggested account, confident or not; it stays after you pick one,
     /// to record how good it was.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -192,7 +245,8 @@ pub struct StagedStatement {
     #[serde(skip_serializing_if = "Option::is_none")]
     ledger: Option<LedgerBalance>,
     skipped: Vec<SkippedLine>,
-    counts: RowCounts,
+    /// Its rows by state.
+    rows: StateCounts,
 }
 
 /// A label a row's new transaction gets.
@@ -290,21 +344,19 @@ pub struct LabelSuggestion {
     transfer_account_id: Option<Uuid>,
     /// Per mille: 900 is 0.9.
     confidence: i16,
-    /// Whether it's confident enough (at least 900) to be committed unless
-    /// you choose otherwise.
+    /// Whether it's confident (at least 900): the level below isn't asked.
     confident: bool,
     reason: String,
     suggester: Suggester,
 }
 
-/// What matching suggests committing does with a row.
+/// What matching suggests choosing for a row: the label's default.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct DecisionSuggestion {
     decision: Decision,
     /// Per mille: 900 is 0.9.
     confidence: i16,
-    /// Whether it's confident enough (at least 900) to be committed unless
-    /// you choose otherwise. A near duplicate never is.
+    /// Whether it's confident (at least 900).
     confident: bool,
     reason: String,
     suggester: Suggester,
@@ -337,36 +389,23 @@ pub struct Import {
     version: i64,
 }
 
-/// How close an import is to committing (design §6.7): `ready` commits as
-/// shown, with nothing left to a guess (a rule's suggestion is yours);
-/// `suggested` would commit too, on confident AI suggestions you haven't
-/// confirmed; `needs_work` needs you first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ReadinessState {
-    Ready,
-    Suggested,
-    NeedsWork,
-}
-
-/// An import's readiness, and why.
+/// How close an import is to committing (design §6.7).
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct Readiness {
-    state: ReadinessState,
-    /// Statements with no account. Needs work.
+    /// Needs you if a statement or a row does; else to review if one is;
+    /// else ready. Never not added.
+    state: ReviewState,
+    /// Its rows by state; a statement without an account counts its rows
+    /// as needing you.
+    rows: StateCounts,
+    /// Statements with no account.
     no_account: u32,
-    /// New rows with a label neither chosen nor confidently suggested.
-    /// Needs work.
-    unlabeled: u32,
-    /// Rows whose decision is neither yours nor confidently suggested (a
-    /// near duplicate never is). Needs work.
-    undecided: u32,
-    /// Statements whose account is a confident suggestion short of 100%,
-    /// not yet chosen.
-    suggested_accounts: u32,
-    /// Rows that would take a confident AI suggestion short of 100%, not
+    /// Statements whose account is a suggestion short of certain, not
     /// ticked as reviewed.
-    suggested_rows: u32,
+    accounts_to_review: u32,
+    /// Transactions a commit would add now: a transfer pair added as one
+    /// transfer is one.
+    adds: u32,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -381,48 +420,54 @@ pub struct StagedRow {
     /// The bank's own ID for the row, if it has one.
     #[serde(skip_serializing_if = "Option::is_none")]
     native_id: Option<String>,
+    /// What matching found: the row's label.
     status: RowStatus,
-    /// The existing transaction a duplicate or transfer duplicate is of.
+    /// The existing transaction a duplicate or possible duplicate may be.
     #[serde(skip_serializing_if = "Option::is_none")]
     match_transaction_id: Option<Uuid>,
-    /// For a transfer match: the staged row that is the transfer's other
+    /// How that match was found.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    match_kind: Option<MatchKind>,
+    /// For a transfer pair: the staged row that is the transfer's other
     /// side.
     #[serde(skip_serializing_if = "Option::is_none")]
-    transfer_match: Option<TransferMatch>,
-    /// A transfer conflict: you chose the row as a transfer to one account,
-    /// and this staged row, in another of your accounts, fits as its other
-    /// side. Matching isn't sure of the row's decision until you choose its
-    /// other side again or decide either row.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    transfer_conflict: Option<TransferMatch>,
-    /// What committing does with the row: the client's choice, else the
-    /// default for its status. Absent while the statement has no account.
+    transfer_pair: Option<TransferPair>,
+    /// The choices the row has, in the order shown: `add` and `dont_add`,
+    /// and for a transfer pair `add` (one transfer), `add_separately` and
+    /// `dont_add`. None while the statement has no account.
+    options: Vec<Decision>,
+    /// What committing does with the row: your choice, else the label's
+    /// default. Absent while the statement has no account.
     #[serde(skip_serializing_if = "Option::is_none")]
     decision: Option<Decision>,
-    /// Whether `decision` is the client's choice rather than the default.
+    /// Whether `decision` is your choice rather than the default.
     decided: bool,
     /// Whether you ticked the row as reviewed, and it still shows what you
-    /// saw then: the AI suggestions it takes count as yours.
+    /// saw then: what it takes counts as yours.
     reviewed: bool,
+    /// Its colour: what it needs.
+    state: ReviewState,
     /// What a tick would record now.
     #[serde(skip)]
     seen: Seen,
-    /// What matching suggests `decision` be; absent while the statement has
-    /// no account.
+    /// What matching suggests `decision` be (the label's default, and how
+    /// sure); absent while the statement has no account.
     #[serde(skip_serializing_if = "Option::is_none")]
     suggested_decision: Option<DecisionSuggestion>,
     /// The new transaction's description, if not the bank's.
     #[serde(skip_serializing_if = "Option::is_none")]
     set_description: Option<String>,
+    /// The new transaction's tags.
+    tags: Vec<String>,
     /// The labels below are what a new transaction gets: your choice, else a
-    /// confident suggestion. For a new transaction: who's on the outside
-    /// side (unknown if absent and there's no `transfer_account_id`).
+    /// suggestion. For a new transaction: who's on the outside side
+    /// (unknown if absent and there's no `transfer_account_id`).
     #[serde(skip_serializing_if = "Option::is_none")]
     counterparty_id: Option<Uuid>,
     /// The other side when it's one of your accounts: the row is a transfer,
     /// whose category and purpose don't apply (unless one account is liquid
-    /// and the other isn't: an expense or income).
-    /// A transfer match's is its other side's account.
+    /// and the other isn't: an expense or income). A transfer pair added as
+    /// one transfer has its other row's account.
     #[serde(skip_serializing_if = "Option::is_none")]
     transfer_account_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -434,16 +479,15 @@ pub struct StagedRow {
     chosen: Vec<Label>,
     /// At most one per label, confident or not.
     suggestions: Vec<LabelSuggestion>,
-    /// For a row that will be a new transaction: the labels that are
-    /// neither yours nor confidently suggested. Commit refuses while any row
-    /// has some.
+    /// For a row that will be added: the labels with neither your choice
+    /// nor a suggestion. Commit refuses while any row has some.
     missing: Vec<Label>,
     /// Labels that don't apply: a transfer's category and purpose (design
     /// §3.2).
     not_applicable: Vec<Label>,
     /// The row split into parts, each a split of the new transaction; empty
-    /// if it isn't split. A split row is added as new, and its labels are
-    /// the parts': the row's own, and its suggestions, don't apply.
+    /// if it isn't split. A split row is added, and its labels are the
+    /// parts': the row's own, and its suggestions, don't apply.
     splits: Vec<RowSplit>,
     /// The row's fields as the file had them.
     #[schema(value_type = Object)]
@@ -451,28 +495,22 @@ pub struct StagedRow {
 }
 
 impl StagedRow {
-    /// Whether the row needs you before commit (design §6.7): its statement
-    /// has no account, or it has a label or a decision that's neither yours
-    /// nor confidently suggested.
-    fn needs_work(&self) -> bool {
-        self.decision.is_none()
-            || !self.missing.is_empty()
-            || (!self.decided
-                && !self
-                    .suggested_decision
-                    .as_ref()
-                    .is_some_and(|d| d.confident))
-    }
-
-    /// What a tick on the row records, if it may be ticked.
+    /// What a tick on the row records, if it may be ticked: not while it
+    /// needs you, nor when it's not added.
     fn tick(&self) -> Result<serde_json::Value, Problem> {
-        if self.needs_work() {
-            return Err(Problem::invalid(format!(
-                "statement {} row {} needs a label or a decision first",
+        match self.state {
+            ReviewState::NeedsYou => Err(Problem::invalid(format!(
+                "statement {} row {} needs a value first",
                 self.statement, self.position
-            )));
+            ))),
+            ReviewState::NotAdded => Err(Problem::invalid(format!(
+                "statement {} row {} isn't added: there's nothing to review",
+                self.statement, self.position
+            ))),
+            ReviewState::ToReview | ReviewState::Ready => {
+                serde_json::to_value(&self.seen).map_err(|_| Problem::internal())
+            }
         }
-        serde_json::to_value(&self.seen).map_err(|_| Problem::internal())
     }
 }
 
@@ -517,9 +555,9 @@ impl From<&StagedSplit> for RowSplit {
     }
 }
 
-/// A transfer match's other side.
+/// A transfer pair's other row.
 #[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct TransferMatch {
+pub struct TransferPair {
     import_id: Uuid,
     statement: i16,
     position: i32,
@@ -535,68 +573,57 @@ pub struct TransferMatch {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Decision {
-    /// The row is its match: record that it was imported (a duplicate,
-    /// near-duplicate or transfer duplicate), or make it and its transfer
-    /// match one transfer. The default for those statuses.
-    Match,
-    /// A new transaction. The default for `new` rows; not for duplicates.
-    /// For a transfer match, it keeps the two sides separate: each row is
-    /// new.
-    New,
-    /// Leave the row out.
-    Skip,
-    /// For a duplicate or near-duplicate: the matched transaction takes the
-    /// row's date, amount and description, and the labels set here (yours,
-    /// or confident suggestions); its other labels, notes, tags and batch
-    /// stay. It must be one split between this account and the outside.
-    Replace,
+    /// Add it: a new transaction (with the next free suffix on its bank ID
+    /// for a duplicate). For a transfer pair, the two rows are one transfer.
+    /// The default for new rows and transfer pairs.
+    Add,
+    /// For a transfer pair: each row is a transaction of its own. The
+    /// default for a transfer pair where your choice of a row's other side
+    /// disagrees.
+    AddSeparately,
+    /// Don't add it. A duplicate or possible duplicate is recorded as the
+    /// transaction it matched, so it doesn't come up again; that's its
+    /// default. A transfer pair's two rows are both left out.
+    DontAdd,
 }
 
 impl Decision {
     const fn as_str(self) -> &'static str {
         match self {
-            Self::Match => "match",
-            Self::New => "new",
-            Self::Skip => "skip",
-            Self::Replace => "replace",
+            Self::Add => "add",
+            Self::AddSeparately => "add_separately",
+            Self::DontAdd => "dont_add",
         }
     }
 
     fn parse(s: &str) -> Result<Self, Problem> {
         match s {
-            "match" => Ok(Self::Match),
-            "new" => Ok(Self::New),
-            "skip" => Ok(Self::Skip),
-            "replace" => Ok(Self::Replace),
+            "add" => Ok(Self::Add),
+            "add_separately" => Ok(Self::AddSeparately),
+            "dont_add" => Ok(Self::DontAdd),
             _ => Err(Problem::internal()),
         }
     }
 
-    const fn default_for(status: RowStatus) -> Option<Self> {
+    /// The choices a row with this label has, in the order shown.
+    const fn options(status: RowStatus) -> &'static [Self] {
         match status {
-            RowStatus::New => Some(Self::New),
-            RowStatus::Duplicate
-            | RowStatus::NearDuplicate
-            | RowStatus::TransferMatch
-            | RowStatus::TransferDuplicate => Some(Self::Match),
-            RowStatus::NeedsAccount => None,
+            RowStatus::New | RowStatus::Duplicate | RowStatus::PossibleDuplicate => {
+                &[Self::Add, Self::DontAdd]
+            }
+            RowStatus::TransferPair => &[Self::Add, Self::AddSeparately, Self::DontAdd],
+            RowStatus::NoAccount => &[],
         }
     }
 
-    /// Whether the decision makes sense for a row with this status.
-    const fn fits(self, status: RowStatus) -> bool {
-        match self {
-            Self::Match => matches!(
-                status,
-                RowStatus::Duplicate
-                    | RowStatus::NearDuplicate
-                    | RowStatus::TransferMatch
-                    | RowStatus::TransferDuplicate
-            ),
-            Self::New => !matches!(status, RowStatus::Duplicate),
-            Self::Skip => true,
-            Self::Replace => matches!(status, RowStatus::Duplicate | RowStatus::NearDuplicate),
-        }
+    /// Whether the decision is one of the label's choices.
+    fn fits(self, status: RowStatus) -> bool {
+        Self::options(status).contains(&self)
+    }
+
+    /// Whether the row becomes part of the ledger as a new transaction.
+    const fn adds(self) -> bool {
+        matches!(self, Self::Add | Self::AddSeparately)
     }
 }
 
@@ -604,13 +631,17 @@ impl Decision {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RowUpdate {
-    /// `null`: back to the default for the row's status.
+    /// One of the row's `options`; `null`: back to the label's default. A
+    /// transfer pair's other row takes the same choice.
     #[serde(default, deserialize_with = "nullable")]
     #[schema(value_type = Option<Decision>)]
     decision: Option<Option<Decision>>,
     #[serde(default, deserialize_with = "nullable")]
     #[schema(value_type = Option<String>)]
     set_description: Option<Option<String>>,
+    /// The new transaction's tags, by name (1-100 characters each; new ones
+    /// are created on commit), replacing the row's.
+    tags: Option<Vec<String>>,
     #[serde(default, deserialize_with = "nullable")]
     #[schema(value_type = Option<Uuid>)]
     counterparty_id: Option<Option<Uuid>>,
@@ -632,16 +663,16 @@ pub struct RowUpdate {
     revert: Vec<Label>,
     /// Split the row into these parts (two or more, adding up to its
     /// amount), each a split of the new transaction; `null` or `[]`: not
-    /// split. Only for a row added as new that isn't a transfer match; a
-    /// split row can't change its decision until the parts are cleared.
+    /// split. Only for a row that's added and isn't a transfer pair; a split
+    /// row can't change its decision until the parts are cleared.
     #[serde(default, deserialize_with = "nullable")]
     #[schema(value_type = Option<Vec<RowSplit>>)]
     splits: Option<Option<Vec<RowSplit>>>,
     /// `true` ticks the row as reviewed, as it is after this change: you
-    /// agree with what it shows, so the AI suggestions it takes count as
-    /// yours. Not for a row that needs a label or a decision. `false`
-    /// unticks it. The tick goes by itself when the row changes under it: a
-    /// new suggestion, or a transfer match made or undone.
+    /// agree with what it shows, so what it takes counts as yours. Not for
+    /// a row that needs you or isn't added. `false` unticks it. The tick
+    /// goes by itself when the row changes under it: a new suggestion, a
+    /// new label, a transfer pair made or undone.
     reviewed: Option<bool>,
 }
 
@@ -651,8 +682,8 @@ pub struct RowUpdate {
 pub struct Review {
     /// The rows, as you saw them; at most 500.
     rows: Vec<RowRef>,
-    /// `true` ticks the rows that don't need a label or a decision (the
-    /// others stay as they are); `false` unticks them all.
+    /// `true` ticks the rows that can be (not those that need you or
+    /// aren't added; they stay as they are); `false` unticks them all.
     reviewed: bool,
 }
 
@@ -671,16 +702,13 @@ pub struct Committed {
     #[serde(skip_serializing_if = "Option::is_none")]
     import_batch_id: Option<Uuid>,
     /// New transactions.
-    created: u64,
-    /// Of them, transfers made of a transfer match: two rows, one
+    added: u64,
+    /// Of them, transfers made of a transfer pair: two rows, one
     /// transaction.
     transfers: u64,
-    /// Rows recorded as already in the ledger (duplicates, near-duplicates,
-    /// transfer duplicates).
-    matched: u64,
-    /// Existing transactions replaced by their rows.
-    replaced: u64,
-    skipped: u64,
+    /// Rows not added: duplicates recorded as what they matched, and rows
+    /// left out.
+    not_added: u64,
     /// One per statement with a ledger balance: the bank's balance against
     /// the ledger's.
     balance_checks: Vec<crate::balance_checks::BalanceCheck>,
@@ -736,7 +764,7 @@ pub struct UploadParams {
 pub struct RowParams {
     /// Only this statement's rows.
     statement: Option<i16>,
-    /// Only rows with this status.
+    /// Only rows with this label.
     status: Option<RowStatus>,
     /// Items per page (default 100, max 500).
     limit: Option<u32>,
@@ -744,15 +772,19 @@ pub struct RowParams {
     cursor: Option<String>,
 }
 
+/// One of the two: pick the account, or tick or untick its suggestion.
+/// Picking an account, or ticking its suggestion, also adds the file's
+/// account number to it, so its next files resolve by themselves.
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StatementUpdate {
     /// The account the statement is for; `null` to unset it.
-    account_id: Option<Uuid>,
-    /// Also add the file's account number to the account, so its next
-    /// files resolve by themselves.
-    #[serde(default)]
-    remember_number: bool,
+    #[serde(default, deserialize_with = "nullable")]
+    #[schema(value_type = Option<Uuid>)]
+    account_id: Option<Option<Uuid>>,
+    /// `true` ticks the suggested account as reviewed: it becomes the
+    /// statement's own. `false` unticks it: back to the suggestion.
+    reviewed: Option<bool>,
 }
 
 // ------------------------------------------------------------- Helpers ----
@@ -795,11 +827,10 @@ fn known(suggesters: &HashMap<Uuid, Suggester>, id: Uuid) -> Result<Suggester, P
     suggesters.get(&id).cloned().ok_or_else(Problem::internal)
 }
 
-/// The imports as the API shows them, with their statements and counts.
+/// The imports as the API shows them, with their statements and readiness.
 async fn output(db: &mut PgConnection, imports: Vec<ImportRow>) -> Result<Vec<Import>, Problem> {
     let ids: Vec<Uuid> = imports.iter().map(|i| i.id).collect();
     let statements = store::imports::statements(&mut *db, &ids).await?;
-    let counts = store::imports::counts(&mut *db, &ids).await?;
     let by = suggesters(
         db,
         statements
@@ -807,76 +838,66 @@ async fn output(db: &mut PgConnection, imports: Vec<ImportRow>) -> Result<Vec<Im
             .filter_map(|(_, s)| s.suggestion.as_ref().map(|a| a.suggester_id)),
     )
     .await?;
-    let accounts = suggestions::accounts(db).await?;
-    let mut ready = HashMap::new();
-    for i in &imports {
-        let mine: Vec<StatementRow> = statements
+    let mut out = Vec::with_capacity(imports.len());
+    for i in imports {
+        let all = store::imports::rows(&mut *db, i.id, None, None, None, i64::MAX).await?;
+        let rows = shown(db, i.id, all).await?;
+        let statements = statements
             .iter()
             .filter(|(id, _)| *id == i.id)
-            .map(|(_, s)| s.clone())
-            .collect();
-        ready.insert(i.id, readiness(db, i.id, &mine, &accounts).await?);
-    }
-    imports
-        .into_iter()
-        .map(|i| {
-            let statements = statements
-                .iter()
-                .filter(|(id, _)| *id == i.id)
-                .map(|(_, s)| {
-                    let mut c = RowCounts::default();
-                    for (_, n) in counts
-                        .iter()
-                        .filter(|(id, n)| *id == i.id && n.statement == s.position)
-                    {
-                        c.add(RowStatus::parse(&n.status)?, n.count);
-                    }
-                    Ok(StagedStatement {
-                        position: s.position,
-                        number_last4: s.account_number.as_ref().map(|n| n.last4().to_owned()),
-                        account_id: s.effective_account(),
-                        account_suggested: s.account_id.is_none()
-                            && s.effective_account().is_some(),
-                        suggested_account: s
-                            .suggestion
-                            .as_ref()
-                            .map(|a| {
-                                Ok::<_, Problem>(AccountSuggestion {
-                                    account_id: a.account_id,
-                                    confidence: a.confidence,
-                                    confident: a.confidence >= CONFIDENT,
-                                    reason: a.reason.clone(),
-                                    suggester: known(&by, a.suggester_id)?,
-                                })
+            .map(|(_, s)| {
+                let mut counts = StateCounts::default();
+                for r in rows.iter().filter(|r| r.statement == s.position) {
+                    counts.add(r.state);
+                }
+                Ok(StagedStatement {
+                    position: s.position,
+                    number_last4: s.account_number.as_ref().map(|n| n.last4().to_owned()),
+                    account_id: s.effective_account(),
+                    account_suggested: s.account_id.is_none() && s.effective_account().is_some(),
+                    reviewed: s.reviewed,
+                    state: statement_state(s),
+                    suggested_account: s
+                        .suggestion
+                        .as_ref()
+                        .map(|a| {
+                            Ok::<_, Problem>(AccountSuggestion {
+                                account_id: a.account_id,
+                                confidence: a.confidence,
+                                confident: a.confidence >= CONFIDENT,
+                                reason: a.reason.clone(),
+                                suggester: known(&by, a.suggester_id)?,
                             })
-                            .transpose()?,
-                        kind: s.kind.as_deref().map(kind_of).transpose()?,
-                        commodity_id: s.commodity_id,
-                        ledger: s
-                            .ledger_amount
-                            .zip(s.ledger_date)
-                            .map(|(a, d)| LedgerBalance {
-                                amount: Amount::from_decimal(a),
-                                date: d,
-                            }),
-                        skipped: serde_json::from_value(s.skipped.clone())
-                            .map_err(|_| Problem::internal())?,
-                        counts: c,
-                    })
+                        })
+                        .transpose()?,
+                    kind: s.kind.as_deref().map(kind_of).transpose()?,
+                    commodity_id: s.commodity_id,
+                    ledger: s
+                        .ledger_amount
+                        .zip(s.ledger_date)
+                        .map(|(a, d)| LedgerBalance {
+                            amount: Amount::from_decimal(a),
+                            date: d,
+                        }),
+                    skipped: serde_json::from_value(s.skipped.clone())
+                        .map_err(|_| Problem::internal())?,
+                    rows: counts,
                 })
-                .collect::<Result<_, Problem>>()?;
-            Ok(Import {
-                id: i.id,
-                file_name: i.file_name,
-                file_sha256: i.file_sha256,
-                format: format_of(&i.format)?,
-                created_at: i.created_at,
-                statements,
-                readiness: ready.remove(&i.id).ok_or_else(Problem::internal)?,
-                version: i.version,
             })
-        })
-        .collect()
+            .collect::<Result<Vec<_>, Problem>>()?;
+        let readiness = readiness(i.id, &statements, &rows);
+        out.push(Import {
+            id: i.id,
+            file_name: i.file_name,
+            file_sha256: i.file_sha256,
+            format: format_of(&i.format)?,
+            created_at: i.created_at,
+            statements,
+            readiness,
+            version: i.version,
+        });
+    }
+    Ok(out)
 }
 
 async fn one(db: &mut PgConnection, id: Uuid) -> Result<Import, Problem> {
@@ -905,15 +926,17 @@ fn near(candidates: Vec<NearCandidate>) -> Vec<Near<i32>> {
         .collect()
 }
 
-/// Works out each row's status in one statement, from what the ledger holds
-/// now (design §6.3-§6.4): `needs_account` without an account; `duplicate`
-/// when its fingerprint was imported into the account before;
-/// `transfer_duplicate` when a transfer between the account and another of
-/// yours already moved the same amount the same way, within a few days, and
-/// holds no bank row of this account yet; `near_duplicate` when a
-/// transaction in the account has the same commodity and signed amount
-/// within [`NEAR_DAYS`] days; else `new`. Each match is one-to-one. Transfer
-/// matches between staged rows come after ([`rematch`]).
+/// Works out each row's label in one statement, from what the ledger holds
+/// now (design §6.3-§6.4): `no_account` without an account; a
+/// `duplicate` when its bank ID was imported into the account before and
+/// the bank's row is unchanged (or there's nothing to compare it with), a
+/// `possible_duplicate` when it changed; then a transfer between the
+/// account and another of yours that already moved the same amount the same
+/// way within a few days, holding no bank row of this account yet (a
+/// `duplicate` the same day); then a transaction in the account with the
+/// same commodity and signed amount within [`NEAR_DAYS`] days; else `new`.
+/// Each match is one-to-one. A transfer pair stays one until transfer
+/// matching says otherwise ([`rematch`]).
 async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Result<(), Problem> {
     let (_, s) = store::imports::statements(&mut *db, &[import_id])
         .await?
@@ -922,27 +945,40 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
         .ok_or_else(Problem::internal)?;
     let rows =
         store::imports::rows(&mut *db, import_id, Some(statement), None, None, i64::MAX).await?;
-    let mut matched: HashMap<i32, (RowStatus, Uuid)> = HashMap::new();
-    // What each candidate match found: days apart and, for a near
-    // duplicate, how alike.
+    let mut matched: HashMap<i32, (RowStatus, MatchKind, Uuid)> = HashMap::new();
+    // What each candidate match found: days apart and, for the same
+    // amount, how alike.
     let mut found: HashMap<(i32, Uuid), (i32, Option<i32>)> = HashMap::new();
     let account = s.effective_account();
     if let Some(account) = account {
         let fps: Vec<String> = rows.iter().map(|r| r.fingerprint.clone()).collect();
-        let known: HashMap<String, Uuid> =
-            store::imports::known_fingerprints(&mut *db, account, &fps)
-                .await?
-                .into_iter()
-                .collect();
+        let known = store::imports::known_fingerprints(&mut *db, account, &fps).await?;
         for r in &rows {
-            if let Some(t) = known.get(&r.fingerprint) {
-                matched.insert(r.position, (RowStatus::Duplicate, *t));
+            let mine: Vec<_> = known.iter().filter(|k| k.asked == r.fingerprint).collect();
+            let same = mine
+                .iter()
+                .find(|k| k.raws.contains(&r.raw))
+                .or_else(|| mine.iter().find(|k| k.raws.is_empty()));
+            if let Some(k) = same {
+                matched.insert(
+                    r.position,
+                    (RowStatus::Duplicate, MatchKind::BankId, k.transaction_id),
+                );
+            } else if let Some(k) = mine.first() {
+                matched.insert(
+                    r.position,
+                    (
+                        RowStatus::PossibleDuplicate,
+                        MatchKind::BankId,
+                        k.transaction_id,
+                    ),
+                );
             }
         }
         let days = i32::try_from(suggest::TRANSFER_DAYS).unwrap_or(i32::MAX);
-        for (status, candidates) in [
+        for (kind, candidates) in [
             (
-                RowStatus::TransferDuplicate,
+                MatchKind::Transfer,
                 store::imports::transfer_duplicates(
                     &mut *db,
                     import_id,
@@ -954,7 +990,7 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
                 .await?,
             ),
             (
-                RowStatus::NearDuplicate,
+                MatchKind::Amount,
                 store::imports::near_candidates(
                     &mut *db,
                     import_id,
@@ -967,13 +1003,19 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
             ),
         ] {
             for c in &candidates {
-                let sim = (status == RowStatus::NearDuplicate).then_some(c.similarity);
+                let sim = (kind == MatchKind::Amount).then_some(c.similarity);
                 found.insert((c.position, c.transaction_id), (c.days_apart, sim));
             }
             let done: HashSet<i32> = matched.keys().copied().collect();
-            let taken: HashSet<Uuid> = matched.values().map(|m| m.1).collect();
+            let taken: HashSet<Uuid> = matched.values().map(|m| m.2).collect();
             for (position, t) in one_to_one(near(candidates), &done, &taken) {
-                matched.insert(position, (status, t));
+                let same_day = found.get(&(position, t)).is_some_and(|f| f.0 == 0);
+                let status = if kind == MatchKind::Transfer && same_day {
+                    RowStatus::Duplicate
+                } else {
+                    RowStatus::PossibleDuplicate
+                };
+                matched.insert(position, (status, kind, t));
             }
         }
     }
@@ -981,10 +1023,13 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
     let statuses: Vec<StatusUpdate> = rows
         .iter()
         .map(|r| {
-            let (status, t) = match (account, matched.get(&r.position)) {
-                (None, _) => (RowStatus::NeedsAccount, None),
-                (Some(_), Some((status, t))) => (*status, Some(*t)),
-                (Some(_), None) => (RowStatus::New, None),
+            let (status, kind, t) = match (account, matched.get(&r.position)) {
+                (None, _) => (RowStatus::NoAccount, None, None),
+                (Some(_), Some((status, kind, t))) => (*status, Some(*kind), Some(*t)),
+                (Some(_), None) if r.status == RowStatus::TransferPair.as_str() => {
+                    (RowStatus::TransferPair, None, None)
+                }
+                (Some(_), None) => (RowStatus::New, None, None),
             };
             let (days, similarity) = t
                 .and_then(|t| found.get(&(r.position, t)))
@@ -993,6 +1038,7 @@ async fn restatus(db: &mut PgConnection, import_id: Uuid, statement: i16) -> Res
                 position: r.position,
                 status: status.as_str().to_owned(),
                 transaction: t,
+                kind: kind.map(|k| k.as_str().to_owned()),
                 days,
                 similarity,
             }
@@ -1028,19 +1074,22 @@ fn conflict_of(r: &Matchable) -> Option<RowKey> {
     ))
 }
 
-/// Works out transfer matches among the rows of every staged import (design
-/// §6.4): two rows that will become new transactions, in two of your
-/// accounts, with opposite amounts a few days apart, unless your choice of
-/// either's other side says otherwise ([`import::matching`]); and transfer
-/// conflicts, where a transfer you chose to one account fits a row in
-/// another. A skipped row isn't matched; a pair you said isn't one (both
-/// sides `new`) stays a pair, so you can change your mind. The two sides
-/// always agree: if one is `new` (a pair just formed with a row added as
-/// new before), both are, so no bank row is recorded twice. Touches and
+/// Works out transfer pairs among the rows of every staged import (design
+/// §6.4): two new rows in two of your accounts, with opposite amounts a few
+/// days apart, unless your choice of either's other side says otherwise
+/// ([`import::matching`]). A row you chose as a transfer to one account
+/// that fits a row in another is a transfer pair too, a conflicting one:
+/// your choice stays its default ([`guess`]). A row's choice doesn't change
+/// whether it's paired, so choosing never changes its label. Touches and
 /// returns the imports whose rows changed.
 async fn rematch(db: &mut PgConnection) -> Result<HashSet<Uuid>, Problem> {
     let rows = store::imports::matchable(&mut *db).await?;
-    let open = |r: &Matchable| matches!(r.status.as_str(), "new" | "transfer_match");
+    let open = |r: &Matchable| {
+        matches!(
+            RowStatus::parse(&r.status),
+            Ok(RowStatus::New | RowStatus::TransferPair)
+        )
+    };
     let staged: Vec<Staged<RowKey>> = rows
         .iter()
         .filter_map(|r| {
@@ -1051,49 +1100,31 @@ async fn rematch(db: &mut PgConnection) -> Result<HashSet<Uuid>, Problem> {
                 date: r.date,
                 amount: r.amount,
                 side: side(r),
-                // A split row is added as new, never one side of a transfer.
-                eligible: open(r) && r.decision.as_deref() != Some("skip") && !r.split,
-                decided: r.decision.is_some(),
+                // A split row is added as its parts, never one side of a
+                // transfer.
+                eligible: open(r) && !r.split,
             })
         })
         .collect();
     let pairs = transfer_matches(&staged);
     let conflicts = transfer_conflicts(&staged, &pairs);
     let mut changes = Vec::new();
-    let mut agree = Vec::new();
     let mut changed = HashSet::new();
-    for r in &rows {
+    for r in rows.iter().filter(|r| open(r)) {
         let pair = pairs.get(&key(r)).copied();
-        let status = if !open(r) {
-            r.status.clone()
-        } else if pair.is_some() {
-            RowStatus::TransferMatch.as_str().to_owned()
+        let conflict = conflicts.get(&key(r)).copied();
+        let status = if pair.is_some() || conflict.is_some() {
+            RowStatus::TransferPair
         } else {
-            RowStatus::New.as_str().to_owned()
+            RowStatus::New
         };
-        let pair = if open(r) { pair } else { None };
-        let conflict = conflicts.get(&key(r)).copied().filter(|_| open(r));
-        if status != r.status || pair != pair_of(r) || conflict != conflict_of(r) {
-            changes.push((key(r), status, pair, conflict));
+        if status.as_str() != r.status || pair != pair_of(r) || conflict != conflict_of(r) {
+            changes.push((key(r), status.as_str().to_owned(), pair, conflict));
             changed.insert(r.import_id);
-        }
-    }
-    let declined = |r: &Matchable| r.decision.as_deref() == Some(Decision::New.as_str());
-    let by_key: HashMap<RowKey, &Matchable> = rows.iter().map(|r| (key(r), r)).collect();
-    for r in rows.iter().filter(|r| open(r) && declined(r)) {
-        let Some(p) = pairs.get(&key(r)).and_then(|k| by_key.get(k)) else {
-            continue;
-        };
-        if !declined(p) && p.decision.as_deref() != Some(Decision::Skip.as_str()) {
-            agree.push(key(p));
-            changed.insert(p.import_id);
         }
     }
     if !changes.is_empty() {
         store::imports::set_pairs(&mut *db, &changes).await?;
-    }
-    for k in agree {
-        store::imports::set_pair_decision(&mut *db, k, Some(Decision::New.as_str())).await?;
     }
     for id in &changed {
         store::imports::touch(&mut *db, *id).await?;
@@ -1101,8 +1132,8 @@ async fn rematch(db: &mut PgConnection) -> Result<HashSet<Uuid>, Problem> {
     Ok(changed)
 }
 
-/// What matching shows of a row: status, match and transfer match.
-type Matched = HashMap<RowKey, (String, Option<Uuid>, Option<RowKey>)>;
+/// What matching shows of a row: label, match and transfer pair.
+type Matched = HashMap<RowKey, (String, Option<Uuid>, Option<RowKey>, Option<RowKey>)>;
 
 async fn matched(db: &mut PgConnection) -> Result<Matched, Problem> {
     Ok(store::imports::matchable(&mut *db)
@@ -1111,7 +1142,12 @@ async fn matched(db: &mut PgConnection) -> Result<Matched, Problem> {
         .map(|r| {
             (
                 key(&r),
-                (r.status.clone(), r.match_transaction_id, pair_of(&r)),
+                (
+                    r.status.clone(),
+                    r.match_transaction_id,
+                    pair_of(&r),
+                    conflict_of(&r),
+                ),
             )
         })
         .collect())
@@ -1179,10 +1215,11 @@ async fn refresh_others(
 }
 
 /// What a new transaction would get for each label: your choice, else a
-/// confident suggestion; a label with neither is missing. The other side is
-/// a counterparty or, for a transfer, one of your accounts (a transfer
-/// match's is its other side's); a transfer has no category or purpose
-/// unless one account is liquid and the other isn't (design §3.2).
+/// suggestion; a label with neither is missing. The other side is a
+/// counterparty or, for a transfer, one of your accounts (a transfer pair
+/// added as one transfer has its other row's); a transfer has no category
+/// or purpose unless one account is liquid and the other isn't (design
+/// §3.2).
 #[derive(Debug, PartialEq, Eq)]
 struct Labels {
     counterparty: Option<Uuid>,
@@ -1227,14 +1264,16 @@ impl Took {
 }
 
 /// What a row showed when you ticked it as reviewed (design §6.7): its
-/// status, its transfer match, and the AI suggestions short of certain it
-/// took. The tick holds while the status and match are the same and it
-/// takes no AI suggestion it didn't then; one you since made your own
-/// choice doesn't undo it.
+/// label, its transfer pair (and whether it conflicts with your choice),
+/// and the AI suggestions short of certain it took. The tick holds while
+/// the label and pair are the same and it takes no AI suggestion it didn't
+/// then; one you since made your own choice doesn't undo it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Seen {
     status: String,
     pair: Option<RowKey>,
+    #[serde(default)]
+    conflict: bool,
     suggestions: Vec<Taken>,
 }
 
@@ -1242,7 +1281,8 @@ impl Seen {
     fn now(r: &RowRow, l: &Labels, by: &HashMap<Uuid, Suggester>) -> Self {
         Self {
             status: r.status.clone(),
-            pair: pair_key(r),
+            pair: partner(r),
+            conflict: conflict_key(r).is_some(),
             suggestions: l
                 .suggested_by
                 .iter()
@@ -1256,6 +1296,7 @@ impl Seen {
     fn holds(&self, now: &Self) -> bool {
         self.status == now.status
             && self.pair == now.pair
+            && self.conflict == now.conflict
             && now.suggestions.iter().all(|t| self.suggestions.contains(t))
     }
 }
@@ -1284,7 +1325,7 @@ struct Context<'a> {
     accounts: &'a [suggest::Account],
     /// The row's statement's account.
     account: Option<Uuid>,
-    /// A transfer match's other side's account.
+    /// A transfer pair added as one transfer: its other row's account.
     pair_account: Option<Uuid>,
     /// The row's parts, if it's split: their labels are all yours.
     splits: &'a [StagedSplit],
@@ -1308,9 +1349,7 @@ fn labels(r: &RowRow, suggestions: &[SuggestionRow], cx: &Context) -> Labels {
     let chosen = |label: Label| r.chosen.iter().any(|c| c == label.as_str());
     let suggested = |label: Label| {
         suggestions.iter().find(|s| {
-            (s.statement, s.position) == (r.statement, r.position)
-                && s.label == label.as_str()
-                && s.confidence >= CONFIDENT
+            (s.statement, s.position) == (r.statement, r.position) && s.label == label.as_str()
         })
     };
     if let Some(a) = cx.pair_account {
@@ -1367,21 +1406,20 @@ fn labels(r: &RowRow, suggestions: &[SuggestionRow], cx: &Context) -> Labels {
     out
 }
 
-/// The decision committing carries out for a row; `None` while its
-/// statement has no account.
+/// The decision committing carries out for a row: yours, else the label's
+/// default; `None` while its statement has no account.
 fn decision_of(r: &RowRow) -> Result<Option<Decision>, Problem> {
-    let status = RowStatus::parse(&r.status)?;
-    if status == RowStatus::NeedsAccount {
+    if RowStatus::parse(&r.status)? == RowStatus::NoAccount {
         return Ok(None);
     }
-    Ok(match r.decision.as_deref() {
-        Some(d) => Some(Decision::parse(d)?),
-        None => Decision::default_for(status),
-    })
+    match r.decision.as_deref() {
+        Some(d) => Ok(Some(Decision::parse(d)?)),
+        None => Ok(guess(r, None)?.map(|g| g.decision)),
+    }
 }
 
 // ------------------------------------------------ Matching, suggesting ----
-// A row's decision is a suggestion (design §6.7, docs/ai.md): matching is
+// A row's default is a suggestion (design §6.7, docs/ai.md): matching is
 // logic, like the rules, and as sure as what it found.
 
 /// What matching suggests for a row.
@@ -1406,52 +1444,76 @@ fn apart(days: i32) -> String {
     }
 }
 
-/// What matching suggests committing does with a row, and how sure it is;
-/// `None` while its statement has no account. `pair_date`: a transfer
-/// match's other side's. A transfer conflict leaves matching unsure, so it
-/// waits for you.
+/// What matching suggests committing does with a row (its label's default),
+/// and how sure it is; `None` while its statement has no account.
+/// `pair_date`: a transfer pair's other row's. A transfer pair that
+/// conflicts with your choice of a row's other side keeps your choice: the
+/// rows are added separately.
 fn guess(r: &RowRow, pair_date: Option<Date>) -> Result<Option<Guess>, Problem> {
     let status = RowStatus::parse(&r.status)?;
-    let Some(decision) = Decision::default_for(status) else {
-        return Ok(None);
-    };
+    let kind = r.match_kind.as_deref().map(MatchKind::parse).transpose()?;
     // The two sides of a transfer: surer the closer they're dated.
     let transfer = |days: Option<i32>, what: &str| {
         let reason = days.map_or_else(|| what.to_owned(), |d| format!("{what}, {}", apart(d)));
         (transfer_confidence(days), reason)
     };
-    let (confidence, reason) = match status {
-        RowStatus::NeedsAccount => return Ok(None),
-        RowStatus::New if conflict_key(r).is_some() => (
-            0,
-            "a row in another of your accounts fits as the other side of this transfer, \
-             not the account chosen"
-                .to_owned(),
+    let (decision, (confidence, reason)) = match (status, kind) {
+        (RowStatus::NoAccount, _) => return Ok(None),
+        (RowStatus::New, _) => (
+            Decision::Add,
+            (SURE, "nothing like it in the ledger".to_owned()),
         ),
-        RowStatus::New => (SURE, "nothing like it in the ledger".to_owned()),
-        RowStatus::Duplicate => (SURE, "this bank row was imported before".to_owned()),
-        RowStatus::TransferDuplicate => transfer(
-            r.match_days.map(i32::from),
-            "the transfer is already recorded",
+        (RowStatus::TransferPair, _) if conflict_key(r).is_some() => (
+            Decision::AddSeparately,
+            (
+                DISAGREES,
+                "it fits as the other side, but you chose another account".to_owned(),
+            ),
         ),
-        RowStatus::TransferMatch => transfer(
-            pair_date.map(|p| i32::try_from((r.date - p).whole_days().abs()).unwrap_or(i32::MAX)),
-            "the other side of a transfer",
+        (RowStatus::TransferPair, _) => (
+            Decision::Add,
+            transfer(
+                pair_date
+                    .map(|p| i32::try_from((r.date - p).whole_days().abs()).unwrap_or(i32::MAX)),
+                "the other side of a transfer",
+            ),
         ),
-        RowStatus::NearDuplicate => match (r.match_days, r.match_similarity) {
-            (Some(d), Some(sim)) => {
-                let (d, sim) = (i32::from(d), i32::from(sim));
-                (
-                    near_confidence(d, sim),
-                    format!(
-                        "the same amount, {}, descriptions {}% alike",
-                        apart(d),
-                        sim / 10
-                    ),
-                )
-            }
-            _ => (0, "the same amount, a few days apart".to_owned()),
-        },
+        (RowStatus::Duplicate, Some(MatchKind::BankId)) => (
+            Decision::DontAdd,
+            (SURE, "this bank row was imported before".to_owned()),
+        ),
+        (_, Some(MatchKind::BankId)) => (
+            Decision::DontAdd,
+            (
+                CHANGED,
+                "the same bank ID, changed since it was imported".to_owned(),
+            ),
+        ),
+        (_, Some(MatchKind::Transfer)) => (
+            Decision::DontAdd,
+            transfer(
+                r.match_days.map(i32::from),
+                "the transfer is already recorded",
+            ),
+        ),
+        (_, Some(MatchKind::Amount)) => (
+            Decision::DontAdd,
+            match (r.match_days, r.match_similarity) {
+                (Some(d), Some(sim)) => {
+                    let (d, sim) = (i32::from(d), i32::from(sim));
+                    (
+                        near_confidence(d, sim),
+                        format!(
+                            "the same amount, {}, descriptions {}% alike",
+                            apart(d),
+                            sim / 10
+                        ),
+                    )
+                }
+                _ => (0, "the same amount, a few days apart".to_owned()),
+            },
+        ),
+        (_, None) => return Err(Problem::internal()),
     };
     Ok(Some(Guess {
         decision,
@@ -1470,106 +1532,67 @@ async fn matcher_id(db: &mut PgConnection) -> Result<Uuid, Problem> {
     Ok(store::imports::suggester(db, "match", MATCHER.0, MATCHER.1, &json!({})).await?)
 }
 
-/// How close an import is to committing ([`Readiness`]). `statements`
-/// are its own.
 /// Whether a confidence is as sure as your own choice.
 fn certain(confidence: i16) -> bool {
     i32::from(confidence) >= i32::from(suggest::CERTAIN)
 }
 
-async fn readiness(
-    db: &mut PgConnection,
-    id: Uuid,
-    statements: &[StatementRow],
-    accounts: &[suggest::Account],
-) -> Result<Readiness, Problem> {
-    let rows = store::imports::rows(&mut *db, id, None, None, None, i64::MAX).await?;
-    let keys: Vec<(i16, i32)> = rows.iter().map(|r| (r.statement, r.position)).collect();
-    let suggestions = store::imports::suggestions(&mut *db, id, &keys).await?;
-    let by = suggesters(db, suggestions.iter().map(|s| s.suggester_id)).await?;
-    let pairs: HashMap<RowKey, (Option<Uuid>, Date)> = {
-        let keys: Vec<RowKey> = rows.iter().filter_map(pair_key).collect();
-        store::imports::pair_rows(&mut *db, &keys)
-            .await?
-            .into_iter()
-            .map(|p| {
-                (
-                    (p.import_id, p.statement, p.position),
-                    (p.account_id, p.date),
-                )
-            })
-            .collect()
-    };
-    let splits = split_rows(db, id).await?;
+/// A statement's colour: no account needs you; a suggested account short of
+/// certain is to review; else it's ready.
+fn statement_state(s: &StatementRow) -> ReviewState {
+    match (s.account_id, s.effective_account()) {
+        (_, None) => ReviewState::NeedsYou,
+        (None, Some(_)) if !s.suggestion.as_ref().is_some_and(|a| certain(a.confidence)) => {
+            ReviewState::ToReview
+        }
+        _ => ReviewState::Ready,
+    }
+}
+
+/// How close an import is to committing ([`Readiness`]), from its
+/// statements and all its rows.
+fn readiness(import_id: Uuid, statements: &[StagedStatement], rows: &[StagedRow]) -> Readiness {
     let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
     let mut out = Readiness {
-        state: ReadinessState::Ready,
+        state: ReviewState::Ready,
+        rows: StateCounts::default(),
         no_account: count(
             statements
                 .iter()
-                .filter(|s| s.effective_account().is_none())
+                .filter(|s| s.state == ReviewState::NeedsYou)
                 .count(),
         ),
-        unlabeled: 0,
-        undecided: 0,
-        suggested_accounts: count(
+        accounts_to_review: count(
             statements
                 .iter()
-                .filter(|s| {
-                    s.account_id.is_none()
-                        && s.effective_account().is_some()
-                        && !s.suggestion.as_ref().is_some_and(|a| certain(a.confidence))
-                })
+                .filter(|s| s.state == ReviewState::ToReview)
                 .count(),
         ),
-        suggested_rows: 0,
+        adds: 0,
     };
-    for r in &rows {
-        let status = RowStatus::parse(&r.status)?;
-        // A row without an account counts as its statement.
-        let Some(decision) = decision_of(r)? else {
-            continue;
+    for r in rows {
+        out.rows.add(r.state);
+        let adds = match (r.decision, &r.transfer_pair) {
+            // One transfer for two rows: counted once in an import holding
+            // both.
+            (Some(Decision::Add), Some(p)) if r.status == RowStatus::TransferPair => {
+                p.import_id != import_id || (r.statement, r.position) < (p.statement, p.position)
+            }
+            (Some(d), _) => d.adds(),
+            (None, _) => false,
         };
-        let pair = pair_key(r).and_then(|k| pairs.get(&k).copied());
-        if r.decision.is_none() && !guess(r, pair.map(|p| p.1))?.is_some_and(|g| g.confident()) {
-            out.undecided += 1;
-        }
-        let labeled = match decision {
-            Decision::New | Decision::Replace => true,
-            Decision::Match => status == RowStatus::TransferMatch,
-            Decision::Skip => false,
-        };
-        if !labeled {
-            continue;
-        }
-        let cx = Context {
-            accounts,
-            account: statements
-                .iter()
-                .find(|s| s.position == r.statement)
-                .and_then(StatementRow::effective_account),
-            pair_account: pair.and_then(|p| p.0),
-            splits: parts(&splits, r),
-        };
-        let l = labels(r, &suggestions, &cx);
-        if decision == Decision::New && !l.missing.is_empty() {
-            out.unlabeled += 1;
-        }
-        // An AI suggestion short of certain is worth a look, unless you
-        // ticked the row as reviewed.
-        let seen = Seen::now(r, &l, &by);
-        if !seen.suggestions.is_empty() && !reviewed(r, &seen) {
-            out.suggested_rows += 1;
+        if adds {
+            out.adds += 1;
         }
     }
-    out.state = if out.no_account + out.unlabeled + out.undecided > 0 {
-        ReadinessState::NeedsWork
-    } else if out.suggested_accounts + out.suggested_rows > 0 {
-        ReadinessState::Suggested
+    out.state = if out.no_account + out.rows.needs_you > 0 {
+        ReviewState::NeedsYou
+    } else if out.accounts_to_review + out.rows.to_review > 0 {
+        ReviewState::ToReview
     } else {
-        ReadinessState::Ready
+        ReviewState::Ready
     };
-    Ok(out)
+    out
 }
 
 /// Rows as the API shows them, with their suggestions.
@@ -1597,15 +1620,10 @@ async fn shown(
                 .filter(|s| (s.statement, s.position) == (r.statement, r.position))
                 .cloned()
                 .collect();
-            let pair = pair_key(&r).and_then(|k| pairs.get(&k)).cloned();
-            let conflict = conflict_key(&r).and_then(|k| pairs.get(&k)).cloned();
-            let cx = Context {
-                accounts: &accounts,
-                account: statements.get(&r.statement).copied().flatten(),
-                pair_account: pair.as_ref().map(|p| p.account_id),
-                splits: parts(&splits, &r),
-            };
-            staged_row(r, &mine, &by, &matcher, &cx, pair, conflict)
+            let pair = partner(&r).and_then(|k| pairs.get(&k)).cloned();
+            let account = statements.get(&r.statement).copied().flatten();
+            let parts = parts(&splits, &r);
+            staged_row(r, &mine, &by, &matcher, &accounts, account, pair, parts)
         })
         .collect()
 }
@@ -1641,16 +1659,17 @@ fn conflict_key(r: &RowRow) -> Option<RowKey> {
     ))
 }
 
-/// The other rows of these rows' transfer matches and transfer conflicts.
+/// A transfer pair's other row: paired, or conflicting with your choice.
+fn partner(r: &RowRow) -> Option<RowKey> {
+    pair_key(r).or_else(|| conflict_key(r))
+}
+
+/// The other rows of these rows' transfer pairs.
 async fn pairs(
     db: &mut PgConnection,
     rows: &[RowRow],
-) -> Result<HashMap<RowKey, TransferMatch>, Problem> {
-    let keys: Vec<RowKey> = rows
-        .iter()
-        .flat_map(|r| [pair_key(r), conflict_key(r)])
-        .flatten()
-        .collect();
+) -> Result<HashMap<RowKey, TransferPair>, Problem> {
+    let keys: Vec<RowKey> = rows.iter().filter_map(partner).collect();
     if keys.is_empty() {
         return Ok(HashMap::new());
     }
@@ -1660,7 +1679,7 @@ async fn pairs(
         .filter_map(|p| {
             Some((
                 (p.import_id, p.statement, p.position),
-                TransferMatch {
+                TransferPair {
                     import_id: p.import_id,
                     statement: p.statement,
                     position: p.position,
@@ -1674,29 +1693,51 @@ async fn pairs(
         .collect())
 }
 
+#[expect(clippy::too_many_arguments, reason = "a row and what it depends on")]
 fn staged_row(
     r: RowRow,
     suggestions: &[SuggestionRow],
     by: &HashMap<Uuid, Suggester>,
     matcher: &Suggester,
-    cx: &Context,
-    transfer_match: Option<TransferMatch>,
-    transfer_conflict: Option<TransferMatch>,
+    accounts: &[suggest::Account],
+    account: Option<Uuid>,
+    pair: Option<TransferPair>,
+    splits: &[StagedSplit],
 ) -> Result<StagedRow, Problem> {
     let status = RowStatus::parse(&r.status)?;
-    let suggested_decision =
-        guess(&r, transfer_match.as_ref().map(|m| m.date))?.map(|g| DecisionSuggestion {
-            decision: g.decision,
-            confidence: g.confidence,
-            confident: g.confident(),
-            reason: g.reason,
-            suggester: matcher.clone(),
-        });
+    let g = guess(&r, pair.as_ref().map(|m| m.date))?;
     let chosen = r.decision.as_deref().map(Decision::parse).transpose()?;
     let decision = decision_of(&r)?;
-    let l = labels(&r, suggestions, cx);
+    let pair = pair.filter(|_| status == RowStatus::TransferPair);
+    let cx = Context {
+        accounts,
+        account,
+        // Added as one transfer, the other side is the other row's account.
+        pair_account: pair
+            .as_ref()
+            .filter(|_| decision == Some(Decision::Add))
+            .map(|p| p.account_id),
+        splits,
+    };
+    let l = labels(&r, suggestions, &cx);
     let seen = Seen::now(&r, &l, by);
     let reviewed = reviewed(&r, &seen);
+    let missing = if decision.is_some_and(Decision::adds) {
+        l.missing
+    } else {
+        Vec::new()
+    };
+    // Something shown short of certain: an AI suggestion it takes, or a
+    // default matching isn't sure of.
+    let unsure = (decision.is_some_and(Decision::adds) && !seen.suggestions.is_empty())
+        || (chosen.is_none() && g.as_ref().is_some_and(|g| !certain(g.confidence)));
+    let state = match decision {
+        None => ReviewState::NeedsYou,
+        Some(Decision::DontAdd) => ReviewState::NotAdded,
+        Some(_) if !missing.is_empty() => ReviewState::NeedsYou,
+        Some(_) if unsure && !reviewed => ReviewState::ToReview,
+        Some(_) => ReviewState::Ready,
+    };
     let suggestions = suggestions
         .iter()
         .map(|s| {
@@ -1720,18 +1761,23 @@ fn staged_row(
         native_id: r.native_id,
         status,
         match_transaction_id: r.match_transaction_id,
-        transfer_match: if status == RowStatus::TransferMatch {
-            transfer_match
-        } else {
-            None
-        },
-        transfer_conflict,
+        match_kind: r.match_kind.as_deref().map(MatchKind::parse).transpose()?,
+        transfer_pair: pair,
+        options: Decision::options(status).to_vec(),
         decision,
         decided: chosen.is_some(),
         reviewed,
+        state,
         seen,
-        suggested_decision,
+        suggested_decision: g.map(|g| DecisionSuggestion {
+            decision: g.decision,
+            confidence: g.confidence,
+            confident: g.confident(),
+            reason: g.reason,
+            suggester: matcher.clone(),
+        }),
         set_description: r.set_description,
+        tags: r.tags,
         counterparty_id: l.counterparty,
         transfer_account_id: l.transfer,
         category_id: l.category,
@@ -1741,13 +1787,9 @@ fn staged_row(
             .filter(|l| r.chosen.iter().any(|c| c == l.as_str()))
             .collect(),
         suggestions,
-        missing: if decision == Some(Decision::New) {
-            l.missing
-        } else {
-            Vec::new()
-        },
+        missing,
         not_applicable: l.not_applicable,
-        splits: cx.splits.iter().map(RowSplit::from).collect(),
+        splits: splits.iter().map(RowSplit::from).collect(),
         raw: r.raw,
     })
 }
@@ -1765,8 +1807,19 @@ fn at_row(r: &RowRow) -> impl Fn(Problem) -> Problem + '_ {
     }
 }
 
+/// Adds a file's account number to an account.
+async fn remember(
+    db: &mut PgConnection,
+    account: Uuid,
+    number: &AccountNumber,
+) -> Result<(), Problem> {
+    store::account_numbers::insert(&mut *db, Uuid::now_v7(), account, number).await?;
+    store::accounts::touch(&mut *db, account).await?;
+    Ok(())
+}
+
 /// The account a statement is for: the one its number belongs to, else the
-/// one the client gave.
+/// one the client gave, which then remembers the number.
 async fn resolve(
     db: &mut PgConnection,
     number: Option<&AccountNumber>,
@@ -1788,6 +1841,9 @@ async fn resolve(
             store::accounts::get(&mut *db, g, false)
                 .await?
                 .ok_or_else(|| Problem::invalid("account_id: no such account"))?;
+            if let Some(n) = number {
+                remember(db, g, n).await?;
+            }
             Ok(Some(g))
         }
         (None, None) => Ok(None),
@@ -1917,6 +1973,7 @@ async fn upload(
                 raw: serde_json::Value::Object(r.raw),
                 status: RowStatus::New.as_str().to_owned(),
                 match_transaction_id: None,
+                match_kind: None,
                 decision: None,
                 set_description: None,
                 counterparty_id: None,
@@ -1933,6 +1990,7 @@ async fn upload(
                 reviewed: None,
                 match_days: None,
                 match_similarity: None,
+                tags: Vec::new(),
             });
         }
         let account_id = resolve(&mut tx, s.account.as_ref(), p.account_id).await?;
@@ -1949,6 +2007,7 @@ async fn upload(
             ledger_date: s.ledger.as_ref().map(|l| l.date),
             skipped: serde_json::to_value(&skipped).map_err(|_| Problem::internal())?,
             suggestion: None,
+            reviewed: false,
         };
         store::imports::insert_statement(&mut *tx, id, &statement).await?;
         if !rows.is_empty() {
@@ -2026,8 +2085,10 @@ async fn rows(
     })))
 }
 
-/// Set the account a statement is for; its rows' statuses are worked out
-/// again, and their labels suggested again (yours stay).
+/// Set the account a statement is for, or tick its suggested account as
+/// reviewed; either remembers the file's account number for the account.
+/// Its rows' labels are worked out again, and their suggestions made again
+/// (yours stay).
 #[utoipa::path(patch, path = "/imports/{id}/statements/{position}", tag = "imports", security(("bearer" = [])),
     params(("id" = Uuid, Path), ("position" = i16, Path),
            ("If-Match" = String, Header, description = "ETag from your last read")),
@@ -2056,31 +2117,48 @@ async fn set_statement(
         .into_iter()
         .find(|(_, s)| s.position == position)
         .ok_or_else(Problem::not_found)?;
-    if let Some(a) = req.account_id {
+    let (account, reviewed) = match (req.account_id, req.reviewed) {
+        (Some(_), Some(_)) => {
+            return Err(Problem::invalid(
+                "account_id and reviewed: one or the other",
+            ));
+        }
+        (Some(a), None) => (a, false),
+        (None, Some(true)) => {
+            let Some(a) = statement.suggestion.as_ref().map(|a| a.account_id) else {
+                return Err(Problem::invalid(
+                    "reviewed: the statement has no suggested account",
+                ));
+            };
+            if statement.account_id.is_some_and(|own| own != a) {
+                return Err(Problem::invalid(
+                    "reviewed: the statement's account isn't the suggested one",
+                ));
+            }
+            (Some(a), true)
+        }
+        (None, Some(false)) if statement.reviewed => (None, false),
+        (None, Some(false)) => (statement.account_id, false),
+        (None, None) => return Err(Problem::invalid("account_id or reviewed: one of them")),
+    };
+    if let Some(a) = account {
         store::accounts::get(&mut *tx, a, true)
             .await?
             .ok_or_else(|| Problem::invalid("account_id: no such account"))?;
     }
-    if req.remember_number {
-        let (Some(number), Some(account)) = (&statement.account_number, req.account_id) else {
-            return Err(Problem::invalid(
-                "remember_number needs an account_id and a statement with an account number",
-            ));
-        };
+    // Picked or confirmed: the account's next files resolve by themselves.
+    if let (Some(number), Some(a)) = (&statement.account_number, account) {
         match store::account_numbers::find(&mut *tx, number).await? {
-            Some(n) if n.account_id == account => {}
+            Some(n) if n.account_id == a => {}
             Some(_) => {
                 return Err(Problem::conflict(format!(
-                    "{number} already belongs to another account"
+                    "{number} belongs to another account: change it on the account first"
                 )));
             }
-            None => {
-                store::account_numbers::insert(&mut *tx, Uuid::now_v7(), account, number).await?;
-                store::accounts::touch(&mut *tx, account).await?;
-            }
+            None => remember(&mut tx, a, number).await?,
         }
     }
-    store::imports::set_account(&mut *tx, id, position, req.account_id).await?;
+    store::imports::set_account(&mut *tx, id, position, account, reviewed).await?;
     restatus(&mut tx, id, position).await?;
     // The account is context for the rows' labels.
     let levels = state.suggestions.levels(&mut tx).await?;
@@ -2095,10 +2173,7 @@ async fn set_statement(
         "staged_import",
         id,
         None,
-        Some(
-            &json!({ "statement": position, "account_id": req.account_id,
-                      "remember_number": req.remember_number }),
-        ),
+        Some(&json!({ "statement": position, "account_id": account, "reviewed": reviewed })),
     )
     .await?;
     tx.commit().await?;
@@ -2196,7 +2271,7 @@ async fn discard(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Decide what committing does with a row, and label the transaction it
+/// Choose what committing does with a row, and label the transaction it
 /// will become.
 #[utoipa::path(patch, path = "/imports/{id}/rows/{statement}/{position}", tag = "imports", security(("bearer" = [])),
     params(("id" = Uuid, Path), ("statement" = i16, Path), ("position" = i32, Path),
@@ -2232,10 +2307,9 @@ async fn set_row(
     .into_iter()
     .find(|r| r.position == position)
     .ok_or_else(Problem::not_found)?;
+    let status = RowStatus::parse(&row.status)?;
     if let Some(d) = req.decision {
-        let status = RowStatus::parse(&row.status)?;
         if let Some(d) = d
-            && status != RowStatus::NeedsAccount
             && !d.fits(status)
         {
             return Err(Problem::invalid(format!(
@@ -2244,20 +2318,16 @@ async fn set_row(
                 d.as_str()
             )));
         }
-        if d == Some(Decision::Replace) {
-            let (_, s) = store::imports::statements(&mut *tx, &[id])
-                .await?
-                .into_iter()
-                .find(|(_, s)| s.position == statement)
-                .ok_or_else(Problem::internal)?;
-            let (Some(t), Some(account)) = (row.match_transaction_id, s.effective_account()) else {
-                return Err(Problem::internal());
-            };
-            replaceable(&mut tx, t, account, s.commodity_id)
-                .await
-                .map_err(|p| Problem::invalid(p.detail.unwrap_or(p.title)))?;
-        }
         row.decision = d.map(|d| d.as_str().to_owned());
+    }
+    if let Some(tags) = req.tags {
+        let mut tags: Vec<String> = tags.iter().map(|t| t.trim().to_owned()).collect();
+        if tags.iter().any(|t| t.is_empty() || t.chars().count() > 100) {
+            return Err(Problem::invalid("tags must be 1-100 characters"));
+        }
+        tags.sort();
+        tags.dedup();
+        row.tags = tags;
     }
     if let Some(d) = req.set_description {
         let d = d.map(|d| d.trim().to_owned());
@@ -2355,15 +2425,42 @@ async fn set_row(
         None => None,
     };
     if parts.as_ref().map_or(was_split, |p| !p.is_empty()) {
-        if RowStatus::parse(&row.status)? == RowStatus::TransferMatch {
-            return Err(Problem::invalid("a transfer match can't be split"));
+        if status == RowStatus::TransferPair {
+            return Err(Problem::invalid("a transfer pair can't be split"));
         }
-        if decision_of(&row)? != Some(Decision::New) {
+        if decision_of(&row)? != Some(Decision::Add) {
             return Err(Problem::invalid(if parts.is_some() {
-                "only a row added as new can be split"
+                "only a row that's added can be split"
             } else {
-                "a split row is added as new: clear its splits first"
+                "a split row is added: clear its splits first"
             }));
+        }
+    }
+    // A conflicting pair added as one transfer: the other side you chose
+    // gives way to the pair, on either row.
+    let merge = status == RowStatus::TransferPair
+        && req.decision == Some(Some(Decision::Add))
+        && pair_key(&row).is_none();
+    let other = partner(&row);
+    if merge && let Some(k) = other {
+        let mine = store::imports::statements(&mut *tx, &[id])
+            .await?
+            .into_iter()
+            .find(|(_, s)| s.position == statement)
+            .and_then(|(_, s)| s.effective_account())
+            .ok_or_else(Problem::internal)?;
+        let theirs = store::imports::matchable(&mut *tx)
+            .await?
+            .into_iter()
+            .find(|r| key(r) == k)
+            .ok_or_else(Problem::internal)?;
+        let their_account = theirs.account_id.ok_or_else(Problem::internal)?;
+        if row.transfer_account_id.is_some_and(|a| a != their_account) {
+            row.transfer_account_id = Some(their_account);
+            row.counterparty_id = None;
+        }
+        if theirs.chose_side && theirs.transfer_account_id.is_some_and(|a| a != mine) {
+            store::imports::choose_transfer(&mut *tx, k, mine).await?;
         }
     }
     store::imports::set_decision(&mut *tx, id, &row)
@@ -2374,20 +2471,25 @@ async fn set_row(
             .await
             .map_err(|e| write_error(e, String::new))?;
     }
-    // Merged into one transfer, or kept separate: the other side decides the same.
+    // A transfer pair is one choice: the other row takes it too.
     if req.decision.is_some()
-        && row.status == RowStatus::TransferMatch.as_str()
-        && row.decision.as_deref() != Some(Decision::Skip.as_str())
-        && let Some(k) = pair_key(&row)
+        && status == RowStatus::TransferPair
+        && let Some(k) = other
     {
         store::imports::set_pair_decision(&mut *tx, k, row.decision.as_deref()).await?;
         if k.0 != id {
             store::imports::touch(&mut *tx, k.0).await?;
         }
     }
-    // A transfer chosen, or a decision made, may make or undo a transfer
-    // match.
+    // A transfer chosen may make or undo a transfer pair.
     rematch(&mut tx).await?;
+    if merge && let Some(k) = other {
+        // Paired now, which starts the pair over at its default: added as
+        // one transfer, as you chose.
+        for k in [(id, statement, position), k] {
+            store::imports::set_pair_decision(&mut *tx, k, Some(Decision::Add.as_str())).await?;
+        }
+    }
     store::imports::touch(&mut *tx, id).await?;
     let row = store::imports::rows(
         &mut *tx,
@@ -2411,16 +2513,29 @@ async fn set_row(
     if let Some(tick) = req.reviewed {
         let seen = if tick { Some(row.tick()?) } else { None };
         store::imports::set_reviewed(&mut *tx, id, &[((statement, position), seen)]).await?;
-        row.reviewed = tick;
+        // Its colour follows the tick.
+        let ticked = store::imports::rows(
+            &mut *tx,
+            id,
+            Some(statement),
+            None,
+            Some((statement, after)),
+            1,
+        )
+        .await?;
+        row = shown(&mut tx, id, ticked)
+            .await?
+            .pop()
+            .ok_or_else(Problem::internal)?;
     }
     tx.commit().await?;
     Ok((StatusCode::OK, etag(version), axum::Json(row)).into_response())
 }
 
-/// Tick rows as reviewed, or untick them (design §6.7): a ticked row's AI
-/// suggestions count as yours, so an import whose rows you ticked is ready
-/// to commit. A row that needs a label or a decision isn't ticked. Each
-/// tick goes by itself when its row changes under it.
+/// Tick rows as reviewed, or untick them (design §6.7): what a ticked row
+/// takes counts as yours, so an import whose rows you ticked is ready to
+/// commit. A row that needs you, or isn't added, isn't ticked. Each tick
+/// goes by itself when its row changes under it.
 #[utoipa::path(post, path = "/imports/{id}/review", tag = "imports", security(("bearer" = [])),
     params(("id" = Uuid, Path),
            ("If-Match" = String, Header, description = "ETag from your last read")),
@@ -2456,10 +2571,10 @@ async fn review(
     }
     let mut ticks = Vec::new();
     for r in shown(&mut tx, id, rows).await? {
-        let seen = match (req.reviewed, r.needs_work()) {
+        let seen = match (req.reviewed, r.state) {
             (false, _) => None,
-            (true, true) => continue,
-            (true, false) => Some(r.tick()?),
+            (true, ReviewState::NeedsYou | ReviewState::NotAdded) => continue,
+            (true, ReviewState::ToReview | ReviewState::Ready) => Some(r.tick()?),
         };
         ticks.push(((r.statement, r.position), seen));
     }
@@ -2586,21 +2701,21 @@ async fn split_parts(
     Ok(out)
 }
 
-/// Commit the import: all or nothing. Every row's status is worked out
-/// again first; if any changed (the ledger moved on since), nothing is
-/// committed and the import comes back with a 409 to review again. Then each
-/// row's decision is carried out: new transactions go into one `file`
-/// import batch; transfer matches turn the matched transaction into a
-/// transfer; every row that's now in the ledger is recorded as imported, so
-/// the same row is a duplicate next time, and what this file says about it is
-/// kept with its transaction (once per file, whatever its name). Each
-/// statement's ledger balance becomes a balance check. The staged import is
-/// then gone.
+/// Commit the import: all or nothing. Every row's label is worked out again
+/// first; if any changed (the ledger moved on since), nothing is committed
+/// and the import comes back with a 409 to review again. Then each row's
+/// choice is carried out: new transactions go into one `file` import
+/// batch, a transfer pair added as one becomes one transfer, and every row
+/// that's now in the ledger is recorded as imported, so the same row is a
+/// duplicate next time, and what this file says about it is kept with its
+/// transaction (once per file, whatever its name). Each statement's ledger
+/// balance becomes a balance check. The staged import is then gone. Rows to
+/// review don't stop it; rows that need you do.
 #[utoipa::path(post, path = "/imports/{id}/commit", tag = "imports", security(("bearer" = [])),
     params(("id" = Uuid, Path), ("If-Match" = String, Header, description = "ETag from your last read")),
     responses((status = OK, body = Committed),
               (status = NOT_FOUND, body = Problem, content_type = "application/problem+json"),
-              (status = CONFLICT, description = "A statement has no account, a row's status changed, or a month is closed", body = Problem, content_type = "application/problem+json"),
+              (status = CONFLICT, description = "A statement has no account, a row needs a label, a row's label changed, or a month is closed", body = Problem, content_type = "application/problem+json"),
               (status = PRECONDITION_FAILED, body = Problem, content_type = "application/problem+json"),
               (status = UNPROCESSABLE_ENTITY, description = "A row breaks a ledger rule", body = Problem, content_type = "application/problem+json")))]
 async fn commit(
@@ -2665,13 +2780,40 @@ async fn carry_out(
         return Ok(None);
     }
 
-    // Every new transaction needs each label from you or a confident
-    // suggestion (design §8).
+    // Every row that's added needs each label from you or a suggestion
+    // (design §8): exactly the rows that need you.
+    let shown = shown(tx, id, rows.clone()).await?;
+    let lacking: Vec<String> = shown
+        .iter()
+        .filter(|r| r.state == ReviewState::NeedsYou)
+        .map(|r| {
+            let names: Vec<&str> = r.missing.iter().map(|l| l.as_str()).collect();
+            format!(
+                "statement {} row {} ({})",
+                r.statement,
+                r.position,
+                names.join(", ")
+            )
+        })
+        .collect();
+    if !lacking.is_empty() {
+        let n = lacking.len();
+        return Err(Problem::new(
+            StatusCode::CONFLICT,
+            "labels-missing",
+            "Rows need labels",
+        )
+        .detail(format!(
+            "{n} rows that are added have labels with neither your choice nor a suggestion: {}{}",
+            lacking[..n.min(10)].join("; "),
+            if n > 10 { "; …" } else { "" }
+        )));
+    }
     let keys: Vec<(i16, i32)> = rows.iter().map(|r| (r.statement, r.position)).collect();
     let suggestions = store::imports::suggestions(&mut *tx, id, &keys).await?;
     let accounts = suggestions::accounts(tx).await?;
     let pairs: HashMap<RowKey, store::imports::PairRow> = {
-        let keys: Vec<RowKey> = rows.iter().filter_map(pair_key).collect();
+        let keys: Vec<RowKey> = rows.iter().filter_map(partner).collect();
         store::imports::pair_rows(&mut *tx, &keys)
             .await?
             .into_iter()
@@ -2679,7 +2821,7 @@ async fn carry_out(
             .collect()
     };
     let splits = split_rows(tx, id).await?;
-    let context = |r: &RowRow| -> Result<Context, Problem> {
+    let context = |r: &RowRow, decision: Decision| -> Result<Context, Problem> {
         let s = statements
             .iter()
             .find(|s| s.position == r.statement)
@@ -2688,71 +2830,18 @@ async fn carry_out(
             accounts: &accounts,
             account: s.effective_account(),
             pair_account: pair_key(r)
+                .filter(|_| decision == Decision::Add)
                 .and_then(|k| pairs.get(&k))
                 .and_then(|p| p.account_id),
             splits: parts(&splits, r),
         })
     };
-    let mut lacking = Vec::new();
-    for r in &rows {
-        let l = labels(r, &suggestions, &context(r)?);
-        if decision_of(r)? == Some(Decision::New) && !l.missing.is_empty() {
-            let names: Vec<&str> = l.missing.iter().map(|l| l.as_str()).collect();
-            lacking.push(format!(
-                "statement {} row {} ({})",
-                r.statement,
-                r.position,
-                names.join(", ")
-            ));
-        }
-    }
-    if !lacking.is_empty() {
-        let n = lacking.len();
-        lacking.truncate(10);
-        return Err(Problem::new(
-            StatusCode::CONFLICT,
-            "labels-missing",
-            "Rows need labels",
-        )
-        .detail(format!(
-            "{n} new rows have labels that are neither chosen nor confidently suggested: {}{}",
-            lacking.join("; "),
-            if n > 10 { "; …" } else { "" }
-        )));
-    }
-    // Every decision is yours or a confident suggestion of matching's (a
-    // near duplicate never is). With the two checks above, commit refuses
-    // exactly what [`readiness`] calls `needs_work`.
-    let mut guesses = Vec::new();
-    for r in &rows {
-        let pair_date = pair_key(r).and_then(|k| pairs.get(&k)).map(|p| p.date);
-        if let Some(g) = guess(r, pair_date)? {
-            guesses.push((r, g));
-        }
-    }
-    let undecided: Vec<String> = guesses
-        .iter()
-        .filter(|(r, g)| r.decision.is_none() && !g.confident())
-        .map(|(r, _)| format!("statement {} row {}", r.statement, r.position))
-        .collect();
-    if !undecided.is_empty() {
-        let n = undecided.len();
-        return Err(Problem::new(
-            StatusCode::CONFLICT,
-            "decisions-missing",
-            "Rows need a decision",
-        )
-        .detail(format!(
-            "{n} {} your decision (matching isn't sure): {}{}",
-            if n == 1 { "row needs" } else { "rows need" },
-            undecided[..n.min(10)].join("; "),
-            if n > 10 { "; …" } else { "" }
-        )));
-    }
     let matcher = matcher_id(tx).await?;
     let mut outcomes = Vec::new();
-    for (r, g) in &guesses {
-        let committed = decision_of(r)?.ok_or_else(Problem::internal)?;
+    for (r, s) in rows.iter().zip(&shown) {
+        let (Some(g), Some(committed)) = (&s.suggested_decision, s.decision) else {
+            continue;
+        };
         outcomes.push(Outcome {
             suggester_id: matcher,
             label: "decision".to_owned(),
@@ -2765,20 +2854,19 @@ async fn carry_out(
                 committed.as_str().to_owned(),
             )),
         });
+        debug_assert_eq!((r.statement, r.position), (s.statement, s.position));
     }
 
     let mut out = Committed {
         import_batch_id: None,
-        created: 0,
+        added: 0,
         transfers: 0,
-        matched: 0,
-        replaced: 0,
-        skipped: 0,
+        not_added: 0,
         balance_checks: Vec::new(),
     };
     let mut imported = Vec::new();
     let mut seen_in_file = Vec::new();
-    // Transfers made of a transfer match with a row of this import, by that
+    // Transfers made of a transfer pair with a row of this import, by that
     // row: it's recorded already.
     let mut paired: HashMap<RowKey, Uuid> = HashMap::new();
     let mut batch_id = None;
@@ -2798,9 +2886,9 @@ async fn carry_out(
             ))));
         }
         let mine = parts(&splits, r);
-        if !mine.is_empty() && decision != Decision::New {
+        if !mine.is_empty() && decision != Decision::Add {
             return Err(at_row(r)(Problem::conflict(format!(
-                "a split row is added as new, not {}: clear its splits first",
+                "a split row is added, not {}: clear its splits first",
                 decision.as_str()
             ))));
         }
@@ -2819,18 +2907,32 @@ async fn carry_out(
             .set_description
             .clone()
             .unwrap_or_else(|| r.description.chars().take(500).collect());
-        let became = match decision {
-            Decision::Skip => {
-                out.skipped += 1;
+        // A row added again after it changed (or added anyway) needs an ID
+        // of its own.
+        let fingerprint = if decision.adds() && status.matched() {
+            store::imports::free_fingerprint(&mut *tx, account, &r.fingerprint).await?
+        } else {
+            r.fingerprint.clone()
+        };
+        let became = match (decision, status) {
+            (Decision::DontAdd, s) if s.matched() => {
+                out.not_added += 1;
+                r.match_transaction_id.ok_or_else(Problem::internal)?
+            }
+            (Decision::DontAdd, _) => {
+                out.not_added += 1;
                 continue;
             }
-            Decision::Match if status == RowStatus::TransferMatch => {
+            (Decision::Add, RowStatus::TransferPair) => {
                 if let Some(t) = paired.get(&(id, r.statement, r.position)) {
                     *t
                 } else {
                     let p = pair_key(r)
                         .and_then(|k| pairs.get(&k))
-                        .ok_or_else(Problem::internal)?;
+                        .ok_or_else(|| {
+                            Problem::conflict("the transfer pair changed: review it again")
+                        })
+                        .map_err(at_row(r))?;
                     let other = p.account_id.ok_or_else(Problem::internal)?;
                     // One transfer, dated and described as the side the
                     // money left.
@@ -2843,8 +2945,10 @@ async fn carry_out(
                             .unwrap_or_else(|| p.description.chars().take(500).collect());
                         (other, account, p.date, theirs)
                     };
-                    let l = labels(r, &suggestions, &context(r)?);
+                    let l = labels(r, &suggestions, &context(r, decision)?);
                     let quantity = Amount::from_decimal(r.amount.abs());
+                    let mut tags = r.tags.clone();
+                    tags.extend(p.tags.iter().cloned());
                     let req = NewTransaction::single(
                         date,
                         description,
@@ -2852,13 +2956,14 @@ async fn carry_out(
                         Leg::new(Some(to), None, s.commodity_id, quantity),
                         l.purpose,
                         l.category,
-                    );
+                    )
+                    .with_tags(tags);
                     let b = batch(tx).await?;
                     let t = create_in(tx, principal, req, b)
                         .await
                         .map_err(at_row(r))?
                         .id();
-                    out.created += 1;
+                    out.added += 1;
                     out.transfers += 1;
                     // The other side's bank row is recorded with it, so it's a
                     // duplicate of this transfer from now on.
@@ -2879,7 +2984,7 @@ async fn carry_out(
                     t
                 }
             }
-            Decision::New if !mine.is_empty() => {
+            _ if !mine.is_empty() => {
                 let parts = mine
                     .iter()
                     .map(|p| {
@@ -2899,15 +3004,15 @@ async fn carry_out(
                         NewSplit::new(from, to, p.purpose_id, p.category_id, p.description.clone())
                     })
                     .collect();
-                let req = NewTransaction::of(r.date, description, parts);
+                let req = NewTransaction::of(r.date, description, parts).with_tags(r.tags.clone());
                 let b = batch(tx).await?;
                 let t = create_in(tx, principal, req, b).await.map_err(at_row(r))?;
-                out.created += 1;
+                out.added += 1;
                 // The row's suggestions didn't apply: no outcomes for them.
                 t.id()
             }
-            Decision::New => {
-                let l = labels(r, &suggestions, &context(r)?);
+            _ => {
+                let l = labels(r, &suggestions, &context(r, decision)?);
                 let quantity = Amount::from_decimal(r.amount.abs());
                 let mine = Leg::new(Some(account), None, s.commodity_id, quantity);
                 let outside = Leg::new(l.transfer, l.counterparty, s.commodity_id, quantity);
@@ -2917,10 +3022,11 @@ async fn carry_out(
                     (outside, mine)
                 };
                 let req =
-                    NewTransaction::single(r.date, description, from, to, l.purpose, l.category);
+                    NewTransaction::single(r.date, description, from, to, l.purpose, l.category)
+                        .with_tags(r.tags.clone());
                 let b = batch(tx).await?;
                 let t = create_in(tx, principal, req, b).await.map_err(at_row(r))?;
-                out.created += 1;
+                out.added += 1;
                 for sg in suggestions
                     .iter()
                     .filter(|sg| (sg.statement, sg.position) == (r.statement, r.position))
@@ -2942,59 +3048,23 @@ async fn carry_out(
                 }
                 t.id()
             }
-            Decision::Replace => {
-                let t = r.match_transaction_id.ok_or_else(Problem::internal)?;
-                // Labels from review replace the transaction's; with neither
-                // yours nor a confident suggestion, its own stay.
-                let l = labels(r, &suggestions, &context(r)?);
-                if l.transfer.is_some() {
-                    return Err(at_row(r)(Problem::conflict(
-                        "a transfer can't replace a transaction: add it as new",
-                    )));
-                }
-                let set =
-                    |label: Label, v: Option<Uuid>| (!l.missing.contains(&label)).then_some(v);
-                replace_with_row(
-                    tx,
-                    principal,
-                    t,
-                    account,
-                    s.commodity_id,
-                    r.date,
-                    description,
-                    Amount::from_decimal(r.amount),
-                    Relabel {
-                        counterparty: set(Label::Counterparty, l.counterparty),
-                        category: set(Label::Category, l.category),
-                        purpose: set(Label::Purpose, l.purpose),
-                    },
-                )
-                .await
-                .map_err(at_row(r))?;
-                out.replaced += 1;
-                t
-            }
-            Decision::Match => {
-                out.matched += 1;
-                r.match_transaction_id.ok_or_else(Problem::internal)?
-            }
         };
         imported.push(Fingerprint {
             account_id: account,
-            fingerprint: r.fingerprint.clone(),
+            fingerprint: fingerprint.clone(),
             transaction_id: became,
         });
         seen_in_file.push(ImportedRow {
             account_id: account,
-            fingerprint: r.fingerprint.clone(),
+            fingerprint,
             file_sha256: import.file_sha256.clone(),
             raw: r.raw.clone(),
         });
     }
     out.import_batch_id = batch_id;
     if !imported.is_empty() {
-        // A row already recorded (an exact duplicate) keeps its transaction;
-        // what this file says about it is added either way.
+        // A row already recorded (a duplicate) keeps its transaction; what
+        // this file says about it is added either way.
         store::imports::add_fingerprints(&mut *tx, &imported).await?;
         store::imports::add_imported_rows(&mut *tx, &seen_in_file).await?;
     }
@@ -3037,7 +3107,7 @@ async fn carry_out(
     }
     store::imports::delete(&mut *tx, id).await?;
     // The ledger changed: other staged imports' rows may now be duplicates,
-    // and their transfer matches with this one's rows are gone.
+    // and their transfer pairs with this one's rows are gone.
     let levels = state.suggestions.levels(tx).await?;
     refresh_others(tx, &levels, id).await?;
     audit(
@@ -3048,10 +3118,8 @@ async fn carry_out(
         id,
         Some(&json!({ "file_name": import.file_name, "committed": true })),
         Some(
-            &json!({ "import_batch_id": out.import_batch_id, "created": out.created,
-                      "transfers": out.transfers, "matched": out.matched,
-                      "replaced": out.replaced,
-                      "skipped": out.skipped }),
+            &json!({ "import_batch_id": out.import_batch_id, "added": out.added,
+                      "transfers": out.transfers, "not_added": out.not_added }),
         ),
     )
     .await?;
@@ -3104,14 +3172,7 @@ async fn commit_ready(
             results.push(outcome(None, Some("it's gone".to_owned())));
             continue;
         }
-        let statements: Vec<StatementRow> = store::imports::statements(&mut *tx, &[i.id])
-            .await?
-            .into_iter()
-            .map(|(_, s)| s)
-            .collect();
-        let accounts = suggestions::accounts(&mut tx).await?;
-        let r = readiness(&mut tx, i.id, &statements, &accounts).await?;
-        if r.state != ReadinessState::Ready {
+        if one(&mut tx, i.id).await?.readiness.state != ReviewState::Ready {
             results.push(outcome(None, Some("it isn't ready".to_owned())));
             continue;
         }

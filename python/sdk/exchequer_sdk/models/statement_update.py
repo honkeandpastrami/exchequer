@@ -13,15 +13,18 @@ T = TypeVar("T", bound="StatementUpdate")
 
 @_attrs_define
 class StatementUpdate:
-    """
-    Attributes:
-        account_id (None | Unset | UUID): The account the statement is for; `null` to unset it.
-        remember_number (bool | Unset): Also add the file's account number to the account, so its next
-            files resolve by themselves.
+    """One of the two: pick the account, or tick or untick its suggestion.
+    Picking an account, or ticking its suggestion, also adds the file's
+    account number to it, so its next files resolve by themselves.
+
+        Attributes:
+            account_id (None | Unset | UUID): The account the statement is for; `null` to unset it.
+            reviewed (bool | None | Unset): `true` ticks the suggested account as reviewed: it becomes the
+                statement's own. `false` unticks it: back to the suggestion.
     """
 
     account_id: None | Unset | UUID = UNSET
-    remember_number: bool | Unset = UNSET
+    reviewed: bool | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         account_id: None | str | Unset
@@ -32,15 +35,19 @@ class StatementUpdate:
         else:
             account_id = self.account_id
 
-        remember_number = self.remember_number
+        reviewed: bool | None | Unset
+        if isinstance(self.reviewed, Unset):
+            reviewed = UNSET
+        else:
+            reviewed = self.reviewed
 
         field_dict: dict[str, Any] = {}
 
         field_dict.update({})
         if account_id is not UNSET:
             field_dict["account_id"] = account_id
-        if remember_number is not UNSET:
-            field_dict["remember_number"] = remember_number
+        if reviewed is not UNSET:
+            field_dict["reviewed"] = reviewed
 
         return field_dict
 
@@ -65,11 +72,18 @@ class StatementUpdate:
 
         account_id = _parse_account_id(d.pop("account_id", UNSET))
 
-        remember_number = d.pop("remember_number", UNSET)
+        def _parse_reviewed(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        reviewed = _parse_reviewed(d.pop("reviewed", UNSET))
 
         statement_update = cls(
             account_id=account_id,
-            remember_number=remember_number,
+            reviewed=reviewed,
         )
 
         return statement_update

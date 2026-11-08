@@ -17,12 +17,11 @@ T = TypeVar("T", bound="DecisionSuggestion")
 
 @_attrs_define
 class DecisionSuggestion:
-    """What matching suggests committing does with a row.
+    """What matching suggests choosing for a row: the label's default.
 
     Attributes:
         confidence (int): Per mille: 900 is 0.9.
-        confident (bool): Whether it's confident enough (at least 900) to be committed unless
-            you choose otherwise. A near duplicate never is.
+        confident (bool): Whether it's confident (at least 900).
         decision (Decision): What committing does with a row.
         reason (str):
         suggester (Suggester): The exact system that made a suggestion.
