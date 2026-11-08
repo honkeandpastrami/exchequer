@@ -188,8 +188,7 @@
 
 <style>
 	/* In the top layer, placed by `place`: nothing it covers moves. One
-	   size throughout, smaller than the page's content (tables are
-	   `--text-sm`), so it reads as a tool over the page, not part of it. */
+	   size throughout, the size of the stepper that opens it. */
 	.calendar {
 		inset: auto;
 		margin: 0;
@@ -199,7 +198,7 @@
 		background: var(--color-surface);
 		color: var(--color-text);
 		box-shadow: var(--shadow-1);
-		font: var(--text-xs) / var(--leading) var(--font-ui);
+		font: var(--text-sm) / var(--leading) var(--font-ui);
 		font-variant-numeric: var(--numeric);
 	}
 	.header {

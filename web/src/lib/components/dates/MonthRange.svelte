@@ -57,6 +57,7 @@
 	/* Wide, one row; narrow, Today and the span under the stepper. Never
 	   anything in between (ux.md §3). */
 	.range {
+		font-size: var(--text-sm);
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-2);

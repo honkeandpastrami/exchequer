@@ -96,8 +96,10 @@
 {/if}
 
 <style>
-	/* One unit: it never wraps piece by piece (ux.md §3). */
+	/* One unit: it never wraps piece by piece (ux.md §3). The size of the
+	   content it sits over, not of the page's headings. */
 	.stepper {
+		font-size: var(--text-sm);
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-1);
