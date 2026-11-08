@@ -1039,7 +1039,7 @@ exchequer/
 ├── justfile                       # every check, locally and in CI
 ├── deploy/                        # backup image and script, restore, version, tests
 │   └── examples/                  # sample quadlets
-└── .github/workflows/             # checks (path-filtered: server, python, web); release
+└── .github/workflows/             # ci (areas by path, one required gate); release
 ```
 
 ### 16.3 Conventions
