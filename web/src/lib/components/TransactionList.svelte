@@ -11,7 +11,17 @@
 	import LegName from '#lib/components/LegName.svelte';
 	import Quantities from '#lib/components/Quantities.svelte';
 	import TransactionForm from '#lib/components/TransactionForm.svelte';
-	import { hashQuery, withParam } from '#lib/query.ts';
+	import {
+		isEmpty,
+		parse,
+		transactionsPath,
+		without,
+		withFilter,
+		type Filter,
+		type ListKey
+	} from '#lib/filters.ts';
+	import { hashQuery } from '#lib/query.ts';
+	import { chips } from '#lib/views/chips.ts';
 	import { accountLabel, accountsByOwner } from '#lib/names.ts';
 	import { reference, sorted, type Reference } from '#lib/reference.ts';
 	import { categoryNames, effectOn, runningBalances, size } from '#lib/views/transactions.ts';
@@ -19,34 +29,21 @@
 	import { dayName, stampName } from '#lib/dates.ts';
 	import DateField from './dates/DateField.svelte';
 
-	const KEYS = [
-		'q',
-		'from',
-		'to',
-		'account_id',
-		'counterparty_id',
-		'category_id',
-		'tag_id',
-		'import_batch_id'
-	] as const;
-	type Filters = Partial<Record<(typeof KEYS)[number], string>>;
 	const PAGE = 100;
 
 	/** Show only this transaction. */
 	let { only }: { only: string | null } = $props();
 
 	let query = $derived(hashQuery(page.url));
-	let filters: Filters = $derived(
-		Object.fromEntries(KEYS.map((k) => [k, query.get(k)]).filter(([, v]) => v)) as Filters
-	);
+	let filters: Filter = $derived(parse(query));
 
-	function set(key: (typeof KEYS)[number], value: string) {
-		const next = withParam(query, key, value);
-		goto(resolve(next ? `/transactions?${next}` : '/transactions'), {
-			replace: true,
-			reset: false
-		});
+	function go(f: Filter) {
+		goto(resolve(transactionsPath(f)), { replace: true, reset: false });
 	}
+	const set = (key: ListKey | 'from' | 'to' | 'q', value: string) =>
+		go(withFilter(filters, key, value));
+	/** A select's value: the filter's, when it has exactly one. */
+	const one = (values: string[] | undefined) => (values?.length === 1 ? values[0] : '');
 
 	// The search box waits for a pause in typing.
 	let text = $state(hashQuery(page.url).get('q') ?? '');
@@ -68,13 +65,14 @@
 	// One account's complete history (dates aside): it gets a running balance.
 	let history = $derived(
 		!only &&
-			!!filters.account_id &&
+			filters.account_id?.length === 1 &&
 			Object.keys(filters).every((k) => ['account_id', 'from', 'to'].includes(k))
 	);
+	let account = $derived(filters.account_id?.length === 1 ? filters.account_id[0] : undefined);
 	let opening: Map<string, string> | null = $state(null);
 	let generation = 0;
 
-	async function fetchPage(f: Filters, cursor: string | null) {
+	async function fetchPage(f: Filter, cursor: string | null) {
 		const mine = cursor ? generation : ++generation;
 		loading = true;
 		failure = null;
@@ -88,24 +86,14 @@
 				next = null;
 				return;
 			}
-			const list = (v: string | undefined) => (v ? [v] : undefined);
 			const r = ok(
 				await api.GET('/api/v1/transactions', {
-					params: {
-						query: {
-							...f,
-							account_id: list(f.account_id),
-							counterparty_id: list(f.counterparty_id),
-							category_id: list(f.category_id),
-							tag_id: list(f.tag_id),
-							limit: PAGE,
-							cursor: cursor ?? undefined
-						}
-					}
+					params: { query: { ...f, limit: PAGE, cursor: cursor ?? undefined } }
 				})
 			);
 			if (mine !== generation) return; // the filters changed meanwhile
-			if (!cursor && history && f.account_id && r.items.length) {
+			const account = f.account_id?.[0];
+			if (!cursor && history && account && r.items.length) {
 				const b = ok(
 					await api.GET('/api/v1/reports/balances', {
 						params: { query: { date: r.items[0].date } }
@@ -113,9 +101,7 @@
 				);
 				if (mine !== generation) return;
 				opening = new Map(
-					b.balances
-						.filter((x) => x.account_id === f.account_id)
-						.map((x) => [x.commodity_id, x.balance])
+					b.balances.filter((x) => x.account_id === account).map((x) => [x.commodity_id, x.balance])
 				);
 			}
 			items = cursor ? [...items, ...r.items] : r.items;
@@ -151,7 +137,7 @@
 
 	const ref = reference();
 	const amounts = (tx: Schemas['Transaction'], r: Reference) =>
-		filters.account_id ? effectOn(tx, filters.account_id, r) : size(tx, r);
+		account ? effectOn(tx, account, r) : size(tx, r);
 
 	/** A form under a row closed: the row shows what was saved, in its place. */
 	function closed(id: string, change?: { saved?: Schemas['Transaction']; deleted?: true }) {
@@ -187,9 +173,7 @@
 	<p class="muted">Loading…</p>
 {:then r}
 	{@const running =
-		history && opening && filters.account_id
-			? runningBalances(items, filters.account_id, opening, r)
-			: null}
+		history && opening && account ? runningBalances(items, account, opening, r) : null}
 	<form class="filters" onsubmit={(e) => e.preventDefault()}>
 		<input type="search" placeholder="Search text" bind:value={text} oninput={typed} />
 		<span class="bound"
@@ -203,7 +187,7 @@
 			>To <DateField label="To" value={filters.to ?? ''} onchange={(v) => set('to', v)} /></span
 		>
 		<select
-			value={filters.account_id ?? ''}
+			value={one(filters.account_id)}
 			onchange={(e) => set('account_id', e.currentTarget.value)}
 		>
 			<option value="">Any account</option>
@@ -211,33 +195,50 @@
 				>{/each}
 		</select>
 		<select
-			value={filters.counterparty_id ?? ''}
+			value={one(filters.counterparty_id)}
 			onchange={(e) => set('counterparty_id', e.currentTarget.value)}
 		>
 			<option value="">Any counterparty</option>
 			{#each sorted(r.counterparties) as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
 		</select>
 		<select
-			value={filters.category_id ?? ''}
+			value={one(filters.category_id)}
 			onchange={(e) => set('category_id', e.currentTarget.value)}
 		>
 			<option value="">Any category</option>
 			{#each sorted(r.categories) as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
 		</select>
-		<select value={filters.tag_id ?? ''} onchange={(e) => set('tag_id', e.currentTarget.value)}>
+		<select value={one(filters.tag_id)} onchange={(e) => set('tag_id', e.currentTarget.value)}>
 			<option value="">Any tag</option>
 			{#each sorted(r.tags) as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
 		</select>
-		{#if Object.keys(filters).length}
+		{#if !isEmpty(filters)}
 			<a
 				class="clear"
-				href={resolve('/transactions')}
+				href={resolve(transactionsPath({}))}
 				onclick={() => {
 					text = '';
 				}}>Clear</a
 			>
 		{/if}
 	</form>
+	{#if !only && !isEmpty(filters)}
+		<ul class="chips" aria-label="Showing">
+			{#each chips(filters, r) as c (`${c.key}=${c.value ?? ''}`)}
+				<li>
+					<button
+						type="button"
+						class="chip"
+						aria-label="Remove {c.label}"
+						onclick={() => {
+							if (c.key === 'q') text = '';
+							go(without(filters, c.key, c.value));
+						}}>{c.label} <span aria-hidden="true">×</span></button
+					>
+				</li>
+			{/each}
+		</ul>
+	{/if}
 
 	{#if only}
 		<p class="batch">
@@ -256,9 +257,6 @@
 					{batch.transaction_count === 1 ? 'transaction' : 'transactions'}</span
 				>
 			{/if}
-			<button type="button" class="quiet" onclick={() => set('import_batch_id', '')}
-				>Show all</button
-			>
 		</p>
 	{/if}
 
@@ -269,7 +267,7 @@
 				<th>Description</th>
 				<th>Route</th>
 				<th>Category</th>
-				<th class="num">{filters.account_id ? 'In / out' : 'Amount'}</th>
+				<th class="num">{account ? 'In / out' : 'Amount'}</th>
 				{#if running}<th class="num">Balance</th>{/if}
 			</tr>
 		</thead>
@@ -277,12 +275,7 @@
 			{#if adding}
 				<tr class="expanded adding" bind:this={top}>
 					<td colspan={running ? 6 : 5}>
-						<TransactionForm
-							id={null}
-							copy={adding.copy}
-							account={filters.account_id}
-							onclose={added}
-						/>
+						<TransactionForm id={null} copy={adding.copy} {account} onclose={added} />
 					</td>
 				</tr>
 			{/if}
@@ -369,6 +362,26 @@
 	}
 	.clear {
 		font-size: var(--text-sm);
+	}
+	.chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		margin: 0 0 var(--space-4);
+		padding: 0;
+		list-style: none;
+	}
+	.chip {
+		padding: 0 var(--space-2);
+		border: var(--border-width) solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: var(--color-surface-alt);
+		color: var(--color-text);
+		font-size: var(--text-sm);
+		cursor: pointer;
+	}
+	.chip:hover {
+		border-color: var(--color-accent);
 	}
 	.list {
 		background: var(--color-surface);

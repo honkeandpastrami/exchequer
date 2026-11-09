@@ -7,9 +7,10 @@
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
 	import DateStepper from '#lib/components/dates/DateStepper.svelte';
-	import { lastDay, thisMonth } from '#lib/dates.ts';
+	import { thisMonth } from '#lib/dates.ts';
 	import { fetched, latest } from '#lib/price-fetching.svelte.ts';
 	import { minus, negate, sign, sum, zero } from '#lib/money.ts';
+	import { fromReport, NONE, transactionsPath } from '#lib/filters.ts';
 	import { hashQuery } from '#lib/query.ts';
 	import { reference, type Reference } from '#lib/reference.ts';
 
@@ -38,18 +39,22 @@
 	const at = (m: string) => resolve(`/reports/pool?month=${m}`);
 	const name = (r: Reference, id: string | null | undefined) =>
 		id ? (r.categories.get(id)?.name ?? '?') : 'Uncategorized';
-	const link = (id: string | null | undefined) =>
-		id
-			? resolve(`/transactions?category_id=${id}&from=${month}-01&to=${lastDay(month)}`)
-			: undefined;
+	type Pool = Schemas['HouseholdPool'];
 
-	function bars(r: Reference, lines: Schemas['CategoryAmount'][], flip: boolean) {
+	function bars(r: Reference, pool: Pool, kind: 'income' | 'expense') {
+		const lines = kind === 'income' ? pool.income : pool.expenses;
 		return lines
 			.map((l) => ({
 				key: l.category_id ?? '',
 				label: name(r, l.category_id),
-				value: flip ? negate(l.amount) : l.amount,
-				href: link(l.category_id)
+				value: kind === 'expense' ? negate(l.amount) : l.amount,
+				href: resolve(
+					transactionsPath({
+						...fromReport(pool.filter),
+						kind: [kind],
+						category_id: [l.category_id ?? NONE]
+					})
+				)
 			}))
 			.sort((a, b) => sign(minus(b.value, a.value)));
 	}
@@ -98,7 +103,7 @@
 		<section class="card">
 			<h2>Income</h2>
 			{#if pool.income.length}
-				<BarList bars={bars(ref, pool.income, false)} />
+				<BarList bars={bars(ref, pool, 'income')} />
 			{:else}
 				<p class="muted">None.</p>
 			{/if}
@@ -106,7 +111,7 @@
 		<section class="card">
 			<h2>Spending</h2>
 			{#if pool.expenses.length}
-				<BarList bars={bars(ref, pool.expenses, true)} />
+				<BarList bars={bars(ref, pool, 'expense')} />
 			{:else}
 				<p class="muted">None.</p>
 			{/if}

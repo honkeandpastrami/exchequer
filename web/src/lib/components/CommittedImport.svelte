@@ -3,6 +3,7 @@
 	// one per balance check, each with its colour, one item per line.
 	import { dayName } from '../dates';
 	import { resolve } from '$app/paths';
+	import { transactionsPath } from '#lib/filters.ts';
 	import type { Schemas } from '../api/client';
 	import { accountLabel } from '../names';
 	import type { Reference } from '../reference';
@@ -22,7 +23,7 @@
 		<dd class="aside">
 			{#if c.import_batch_id}<a
 					class="go"
-					href={resolve(`/transactions?import_batch_id=${c.import_batch_id}`)}>See them ▸</a
+					href={resolve(transactionsPath({ import_batch_id: c.import_batch_id }))}>See them ▸</a
 				>{/if}
 		</dd>
 		<dt>Not added</dt>

@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { usd } from '#lib/settlement-currency.ts';
 	import { resolve } from '$app/paths';
+	import { usd } from '#lib/settlement-currency.ts';
+	import { transactionsPath } from '#lib/filters.ts';
 	import type { Schemas } from '#lib/api/client.ts';
 	import { accountNumbers, accounts } from '#lib/api/resources.ts';
 	import Amount from '#lib/components/Amount.svelte';
@@ -247,7 +248,7 @@
 								{#each a.numbers as n (n.id)}<span class="number">…{n.last4}</span>{/each}
 							</td>
 							<td class="actions">
-								<a href={resolve(`/transactions?account_id=${a.id}`)}>Transactions</a>
+								<a href={resolve(transactionsPath({ account_id: [a.id] }))}>Transactions</a>
 								<button class="link" aria-expanded={editing?.id === a.id} onclick={() => edit(a, r)}
 									>Edit</button
 								>
