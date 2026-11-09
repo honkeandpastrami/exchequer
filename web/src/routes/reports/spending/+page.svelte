@@ -10,6 +10,7 @@
 	import Failure from '#lib/components/Failure.svelte';
 	import MonthRange from '#lib/components/dates/MonthRange.svelte';
 	import { lastDay, monthName, monthsBetween } from '#lib/dates.ts';
+	import { NONE, queryBody, transactionsPath, type Filter } from '#lib/filters.ts';
 	import { hashQuery, withParam } from '#lib/query.ts';
 	import { reference, sorted, type Reference } from '#lib/reference.ts';
 	import { byCategory, commoditiesIn } from '#lib/views/reports.ts';
@@ -31,26 +32,27 @@
 		});
 	}
 
-	async function load(start: string, end: string, kind: Kind, purpose: string) {
+	// What every figure is computed from; a figure adds its category and month.
+	let filter: Filter = $derived({
+		from: `${w.start}-01`,
+		to: lastDay(w.end),
+		kind: [kind],
+		...(purpose ? { purpose_id: [purpose] } : {})
+	});
+
+	async function load(filter: Filter) {
 		const [ref, result] = await Promise.all([
 			reference(),
 			api
 				.POST('/api/v1/query', {
-					body: {
-						from: `${start}-01`,
-						to: lastDay(end),
-						bucket: 'month',
-						group_by: ['category'],
-						kinds: [kind],
-						purpose_ids: purpose ? [purpose] : []
-					}
+					body: { ...queryBody(filter, () => undefined), bucket: 'month', group_by: ['category'] }
 				})
 				.then(ok)
 		]);
 		return { ref, rows: result.rows };
 	}
 
-	let data = $derived(load(w.start, w.end, kind, purpose));
+	let data = $derived(load(filter));
 	let months = $derived(monthsBetween(w.start, w.end));
 
 	const household = (r: Reference) => usd(r)?.id;
@@ -64,10 +66,14 @@
 
 	const name = (r: Reference, id: string | null) =>
 		id ? (r.categories.get(id)?.name ?? '?') : 'Uncategorized';
-	const link = (id: string | null) =>
-		id
-			? resolve(`/transactions?category_id=${id}&from=${w.start}-01&to=${lastDay(w.end)}`)
-			: undefined;
+	const link = (commodity: string | undefined, id: string | null) =>
+		resolve(
+			transactionsPath({
+				...filter,
+				...(commodity ? { commodity_id: [commodity] } : {}),
+				category_id: [id ?? NONE]
+			})
+		);
 </script>
 
 <div class="heading">
@@ -125,7 +131,7 @@
 					key: c.category ?? '',
 					label: name(d.ref, c.category),
 					value: c.total,
-					href: link(c.category)
+					href: link(v.commodity, c.category)
 				}))}
 			/>
 		</section>

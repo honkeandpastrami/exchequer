@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { transactionsPath } from '#lib/filters.ts';
 	import { all, api, ok } from '#lib/api/client.ts';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
@@ -75,7 +76,7 @@
 							{#each sec.rows as r (r.account.id)}
 								<tr class:archived={r.account.archived}>
 									<td>
-										<a href={resolve(`/transactions?account_id=${r.account.id}`)}
+										<a href={resolve(transactionsPath({ account_id: [r.account.id] }))}
 											>{r.account.name}</a
 										>
 										{#if r.account.archived}<span class="muted tag">archived</span>{/if}

@@ -3,6 +3,7 @@
 	// opens a form at the top of the list, Edit one under its row. Each edit
 	// reads the item first, so it carries the ETag of what's stored now.
 	import { resolve } from '$app/paths';
+	import { transactionsPath } from '#lib/filters.ts';
 	import type { Named } from '../api/resources';
 	import Failure from './Failure.svelte';
 	import RowForm from './RowForm.svelte';
@@ -142,7 +143,7 @@
 					{#if i.system}<span class="badge">built-in</span>{/if}
 				</td>
 				<td class="actions">
-					<a href={resolve(`/transactions?${filter}=${i.id}`)}>Transactions</a>
+					<a href={resolve(transactionsPath({ [filter]: [i.id] }))}>Transactions</a>
 					<button class="link" aria-expanded={editing(i)} onclick={() => edit(i)}>Edit</button>
 				</td>
 			</tr>

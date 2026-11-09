@@ -3,6 +3,7 @@
 	// the top of the list to add one (blank, or like an existing one).
 	import { usd } from '../settlement-currency';
 	import { resolve } from '$app/paths';
+	import { transactionsPath } from '#lib/filters.ts';
 	import { api, done, ok, type Schemas } from '../api/client';
 	import Failure from './Failure.svelte';
 	import Field from './Field.svelte';
@@ -187,7 +188,7 @@
 				{#each tx.external_refs as e (e.source)}<span>{e.source} {e.ref}</span>{/each}
 				<span>id {tx.id}</span>
 				<span
-					>import batch <a href={resolve(`/transactions?import_batch_id=${tx.import_batch_id}`)}
+					>import batch <a href={resolve(transactionsPath({ import_batch_id: tx.import_batch_id }))}
 						>{tx.import_batch_id}</a
 					></span
 				>
