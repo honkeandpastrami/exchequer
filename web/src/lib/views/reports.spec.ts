@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Schemas } from '../api/client';
-import { balanceSeries, buckets, byCategory, commoditiesIn } from './reports';
+import { balanceSeries, bucketEnd, buckets, byCategory, commoditiesIn } from './reports';
 
 const USD = 'usd';
 const EUR = 'eur';
@@ -25,12 +25,12 @@ describe('balance series', () => {
 		const at = buckets(rows);
 		expect(at).toEqual(['2026-01-01', '2026-02-01']);
 		expect(balanceSeries(rows, 'account_id', USD, names, at)).toEqual([
-			{ name: 'Card', values: ['0.00', '-20.00'] },
-			{ name: 'Checking', values: ['100.00', '150.00'] },
+			{ key: 'b', name: 'Card', values: ['0.00', '-20.00'] },
+			{ key: 'a', name: 'Checking', values: ['100.00', '150.00'] },
 			{ name: 'Total', values: ['100.00', '130.00'] }
 		]);
 		expect(balanceSeries(rows, 'account_id', EUR, names, at)).toEqual([
-			{ name: 'Checking', values: ['0', '7'] }
+			{ key: 'a', name: 'Checking', values: ['0', '7'] }
 		]);
 		expect(balanceSeries(rows, 'account_id', USD, names, at, 'Net').at(-1)?.name).toBe('Net');
 	});
@@ -65,5 +65,12 @@ describe('by category', () => {
 	it('keeps the sign for income', () => {
 		const r = byCategory(rows, USD, ['2026-02'], false);
 		expect(r.total).toBe('-940.50');
+	});
+
+	it('ends a bucket on its last day, or on the range end', () => {
+		expect(bucketEnd('2026-02-01', 'month', '2026-12-31')).toBe('2026-02-28');
+		expect(bucketEnd('2026-06-01', 'month', '2026-06-12')).toBe('2026-06-12');
+		expect(bucketEnd('2026-06-29', 'week', '2026-12-31')).toBe('2026-07-05');
+		expect(bucketEnd('2026-06-29', 'day', '2026-12-31')).toBe('2026-06-29');
 	});
 });

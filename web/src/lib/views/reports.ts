@@ -2,6 +2,7 @@
 
 import type { Schemas } from '../api/client';
 import type { Series } from '../charts/scale';
+import { addDays, lastDay } from '../dates';
 import { minus, negate, sign, sum, zero } from '../money';
 
 type Row = Schemas['Row'];
@@ -24,8 +25,9 @@ export function buckets(rows: Row[]): string[] {
 
 /**
  * One series per account or owner, in one commodity, valued at each bucket
- * (zero where a row is missing), sorted by name. With more than one series a
- * total named `total` comes last.
+ * (zero where a row is missing), sorted by name, each with its `key` (the
+ * account or owner). With more than one series a total named `total`, with
+ * no key, comes last.
  */
 export function balanceSeries(
 	rows: Row[],
@@ -34,7 +36,7 @@ export function balanceSeries(
 	names: Map<string, string>,
 	at: string[],
 	total = 'Total'
-): Series[] {
+): (Series & { key?: string })[] {
 	const values = new Map<string, Map<string, string>>();
 	let none = '0';
 	for (const r of rows) {
@@ -45,7 +47,8 @@ export function balanceSeries(
 		values.get(key)!.set(r.bucket, r.amount);
 	}
 	const series = [...values.entries()]
-		.map(([key, v]) => ({
+		.map(([key, v]): Series & { key?: string } => ({
+			key,
 			name: names.get(key) ?? '(none)',
 			values: at.map((b) => v.get(b) ?? none)
 		}))
@@ -93,4 +96,14 @@ export function byCategory(
 		.sort((a, b) => sign(minus(b.total, a.total)));
 	const monthly = months.map((_, i) => sum([none, ...categories.map((c) => c.monthly[i])]));
 	return { categories, monthly, total: sum([none, ...monthly]) };
+}
+
+/**
+ * The last day of the bucket starting on `start` (`YYYY-MM-DD`), but no later
+ * than `to`: the day a balance in that bucket is at.
+ */
+export function bucketEnd(start: string, bucket: 'month' | 'week' | 'day', to: string): string {
+	const end =
+		bucket === 'month' ? lastDay(start.slice(0, 7)) : bucket === 'week' ? addDays(start, 6) : start;
+	return end < to ? end : to;
 }
