@@ -1,4 +1,4 @@
-# Exchequer
+# <img src="web/static/logo.png" alt="" width="40" align="top"> Exchequer
 
 A self-hosted accounting app for households that bank in the US: import the CSV and
 OFX/QFX/QBO files your banks export, label each transaction by who it was for, and settle up

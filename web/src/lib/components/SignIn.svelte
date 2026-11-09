@@ -2,6 +2,7 @@
 	import { api, ApiError, ok } from '../api/client';
 	import { signInWithPasskey } from '../passkeys';
 	import { signIn } from '../session.svelte';
+	import Brand from './Brand.svelte';
 
 	let token = $state('');
 	let busy = $state(false);
@@ -58,7 +59,7 @@
 </script>
 
 <div class="sign-in">
-	<h1>Exchequer</h1>
+	<h1><Brand /></h1>
 	{#if passkeys}
 		<button type="button" onclick={withPasskey} disabled={busy}>Sign in with a passkey</button>
 	{/if}

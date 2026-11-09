@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { ApiError } from '#lib/api/client.ts';
+	import Brand from '#lib/components/Brand.svelte';
 	import Failure from '#lib/components/Failure.svelte';
 	import { register } from '#lib/passkeys.ts';
 	import { session } from '#lib/session.svelte.ts';
@@ -28,7 +29,7 @@
 </script>
 
 <div class="invite">
-	<h1>Exchequer</h1>
+	<h1><Brand /></h1>
 	<p>Create a passkey on this device to sign in.</p>
 	{#if session.token}
 		<p class="muted">You'll be signed in as the person this invite is for.</p>
