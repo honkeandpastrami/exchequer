@@ -88,9 +88,20 @@
 				next = null;
 				return;
 			}
+			const list = (v: string | undefined) => (v ? [v] : undefined);
 			const r = ok(
 				await api.GET('/api/v1/transactions', {
-					params: { query: { ...f, limit: PAGE, cursor: cursor ?? undefined } }
+					params: {
+						query: {
+							...f,
+							account_id: list(f.account_id),
+							counterparty_id: list(f.counterparty_id),
+							category_id: list(f.category_id),
+							tag_id: list(f.tag_id),
+							limit: PAGE,
+							cursor: cursor ?? undefined
+						}
+					}
 				})
 			);
 			if (mine !== generation) return; // the filters changed meanwhile

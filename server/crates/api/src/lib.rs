@@ -27,6 +27,7 @@ mod commodities;
 mod common;
 pub mod conventions;
 mod counterparties;
+mod filter;
 mod fingerprints;
 mod health;
 mod import_batches;

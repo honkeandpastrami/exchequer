@@ -5956,7 +5956,7 @@
         "tags": [
           "transactions"
         ],
-        "summary": "List transactions, newest first.",
+        "summary": "List the transactions with a split that passes the filter, newest first,\neach with what of it counts (`matched`), and the totals over every page.",
         "operationId": "transactions_list",
         "parameters": [
           {
@@ -5982,37 +5982,123 @@
           {
             "name": "account_id",
             "in": "query",
-            "description": "Only transactions with a split on this account.",
+            "description": "On one of these accounts.",
             "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
             }
           },
           {
-            "name": "counterparty_id",
+            "name": "owner_id",
             "in": "query",
-            "description": "Only transactions with a split involving this counterparty.",
+            "description": "On an account one of these parties owns.",
             "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          {
+            "name": "purpose_id",
+            "in": "query",
+            "description": "For one of these parties: the effective purpose, as `/query` has it.",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           {
             "name": "category_id",
             "in": "query",
-            "description": "Only transactions with a split in this category.",
             "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "counterparty_id",
+            "in": "query",
+            "description": "The outside party of an income or expense.",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/KindName"
+              }
+            }
+          },
+          {
+            "name": "commodity_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
             }
           },
           {
             "name": "tag_id",
             "in": "query",
-            "description": "Only transactions with this tag.",
+            "description": "Transactions with one of these tags.",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Text in the description or notes, or a split's description\n(case-insensitive).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "settles",
+            "in": "query",
+            "description": "With `party_id`: the lines on that party's settlement statement for\nthis month (`YYYY-MM`). A payment can settle a month other than its\ndate's.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}$"
+            }
+          },
+          {
+            "name": "party_id",
+            "in": "query",
+            "description": "With `settles`: the party whose statement it is (the child of its\nedge).",
             "required": false,
             "schema": {
               "type": "string",
@@ -6020,12 +6106,21 @@
             }
           },
           {
-            "name": "q",
+            "name": "line",
             "in": "query",
-            "description": "Only transactions whose description, notes or a split's description\ncontain this text (case-insensitive).",
+            "description": "With `settles`: only its claims, or only its payments.",
             "required": false,
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/LineKind"
+            }
+          },
+          {
+            "name": "unpriced",
+            "in": "query",
+            "description": "Splits the settlement couldn't value: no leg in USD and no price.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           },
           {
@@ -6083,7 +6178,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Page_Transaction"
+                  "$ref": "#/components/schemas/TransactionPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }
@@ -7466,6 +7571,24 @@
           }
         }
       },
+      "CommodityAmount": {
+        "type": "object",
+        "description": "An amount of one commodity, at its precision.",
+        "required": [
+          "commodity_id",
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "example": "-80.00"
+          },
+          "commodity_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "CommodityKind": {
         "type": "string",
         "enum": [
@@ -8058,6 +8181,7 @@
           "stipends",
           "business_funding",
           "shared_savings_change",
+          "filter",
           "fetching"
         ],
         "properties": {
@@ -8083,6 +8207,10 @@
             "type": "boolean",
             "description": "Missing or stale prices are being fetched: once `GET /prices/fetching`\nsays they're done, the figures may be fresher."
           },
+          "filter": {
+            "$ref": "#/components/schemas/TransactionFilter",
+            "description": "What `income` and `expenses` were computed from: with `kind` and a\n`category_id` added, the transactions behind one figure."
+          },
           "income": {
             "type": "array",
             "items": {
@@ -8093,6 +8221,17 @@
           "month": {
             "type": "string",
             "example": "2026-06"
+          },
+          "savings_filter": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TransactionFilter",
+                "description": "The transactions behind `shared_savings_change`; absent with no\nshared liquid accounts."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "shared_savings_change": {
             "type": "string",
@@ -9844,79 +9983,6 @@
           }
         }
       },
-      "Page_Transaction": {
-        "type": "object",
-        "description": "One page of results.",
-        "required": [
-          "items"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "id",
-                "date",
-                "description",
-                "tags",
-                "external_refs",
-                "import_batch_id",
-                "splits"
-              ],
-              "properties": {
-                "date": {
-                  "type": "string",
-                  "format": "date"
-                },
-                "description": {
-                  "type": "string"
-                },
-                "external_refs": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ExternalRef"
-                  }
-                },
-                "id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "import_batch_id": {
-                  "type": "string",
-                  "format": "uuid",
-                  "description": "Read-only: the import batch the transaction entered with."
-                },
-                "notes": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "splits": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Split"
-                  }
-                },
-                "tags": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          },
-          "next_cursor": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Pass as `cursor` to get the next page; absent on the last page."
-          }
-        }
-      },
       "Party": {
         "type": "object",
         "required": [
@@ -10184,7 +10250,7 @@
       },
       "QueryRequest": {
         "type": "object",
-        "description": "Filters combine with AND; the values inside one filter with OR.",
+        "description": "Filters combine with AND; the values inside one filter with OR. `null`\nin a list takes postings with no value there (no category, say). The\ntransactions list takes the same filters (`GET /transactions`).",
         "properties": {
           "account_ids": {
             "type": "array",
@@ -10207,15 +10273,28 @@
           "category_ids": {
             "type": "array",
             "items": {
-              "type": "string",
+              "type": [
+                "string",
+                "null"
+              ],
               "format": "uuid"
             },
             "description": "Flow only."
           },
-          "counterparty_ids": {
+          "commodity_ids": {
             "type": "array",
             "items": {
               "type": "string",
+              "format": "uuid"
+            }
+          },
+          "counterparty_ids": {
+            "type": "array",
+            "items": {
+              "type": [
+                "string",
+                "null"
+              ],
               "format": "uuid"
             },
             "description": "Flow only."
@@ -10255,7 +10334,10 @@
           "purpose_ids": {
             "type": "array",
             "items": {
-              "type": "string",
+              "type": [
+                "string",
+                "null"
+              ],
               "format": "uuid"
             },
             "description": "Flow only. Effective purpose, as in `group_by: purpose`."
@@ -11774,6 +11856,16 @@
             "format": "uuid",
             "description": "Read-only: the import batch the transaction entered with."
           },
+          "matched": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CommodityAmount"
+            },
+            "description": "In a list: what its splits that pass the filter add up to, per\ncommodity. Those amounts are what a report or a statement with the\nsame filter counted of it."
+          },
           "notes": {
             "type": [
               "string",
@@ -11791,6 +11883,153 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "TransactionFilter": {
+        "type": "object",
+        "description": "Which transactions to list, and what of each counts. Filters combine with\nAND; repeat a key for alternatives (`kind=income&kind=expense`). `none`\ntakes splits with no value there (`category_id=none`: uncategorized).\n\nThe amounts that count are the postings that pass, as `/query` sums them;\nwith `settles`, the settlement lines of one party's statement instead.",
+        "properties": {
+          "account_id": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "On one of these accounts."
+          },
+          "category_id": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "commodity_id": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "counterparty_id": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The outside party of an income or expense."
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "Earliest date, inclusive."
+          },
+          "kind": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KindName"
+            }
+          },
+          "line": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LineKind",
+                "description": "With `settles`: only its claims, or only its payments."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "owner_id": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "On an account one of these parties owns."
+          },
+          "party_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "With `settles`: the party whose statement it is (the child of its\nedge)."
+          },
+          "purpose_id": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "For one of these parties: the effective purpose, as `/query` has it."
+          },
+          "q": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Text in the description or notes, or a split's description\n(case-insensitive)."
+          },
+          "settles": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "With `party_id`: the lines on that party's settlement statement for\nthis month (`YYYY-MM`). A payment can settle a month other than its\ndate's.",
+            "pattern": "^[0-9]{4}-[0-9]{2}$"
+          },
+          "tag_id": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Transactions with one of these tags."
+          },
+          "to": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "Latest date, inclusive."
+          },
+          "unpriced": {
+            "type": "boolean",
+            "description": "Splits the settlement couldn't value: no leg in USD and no price."
+          }
+        }
+      },
+      "TransactionPage": {
+        "type": "object",
+        "description": "One page of transactions, newest first.",
+        "required": [
+          "items",
+          "totals"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Transaction"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` to get the next page; absent on the last page."
+          },
+          "totals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommodityAmount"
+            },
+            "description": "Every match's `matched` added up, on every page: the aggregate the\nfilter describes."
           }
         }
       },

@@ -48,82 +48,43 @@ pub struct Full {
     pub external_refs: Vec<(String, String)>,
 }
 
-/// Optional filters for [`list`]; `None` means "any".
-#[derive(Debug, Default, Clone)]
-pub struct Filter {
-    pub from: Option<Date>,
-    pub to: Option<Date>,
-    pub account: Option<Uuid>,
-    pub counterparty: Option<Uuid>,
-    pub category: Option<Uuid>,
-    pub tag: Option<Uuid>,
-    /// Case-insensitive substring of the description, the notes or a
-    /// split's description.
-    pub text: Option<String>,
-    /// `(source, ref)`: the transaction with this external reference.
-    pub external_ref: Option<(String, String)>,
-    pub import_batch: Option<Uuid>,
-}
-
-/// `text` as an `ILIKE` pattern matching it anywhere, wildcards escaped.
-fn contains_pattern(text: &str) -> String {
-    let escaped = text
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_");
-    format!("%{escaped}%")
-}
-
-/// Newest first: by date, then by ID. `after` is the `(date, id)` of the last
-/// row of the previous page.
-pub async fn list(
+/// The IDs of the transactions in `import_batch` and with `external_ref`
+/// (`(source, ref)`); `None` means "any".
+pub async fn ids_with(
     db: impl PgExecutor<'_>,
-    filter: &Filter,
-    after: Option<(Date, Uuid)>,
-    limit: i64,
-) -> Result<Vec<TransactionRow>, sqlx::Error> {
-    let (after_date, after_id) = after.unzip();
-    let (ext_source, ext_ref) = filter.external_ref.clone().unzip();
-    let pattern = filter.text.as_deref().map(contains_pattern);
-    sqlx::query_as!(
-        TransactionRow,
-        r#"SELECT t.id, t.date, t.description, t.notes, t.version, t.import_batch_id
-           FROM transaction t
-           WHERE ($1::date IS NULL OR (t.date, t.id) < ($1, $2::uuid))
-             AND ($3::date IS NULL OR t.date >= $3)
-             AND ($4::date IS NULL OR t.date <= $4)
-             AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = t.id
-                  AND $5 IN (s.from_account_id, s.to_account_id)))
-             AND ($6::uuid IS NULL OR EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = t.id
-                  AND $6 IN (s.from_counterparty_id, s.to_counterparty_id)))
-             AND ($7::uuid IS NULL OR EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = t.id
-                  AND s.category_id = $7))
-             AND ($8::text IS NULL OR EXISTS (SELECT 1 FROM transaction_external_ref e
-                  WHERE e.transaction_id = t.id AND e.source = $8 AND e.ref = $9))
-             AND ($11::uuid IS NULL OR EXISTS (SELECT 1 FROM transaction_tag g
-                  WHERE g.transaction_id = t.id AND g.tag_id = $11))
-             AND ($12::text IS NULL OR t.description ILIKE $12 OR t.notes ILIKE $12
-                  OR EXISTS (SELECT 1 FROM split s WHERE s.transaction_id = t.id
-                             AND s.description ILIKE $12))
-             AND ($13::uuid IS NULL OR t.import_batch_id = $13)
-           ORDER BY t.date DESC, t.id DESC
-           LIMIT $10"#,
-        after_date,
-        after_id,
-        filter.from,
-        filter.to,
-        filter.account,
-        filter.counterparty,
-        filter.category,
+    import_batch: Option<Uuid>,
+    external_ref: Option<(String, String)>,
+) -> Result<Vec<Uuid>, sqlx::Error> {
+    let (ext_source, ext_ref) = external_ref.unzip();
+    sqlx::query_scalar!(
+        "SELECT t.id FROM transaction t
+         WHERE ($1::uuid IS NULL OR t.import_batch_id = $1)
+           AND ($2::text IS NULL OR EXISTS (SELECT 1 FROM transaction_external_ref e
+                WHERE e.transaction_id = t.id AND e.source = $2 AND e.ref = $3))",
+        import_batch,
         ext_source,
         ext_ref,
-        limit,
-        filter.tag,
-        pattern,
-        filter.import_batch,
     )
     .fetch_all(db)
     .await
+}
+
+/// Several transactions, in the order of `ids`; unknown ones are left out.
+pub async fn rows(
+    db: impl PgExecutor<'_>,
+    ids: &[Uuid],
+) -> Result<Vec<TransactionRow>, sqlx::Error> {
+    let found = sqlx::query_as!(
+        TransactionRow,
+        "SELECT id, date, description, notes, version, import_batch_id
+         FROM transaction WHERE id = ANY($1)",
+        ids,
+    )
+    .fetch_all(db)
+    .await?;
+    let mut found: std::collections::HashMap<Uuid, TransactionRow> =
+        found.into_iter().map(|r| (r.id, r)).collect();
+    Ok(ids.iter().filter_map(|id| found.remove(id)).collect())
 }
 
 /// Splits of several transactions, in transaction then position order.
@@ -479,6 +440,3 @@ pub async fn balances_before(
         .map(|r| (r.account_id, r.commodity_id, r.balance))
         .collect())
 }
-
-#[cfg(test)]
-mod tests;

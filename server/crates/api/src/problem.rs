@@ -158,6 +158,18 @@ impl From<QueryRejection> for Problem {
 #[from_request(via(axum::extract::Query), rejection(Problem))]
 pub struct Query<T>(pub T);
 
+impl From<axum_extra::extract::QueryRejection> for Problem {
+    fn from(rejection: axum_extra::extract::QueryRejection) -> Self {
+        Self::invalid(rejection.body_text())
+    }
+}
+
+/// `Query` that reads a repeated key as a list (`?kind=income&kind=expense`),
+/// with rejections reported as Problem Details.
+#[derive(axum::extract::FromRequestParts)]
+#[from_request(via(axum_extra::extract::Query), rejection(Problem))]
+pub struct ListQuery<T>(pub T);
+
 /// `Json`, with rejections reported as Problem Details.
 #[derive(axum::extract::FromRequest)]
 #[from_request(via(axum::Json), rejection(Problem))]

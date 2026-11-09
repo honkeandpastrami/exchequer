@@ -115,7 +115,7 @@ impl From<SplitRef> for SplitPointer {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum LineKind {
     /// Income or expense whose purpose isn't its liquid account's owner.
@@ -129,6 +129,15 @@ impl From<DLineKind> for LineKind {
         match k {
             DLineKind::Claim => Self::Claim,
             DLineKind::Payment => Self::Payment,
+        }
+    }
+}
+
+impl From<LineKind> for DLineKind {
+    fn from(k: LineKind) -> Self {
+        match k {
+            LineKind::Claim => Self::Claim,
+            LineKind::Payment => Self::Payment,
         }
     }
 }
@@ -441,6 +450,13 @@ pub(crate) async fn compute(
         closed,
         fetching,
     })
+}
+
+impl Computed {
+    /// The splits it couldn't value.
+    pub(crate) fn unpriced_splits(&self) -> HashSet<SplitRef> {
+        self.unpriced.iter().map(|(r, _)| *r).collect()
+    }
 }
 
 async fn currency_scale(db: &mut PgConnection, currency: CommodityId) -> Result<u32, Problem> {

@@ -25,6 +25,7 @@ from .ceremony import Ceremony
 from .commit_ready import CommitReady
 from .committed import Committed
 from .commodity import Commodity
+from .commodity_amount import CommodityAmount
 from .commodity_kind import CommodityKind
 from .commodity_update import CommodityUpdate
 from .counterparty import Counterparty
@@ -112,8 +113,6 @@ from .page_staged_row_items_item import PageStagedRowItemsItem
 from .page_staged_row_items_item_raw import PageStagedRowItemsItemRaw
 from .page_tag import PageTag
 from .page_tag_items_item import PageTagItemsItem
-from .page_transaction import PageTransaction
-from .page_transaction_items_item import PageTransactionItemsItem
 from .party import Party
 from .party_amount import PartyAmount
 from .party_kind import PartyKind
@@ -168,6 +167,8 @@ from .suggester_kind import SuggesterKind
 from .tag import Tag
 from .token import Token
 from .transaction import Transaction
+from .transaction_filter import TransactionFilter
+from .transaction_page import TransactionPage
 from .transfer_pair import TransferPair
 from .unpriced import Unpriced
 from .user import User
@@ -202,6 +203,7 @@ __all__ = (
     "CommitReady",
     "Committed",
     "Commodity",
+    "CommodityAmount",
     "CommodityKind",
     "CommodityUpdate",
     "Counterparty",
@@ -289,8 +291,6 @@ __all__ = (
     "PageStagedRowItemsItemRaw",
     "PageTag",
     "PageTagItemsItem",
-    "PageTransaction",
-    "PageTransactionItemsItem",
     "Party",
     "PartyAmount",
     "PartyKind",
@@ -345,6 +345,8 @@ __all__ = (
     "Tag",
     "Token",
     "Transaction",
+    "TransactionFilter",
+    "TransactionPage",
     "TransferPair",
     "Unpriced",
     "User",

@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 axum = { version = "0.8.9", features = ["macros"] }
+axum-extra = { version = "0.12.6", features = ["query"] }
 bank-import = { path = "../bank-import" }
 external-calls = { path = "../external-calls" }
 getrandom = "0.4.3"

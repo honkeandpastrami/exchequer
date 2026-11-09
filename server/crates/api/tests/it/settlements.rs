@@ -110,6 +110,22 @@ async fn statement_and_implied_stipend(pool: PgPool) {
     assert_eq!(alex["implied_stipend"], "500.00");
     assert_eq!(alex["lines"].as_array().unwrap().len(), 3);
     assert_eq!(alex["lines"][2]["kind"], "payment");
+    // Claims and Paid link to their lines: the July payment settles June.
+    let lines = format!("settles=2026-06&party_id={}", h.alex);
+    let claims = h.totals(&pool, &format!("{lines}&line=claim")).await;
+    assert_eq!(claims, h.usd_total(&alex["claims"]));
+    let paid = h.totals(&pool, &format!("{lines}&line=payment")).await;
+    assert_eq!(paid, h.usd_total(&alex["paid"]));
+    let r = h
+        .send(&pool, "GET", &format!("/api/v1/transactions?{lines}"), None)
+        .await;
+    let dates: Vec<&str> = r.body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["date"].as_str().unwrap())
+        .collect();
+    assert_eq!(dates, ["2026-07-02", "2026-06-20", "2026-06-05"]);
 
     // History over several months: parameters carry forward, no lines.
     let r = h

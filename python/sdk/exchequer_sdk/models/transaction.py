@@ -11,6 +11,7 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.commodity_amount import CommodityAmount
     from ..models.external_ref import ExternalRef
     from ..models.split import Split
 
@@ -29,6 +30,9 @@ class Transaction:
         import_batch_id (UUID): Read-only: the import batch the transaction entered with.
         splits (list[Split]):
         tags (list[str]):
+        matched (list[CommodityAmount] | None | Unset): In a list: what its splits that pass the filter add up to, per
+            commodity. Those amounts are what a report or a statement with the
+            same filter counted of it.
         notes (None | str | Unset):
     """
 
@@ -39,6 +43,7 @@ class Transaction:
     import_batch_id: UUID
     splits: list[Split]
     tags: list[str]
+    matched: list[CommodityAmount] | None | Unset = UNSET
     notes: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -63,6 +68,18 @@ class Transaction:
 
         tags = self.tags
 
+        matched: list[dict[str, Any]] | None | Unset
+        if isinstance(self.matched, Unset):
+            matched = UNSET
+        elif isinstance(self.matched, list):
+            matched = []
+            for matched_type_0_item_data in self.matched:
+                matched_type_0_item = matched_type_0_item_data.to_dict()
+                matched.append(matched_type_0_item)
+
+        else:
+            matched = self.matched
+
         notes: None | str | Unset
         if isinstance(self.notes, Unset):
             notes = UNSET
@@ -82,6 +99,8 @@ class Transaction:
                 "tags": tags,
             }
         )
+        if matched is not UNSET:
+            field_dict["matched"] = matched
         if notes is not UNSET:
             field_dict["notes"] = notes
 
@@ -89,6 +108,7 @@ class Transaction:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.commodity_amount import CommodityAmount  # noqa: PLC0415
         from ..models.external_ref import ExternalRef  # noqa: PLC0415
         from ..models.split import Split  # noqa: PLC0415
 
@@ -117,6 +137,28 @@ class Transaction:
 
         tags = cast(list[str], d.pop("tags"))
 
+        def _parse_matched(data: object) -> list[CommodityAmount] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                matched_type_0 = []
+                _matched_type_0 = data
+                for matched_type_0_item_data in _matched_type_0:
+                    matched_type_0_item = CommodityAmount.from_dict(matched_type_0_item_data)
+
+                    matched_type_0.append(matched_type_0_item)
+
+                return matched_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[CommodityAmount] | None | Unset, data)
+
+        matched = _parse_matched(d.pop("matched", UNSET))
+
         def _parse_notes(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -134,6 +176,7 @@ class Transaction:
             import_batch_id=import_batch_id,
             splits=splits,
             tags=tags,
+            matched=matched,
             notes=notes,
         )
 

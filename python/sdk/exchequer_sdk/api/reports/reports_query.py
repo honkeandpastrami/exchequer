@@ -68,6 +68,9 @@ def sync_detailed(
 
     Args:
         body (QueryRequest): Filters combine with AND; the values inside one filter with OR.
+            `null`
+            in a list takes postings with no value there (no category, say). The
+            transactions list takes the same filters (`GET /transactions`).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -98,6 +101,9 @@ def sync(
 
     Args:
         body (QueryRequest): Filters combine with AND; the values inside one filter with OR.
+            `null`
+            in a list takes postings with no value there (no category, say). The
+            transactions list takes the same filters (`GET /transactions`).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -123,6 +129,9 @@ async def asyncio_detailed(
 
     Args:
         body (QueryRequest): Filters combine with AND; the values inside one filter with OR.
+            `null`
+            in a list takes postings with no value there (no category, say). The
+            transactions list takes the same filters (`GET /transactions`).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -151,6 +160,9 @@ async def asyncio(
 
     Args:
         body (QueryRequest): Filters combine with AND; the values inside one filter with OR.
+            `null`
+            in a list takes postings with no value there (no category, say). The
+            transactions list takes the same filters (`GET /transactions`).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

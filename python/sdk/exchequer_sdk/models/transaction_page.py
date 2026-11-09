@@ -9,22 +9,26 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.page_transaction_items_item import PageTransactionItemsItem
+    from ..models.commodity_amount import CommodityAmount
+    from ..models.transaction import Transaction
 
 
-T = TypeVar("T", bound="PageTransaction")
+T = TypeVar("T", bound="TransactionPage")
 
 
 @_attrs_define
-class PageTransaction:
-    """One page of results.
+class TransactionPage:
+    """One page of transactions, newest first.
 
     Attributes:
-        items (list[PageTransactionItemsItem]):
+        items (list[Transaction]):
+        totals (list[CommodityAmount]): Every match's `matched` added up, on every page: the aggregate the
+            filter describes.
         next_cursor (None | str | Unset): Pass as `cursor` to get the next page; absent on the last page.
     """
 
-    items: list[PageTransactionItemsItem]
+    items: list[Transaction]
+    totals: list[CommodityAmount]
     next_cursor: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -33,6 +37,11 @@ class PageTransaction:
         for items_item_data in self.items:
             items_item = items_item_data.to_dict()
             items.append(items_item)
+
+        totals = []
+        for totals_item_data in self.totals:
+            totals_item = totals_item_data.to_dict()
+            totals.append(totals_item)
 
         next_cursor: None | str | Unset
         if isinstance(self.next_cursor, Unset):
@@ -45,6 +54,7 @@ class PageTransaction:
         field_dict.update(
             {
                 "items": items,
+                "totals": totals,
             }
         )
         if next_cursor is not UNSET:
@@ -54,15 +64,23 @@ class PageTransaction:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.page_transaction_items_item import PageTransactionItemsItem  # noqa: PLC0415
+        from ..models.commodity_amount import CommodityAmount  # noqa: PLC0415
+        from ..models.transaction import Transaction  # noqa: PLC0415
 
         d = dict(src_dict)
         items = []
         _items = d.pop("items")
         for items_item_data in _items:
-            items_item = PageTransactionItemsItem.from_dict(items_item_data)
+            items_item = Transaction.from_dict(items_item_data)
 
             items.append(items_item)
+
+        totals = []
+        _totals = d.pop("totals")
+        for totals_item_data in _totals:
+            totals_item = CommodityAmount.from_dict(totals_item_data)
+
+            totals.append(totals_item)
 
         def _parse_next_cursor(data: object) -> None | str | Unset:
             if data is None:
@@ -73,13 +91,14 @@ class PageTransaction:
 
         next_cursor = _parse_next_cursor(d.pop("next_cursor", UNSET))
 
-        page_transaction = cls(
+        transaction_page = cls(
             items=items,
+            totals=totals,
             next_cursor=next_cursor,
         )
 
-        page_transaction.additional_properties = d
-        return page_transaction
+        transaction_page.additional_properties = d
+        return transaction_page
 
     @property
     def additional_keys(self) -> list[str]:
