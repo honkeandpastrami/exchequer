@@ -7495,6 +7495,8 @@ export interface operations {
 				line?: components['schemas']['LineKind'];
 				/** @description Splits the settlement couldn't value: no leg in USD and no price. */
 				unpriced?: boolean;
+				/** @description Only this transaction. */
+				id?: string;
 				/** @description With `external_ref`: the transaction with this external reference. */
 				external_source?: string;
 				/** @description With `external_source`. */

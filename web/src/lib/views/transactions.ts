@@ -48,12 +48,15 @@ export function effectOn(
 	return totals(entries, ref).filter((q) => !/^-?0(\.0*)?$/.test(q.quantity));
 }
 
-/** How much the transaction moved: the sum of what left each split's source. */
-export function size(tx: Schemas['Transaction'], ref: Reference): Quantity[] {
-	return totals(
-		tx.splits.map((s) => s.from),
-		ref
-	);
+/** Amounts as the API gives them (`matched`, `totals`), with their commodities. */
+export function quantities(
+	amounts: Schemas['CommodityAmount'][] | null | undefined,
+	ref: Reference
+): Quantity[] {
+	return (amounts ?? []).map((a) => ({
+		commodity: ref.commodities.get(a.commodity_id),
+		quantity: a.amount
+	}));
 }
 
 /** Distinct category names across the splits. */
@@ -63,13 +66,13 @@ export function categoryNames(splits: Split[], ref: Reference): string[] {
 }
 
 /**
- * The account's balance after each transaction, newest first. `opening` is the
- * balance per commodity ID at the end of the first transaction's day; the
- * list must hold every transaction on the account from that day back.
+ * The balance after each transaction, newest first, from what each one moved
+ * (`matched` of one account's history). `opening` is the balance per
+ * commodity ID at the end of the first transaction's day; the list must hold
+ * every transaction on the account from that day back.
  */
 export function runningBalances(
 	txs: Schemas['Transaction'][],
-	accountId: string,
 	opening: Map<string, string>,
 	ref: Reference
 ): Quantity[][] {
@@ -78,9 +81,8 @@ export function runningBalances(
 		const after = [...balance.entries()]
 			.map(([id, quantity]) => ({ commodity: ref.commodities.get(id), quantity }))
 			.sort((a, b) => (a.commodity?.code ?? '').localeCompare(b.commodity?.code ?? ''));
-		for (const e of effectOn(tx, accountId, ref)) {
-			const id = e.commodity?.id;
-			if (id) balance.set(id, minus(balance.get(id) ?? '0', e.quantity));
+		for (const m of tx.matched ?? []) {
+			balance.set(m.commodity_id, minus(balance.get(m.commodity_id) ?? '0', m.amount));
 		}
 		return after;
 	});

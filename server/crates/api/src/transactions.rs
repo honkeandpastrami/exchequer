@@ -521,6 +521,8 @@ fn duplicate_ref() -> String {
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct ListParams {
+    /// Only this transaction.
+    id: Option<Uuid>,
     /// With `external_ref`: the transaction with this external reference.
     external_source: Option<String>,
     /// With `external_source`.
@@ -595,13 +597,15 @@ async fn list(
     };
     let mut conn = state.pool.acquire().await?;
     let mut matched = matching(&state, &mut conn, &filter).await?;
-    if p.import_batch_id.is_some() || external_ref.is_some() {
+    if p.id.is_some() || p.import_batch_id.is_some() || external_ref.is_some() {
         let only: std::collections::HashSet<Uuid> =
             store::transactions::ids_with(&mut *conn, p.import_batch_id, external_ref)
                 .await?
                 .into_iter()
                 .collect();
-        matched.transactions.retain(|m| only.contains(&m.id));
+        matched
+            .transactions
+            .retain(|m| only.contains(&m.id) && p.id.is_none_or(|id| id == m.id));
         matched.totals.clear();
         for m in &matched.transactions {
             for (c, a) in &m.amounts {

@@ -419,6 +419,12 @@ async fn figures_equal_their_lists(pool: PgPool) {
         .map(|t| t["matched"][0]["amount"].as_str().unwrap())
         .collect();
     assert_eq!(matched, ["-100.00", "3000.00"]);
+    // One of them alone.
+    let id = r.body["items"][0]["id"].as_str().unwrap();
+    let one = h
+        .totals(&pool, &format!("id={id}&account_id={}", h.alex_checking))
+        .await;
+    assert_eq!(one, h.usd_total(&json!("-100.00")));
 
     // Bad filters are 422s.
     for q in [
