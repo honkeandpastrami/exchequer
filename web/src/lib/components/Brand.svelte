@@ -1,5 +1,5 @@
 <!-- The logo and the app's name; the caller sets the size with font-size. -->
-<span class="brand"><img class="logo" src="./logo.svg" alt="" />Exchequer</span>
+<span class="brand"><img class="logo" src="./logo.png" alt="" />Exchequer</span>
 
 <style>
 	.brand {
