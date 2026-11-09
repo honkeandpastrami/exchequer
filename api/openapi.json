@@ -6124,6 +6124,16 @@
             }
           },
           {
+            "name": "id",
+            "in": "query",
+            "description": "Only this transaction.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
             "name": "external_source",
             "in": "query",
             "description": "With `external_ref`: the transaction with this external reference.",

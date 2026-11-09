@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Schemas } from '../api/client';
 import type { Reference } from '../reference';
-import { categoryNames, effectOn, legName, runningBalances, size } from './transactions';
+import { categoryNames, effectOn, legName, quantities, runningBalances } from './transactions';
 
 const usd = { id: 'usd', code: 'USD', kind: 'fiat', precision: 2 } as const;
 const acct = (id: string): Schemas['Account'] => ({
@@ -71,7 +71,10 @@ describe('transactions view', () => {
 	});
 
 	it('summarizes', () => {
-		expect(size(t, ref)).toEqual([{ commodity: usd, quantity: '112.50' }]);
+		expect(quantities([{ commodity_id: 'usd', amount: '-112.50' }], ref)).toEqual([
+			{ commodity: usd, quantity: '-112.50' }
+		]);
+		expect(quantities(undefined, ref)).toEqual([]);
 		expect(legName(t.splits[0].from, ref)).toBe('Sam · checking');
 		expect(legName(t.splits[0].to, ref)).toBe('Grocer');
 		expect(legName({ commodity_id: 'usd', quantity: '12.50' }, ref)).toBe('Unknown');
@@ -79,9 +82,15 @@ describe('transactions view', () => {
 	});
 
 	it('runs the balance back from the newest', () => {
-		const newest = tx([split('checking', 'grocer', '12.50')]);
-		const older = tx([split('savings', 'checking', '100.00')]);
-		const run = runningBalances([newest, older], 'checking', new Map([['usd', '87.50']]), ref);
+		const moved = (amount: string) => ({
+			...tx([]),
+			matched: [{ commodity_id: 'usd', amount }]
+		});
+		const run = runningBalances(
+			[moved('-12.50'), moved('100.00')],
+			new Map([['usd', '87.50']]),
+			ref
+		);
 		expect(run.map((r) => r.map((q) => q.quantity))).toEqual([['87.50'], ['100.00']]);
 	});
 });
