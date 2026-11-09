@@ -1,19 +1,25 @@
 <script lang="ts">
+	// A month's settlement (design §4.3): per edge of the settlement tree, its
+	// figures and the transactions on its statement. Claims and Paid add up
+	// transactions, so each links to them; the other figures are sums of
+	// figures, or a setting.
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, ok, type Schemas } from '#lib/api/client.ts';
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
-	import LegName from '#lib/components/LegName.svelte';
 	import MonthControls from '#lib/components/MonthControls.svelte';
+	import PageHeading from '#lib/components/PageHeading.svelte';
+	import Section from '#lib/components/Section.svelte';
 	import StatusMark from '#lib/components/StatusMark.svelte';
+	import TransactionTable from '#lib/components/TransactionTable.svelte';
 	import DateStepper from '#lib/components/dates/DateStepper.svelte';
-	import { dayName, thisMonth } from '#lib/dates.ts';
+	import { lastDay, thisMonth } from '#lib/dates.ts';
+	import { transactionsPath, type Filter } from '#lib/filters.ts';
 	import { fetched, latest } from '#lib/price-fetching.svelte.ts';
 	import { lineKinds } from '#lib/labels.ts';
 	import { reference } from '#lib/reference.ts';
-	import { transactionsById } from '#lib/transactions.ts';
 	import { SETTLEMENT_CODE } from '#lib/settlement-currency.ts';
 	import { status } from '#lib/views/settlement.ts';
 
@@ -27,9 +33,7 @@
 				.then(ok)
 				.then(fetched)
 		]);
-		const ids = statement.edges.flatMap((e) => (e.lines ?? []).map((l) => l.transaction_id));
-		const txs = await transactionsById(ids);
-		return { month, ref, statement, txs };
+		return { month, ref, statement };
 	}
 
 	// Bumped after closing, reopening or new parameters: the statement changes.
@@ -40,22 +44,20 @@
 		() => (void revision, load(month))
 	);
 
+	/** The figures, and the lines a figure adds up, if it does. */
 	const summary = [
-		['carried', 'Carried'],
-		['claims', 'Claims'],
-		['stipend', 'Stipend'],
-		['due', 'Due'],
-		['paid', 'Paid'],
-		['outstanding', 'Outstanding']
+		['carried', 'Carried', null],
+		['claims', 'Claims', 'claim'],
+		['stipend', 'Stipend', null],
+		['due', 'Due', null],
+		['paid', 'Paid', 'payment'],
+		['outstanding', 'Outstanding', null]
 	] as const;
 
-	function split(txs: Map<string, Schemas['Transaction']>, p: Schemas['SplitPointer']) {
-		const tx = txs.get(p.transaction_id);
-		return { tx, split: tx?.splits[p.position] };
-	}
+	const lines = (e: Schemas['Edge']): Filter => ({ settles: month, party_id: e.child_id });
 </script>
 
-<div class="heading">
+<PageHeading>
 	<h1>Settlement</h1>
 	<a href={resolve(`/settlement?year=${month.slice(0, 4)}`)}>Year</a>
 	<DateStepper
@@ -65,7 +67,7 @@
 		name="Month"
 		onchange={(m) => goto(resolve('/settlement/[month]', { month: m }))}
 	/>
-</div>
+</PageHeading>
 
 {#await data.promise}
 	{#if !data.value}<p class="muted">Loading…</p>{/if}
@@ -74,117 +76,110 @@
 {/await}
 
 {#if data.value}
-	{@const { ref, statement, txs } = data.value}
+	{@const { ref, statement } = data.value}
 	{@const name = (id: string) => ref.parties.get(id)?.name ?? '?'}
 	{#key month}
 		<MonthControls {month} {ref} onchange={() => revision++} />
 	{/key}
 
 	{#each statement.edges as e (e.child_id + e.parent_id)}
-		<section class="card">
+		{@const statementLines = e.lines ?? []}
+		<section class="edge">
 			<h2>
 				{name(e.child_id)} → {name(e.parent_id)}
 				<StatusMark status={status(e, statement.closed)} />
 			</h2>
-			<dl class="summary">
-				{#each summary as [key, label] (key)}
-					<div>
-						<dt>{label}</dt>
-						<dd><Amount value={e[key]} /></dd>
-					</div>
-				{/each}
-			</dl>
-
-			{#if e.lines?.length}
-				<table>
-					<thead>
-						<tr>
-							<th>Date</th><th>Kind</th><th>Description</th><th>Route</th><th class="num">Amount</th
-							>
-						</tr>
-					</thead>
-					<tbody>
-						{#each e.lines as l (`${l.transaction_id}/${l.position}/${l.kind}`)}
-							{@const s = split(txs, l)}
-							<tr>
-								<td class="date">{dayName(l.date)}</td>
-								<td class="muted">{lineKinds[l.kind]}</td>
-								<td>
-									{s.tx?.description ?? '?'}
-									{#if s.split?.description}<div class="muted note">{s.split.description}</div>{/if}
-								</td>
-								<td class="muted">
-									{#if s.split}<LegName leg={s.split.from} {ref} /> → <LegName
-											leg={s.split.to}
-											{ref}
-										/>{/if}
-								</td>
-								<td class="num">
-									<Amount value={l.amount} />
-									{#if l.valuation && s.split}
-										{@const leg = s.split.from.account_id ? s.split.from : s.split.to}
-										<div class="muted note">
-											at {l.valuation.rate}
-											{SETTLEMENT_CODE}/{ref.commodities.get(leg.commodity_id)?.code ?? '?'}
-											{#if l.valuation.stale}· stale price{/if}
-										</div>
+			<Section label="Figures">
+				{#snippet children(look)}
+					<dl class="summary" class:narrow={look === 'narrow'}>
+						{#each summary as [key, label, line] (key)}
+							<div>
+								<dt>{label}</dt>
+								<dd>
+									{#if line}
+										<a href={resolve(transactionsPath({ ...lines(e), line }))}
+											><Amount value={e[key]} /></a
+										>
+									{:else}
+										<Amount value={e[key]} />
 									{/if}
-								</td>
-							</tr>
+								</dd>
+							</div>
 						{/each}
-					</tbody>
-				</table>
-			{/if}
+					</dl>
+				{/snippet}
+			</Section>
+			{#key revision}
+				<TransactionTable filter={lines(e)} label="On the statement" empty="Nothing this month.">
+					{#snippet values(tx)}
+						{#each statementLines.filter((l) => l.transaction_id === tx.id) as l (`${l.position}/${l.kind}`)}
+							<dt>{lineKinds[l.kind]}</dt>
+							<dd><Amount value={l.amount} code={SETTLEMENT_CODE} /></dd>
+							<dd class="aside">
+								{#if l.valuation}
+									{@const leg = tx.splits[l.position]?.from.account_id
+										? tx.splits[l.position]?.from
+										: tx.splits[l.position]?.to}
+									at {l.valuation.rate}
+									{SETTLEMENT_CODE}/{ref.commodities.get(leg?.commodity_id ?? '')?.code ?? '?'}
+									{#if l.valuation.stale}· stale price{/if}
+								{/if}
+							</dd>
+						{/each}
+					{/snippet}
+				</TransactionTable>
+			{/key}
 		</section>
 	{/each}
 
 	{#if statement.unpriced.length}
-		<p class="muted">
-			{statement.unpriced.length} splits have no price in {SETTLEMENT_CODE} and are left out.
+		<p>
+			<a href={resolve(transactionsPath({ unpriced: true, to: lastDay(month) }))}
+				>{statement.unpriced.length} splits have no price in {SETTLEMENT_CODE} and are left out</a
+			>
 		</p>
 	{/if}
 {/if}
 
 <style>
-	.heading {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: baseline;
-		gap: var(--space-5);
+	.edge {
+		margin-bottom: var(--space-6);
 	}
-	.card {
-		margin-bottom: var(--space-5);
-		padding: var(--space-4);
-		background: var(--color-surface);
-		border: var(--border-width) solid var(--color-border);
-		border-radius: var(--radius-md);
-		box-shadow: var(--shadow-1);
-		overflow-x: auto;
-	}
-	.card h2 {
+	.edge h2 {
 		display: flex;
 		align-items: baseline;
 		gap: var(--space-3);
 	}
+	/* Wide, the figures are one row; narrow, one per line. */
 	.summary {
+		display: flex;
+		gap: var(--space-5);
+		margin: 0 0 var(--space-3);
+	}
+	.summary > div {
+		flex: none;
+	}
+	.summary.narrow {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
-		gap: var(--space-3);
-		margin: 0 0 var(--space-4);
+		grid-template-columns: max-content max-content;
+		gap: var(--space-1) var(--space-4);
+	}
+	.summary.narrow > div {
+		display: contents;
 	}
 	.summary dt {
 		font-size: var(--text-xs);
 		color: var(--color-text-muted);
 	}
+	.summary.narrow dt {
+		font-size: inherit;
+	}
 	.summary dd {
 		margin: 0;
 		font-size: var(--text-lg);
 	}
-	.date {
-		white-space: nowrap;
-		font-variant-numeric: var(--numeric);
-	}
-	.note {
-		font-size: var(--text-xs);
+	.summary.narrow dd {
+		font-size: inherit;
+		text-align: right;
 	}
 </style>
