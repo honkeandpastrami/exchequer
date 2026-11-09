@@ -105,6 +105,7 @@
 		{#snippet children(look)}
 			<div class="filters" class:narrow={look === 'narrow'}>
 				<input
+					class="search"
 					type="search"
 					placeholder="Search text"
 					aria-label="Search text"
@@ -224,26 +225,26 @@
 		justify-content: space-between;
 		gap: var(--space-4);
 	}
-	/* Wide, the controls are one row; narrow, one per line, full width. */
+	/* Wide, two rows: the search and the dates, then the four lists, each
+	   column as wide as a list needs. Narrow, one control per line. */
 	.filters {
-		display: flex;
+		display: grid;
+		grid-template-columns: repeat(4, minmax(10rem, 1fr));
 		align-items: center;
-		gap: var(--space-3);
+		gap: var(--space-2) var(--space-3);
 		margin-bottom: var(--space-3);
 	}
-	.filters > :global(*) {
-		flex: none;
+	.search {
+		grid-column: span 2;
 	}
-	.filters input[type='search'] {
-		width: 16rem;
+	.filters > :global(select) {
+		min-width: 0;
 	}
 	.filters.narrow {
-		display: grid;
 		grid-template-columns: minmax(0, 1fr);
-		gap: var(--space-2);
 	}
-	.filters.narrow input[type='search'] {
-		width: auto;
+	.filters.narrow .search {
+		grid-column: auto;
 	}
 	.bound {
 		display: inline-flex;
