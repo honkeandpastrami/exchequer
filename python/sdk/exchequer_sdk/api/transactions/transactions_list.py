@@ -31,7 +31,7 @@ def _get_kwargs(
     party_id: UUID | Unset = UNSET,
     line: LineKind | Unset = UNSET,
     unpriced: bool | Unset = UNSET,
-    id: UUID | Unset = UNSET,
+    id: list[UUID] | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
     import_batch_id: UUID | Unset = UNSET,
@@ -131,9 +131,13 @@ def _get_kwargs(
 
     params["unpriced"] = unpriced
 
-    json_id: str | Unset = UNSET
+    json_id: list[str] | Unset = UNSET
     if not isinstance(id, Unset):
-        json_id = str(id)
+        json_id = []
+        for id_item_data in id:
+            id_item = str(id_item_data)
+            json_id.append(id_item)
+
     params["id"] = json_id
 
     params["external_source"] = external_source
@@ -208,7 +212,7 @@ def sync_detailed(
     party_id: UUID | Unset = UNSET,
     line: LineKind | Unset = UNSET,
     unpriced: bool | Unset = UNSET,
-    id: UUID | Unset = UNSET,
+    id: list[UUID] | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
     import_batch_id: UUID | Unset = UNSET,
@@ -234,7 +238,7 @@ def sync_detailed(
         party_id (UUID | Unset):
         line (LineKind | Unset):
         unpriced (bool | Unset):
-        id (UUID | Unset):
+        id (list[UUID] | Unset):
         external_source (str | Unset):
         external_ref (str | Unset):
         import_batch_id (UUID | Unset):
@@ -298,7 +302,7 @@ def sync(
     party_id: UUID | Unset = UNSET,
     line: LineKind | Unset = UNSET,
     unpriced: bool | Unset = UNSET,
-    id: UUID | Unset = UNSET,
+    id: list[UUID] | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
     import_batch_id: UUID | Unset = UNSET,
@@ -324,7 +328,7 @@ def sync(
         party_id (UUID | Unset):
         line (LineKind | Unset):
         unpriced (bool | Unset):
-        id (UUID | Unset):
+        id (list[UUID] | Unset):
         external_source (str | Unset):
         external_ref (str | Unset):
         import_batch_id (UUID | Unset):
@@ -383,7 +387,7 @@ async def asyncio_detailed(
     party_id: UUID | Unset = UNSET,
     line: LineKind | Unset = UNSET,
     unpriced: bool | Unset = UNSET,
-    id: UUID | Unset = UNSET,
+    id: list[UUID] | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
     import_batch_id: UUID | Unset = UNSET,
@@ -409,7 +413,7 @@ async def asyncio_detailed(
         party_id (UUID | Unset):
         line (LineKind | Unset):
         unpriced (bool | Unset):
-        id (UUID | Unset):
+        id (list[UUID] | Unset):
         external_source (str | Unset):
         external_ref (str | Unset):
         import_batch_id (UUID | Unset):
@@ -471,7 +475,7 @@ async def asyncio(
     party_id: UUID | Unset = UNSET,
     line: LineKind | Unset = UNSET,
     unpriced: bool | Unset = UNSET,
-    id: UUID | Unset = UNSET,
+    id: list[UUID] | Unset = UNSET,
     external_source: str | Unset = UNSET,
     external_ref: str | Unset = UNSET,
     import_batch_id: UUID | Unset = UNSET,
@@ -497,7 +501,7 @@ async def asyncio(
         party_id (UUID | Unset):
         line (LineKind | Unset):
         unpriced (bool | Unset):
-        id (UUID | Unset):
+        id (list[UUID] | Unset):
         external_source (str | Unset):
         external_ref (str | Unset):
         import_batch_id (UUID | Unset):

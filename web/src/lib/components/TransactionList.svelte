@@ -61,7 +61,7 @@
 			Object.keys(filters).every((k) => ['account_id', 'from', 'to'].includes(k))
 	);
 	let account = $derived(filters.account_id?.length === 1 ? filters.account_id[0] : undefined);
-	let shown: Filter = $derived(only ? { id: only } : filters);
+	let shown: Filter = $derived(only ? { id: [only] } : filters);
 
 	// The batch being shown, when filtering by one.
 	let batch: Schemas['ImportBatch'] | null = $state(null);

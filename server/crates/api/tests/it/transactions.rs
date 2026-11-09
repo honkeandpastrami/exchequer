@@ -321,6 +321,7 @@ async fn ledger_rules_are_422s_naming_the_split(pool: PgPool) {
 #[sqlx::test(migrator = "store::MIGRATOR")]
 async fn list_filter_and_paginate(pool: PgPool) {
     let h = Household::new(&pool).await;
+    let mut ids = Vec::new();
     for day in 1..=5 {
         let from = if day % 2 == 0 {
             &h.alex_checking
@@ -332,6 +333,7 @@ async fn list_filter_and_paginate(pool: PgPool) {
             "purpose_id": h.alex, "category_id": h.groceries,
         }]))).await;
         assert_eq!(r.status, StatusCode::CREATED);
+        ids.push(r.body["id"].as_str().unwrap().to_owned());
     }
     let dates = |r: &Response| -> Vec<String> {
         r.body["items"]
@@ -360,6 +362,15 @@ async fn list_filter_and_paginate(pool: PgPool) {
     );
     let r = get(format!("account_id={}", h.alex_checking)).await;
     assert_eq!(dates(&r), ["2026-03-04", "2026-03-02"]);
+    // Some transactions, and what each did to one account.
+    let r = get(format!(
+        "id={}&id={}&id={}&account_id={}",
+        ids[0], ids[1], ids[2], h.alex_checking
+    ))
+    .await;
+    assert_eq!(dates(&r), ["2026-03-02"]);
+    assert_eq!(r.body["items"][0]["matched"][0]["amount"], "-10.00");
+    assert_eq!(r.body["totals"][0]["amount"], "-10.00");
     let r = get("from=2026-03-02&to=2026-03-03".to_owned()).await;
     assert_eq!(dates(&r), ["2026-03-03", "2026-03-02"]);
 

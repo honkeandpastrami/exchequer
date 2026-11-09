@@ -8,18 +8,14 @@
 	import Failure from '#lib/components/Failure.svelte';
 	import Mark from '#lib/components/Mark.svelte';
 	import RowForm from '#lib/components/RowForm.svelte';
-	import Section from '#lib/components/Section.svelte';
-	import TransactionForm from '#lib/components/TransactionForm.svelte';
-	import TransactionRow from '#lib/components/TransactionRow.svelte';
+	import TransactionTable from '#lib/components/TransactionTable.svelte';
 	import { transactionsPath } from '#lib/filters.ts';
 	import { dayName, today } from '#lib/dates.ts';
 	import DateField from '#lib/components/dates/DateField.svelte';
 	import { candidateReasons } from '#lib/labels.ts';
-	import { negate } from '#lib/money.ts';
 	import { hashQuery } from '#lib/query.ts';
 	import { accountLabel, accountsByOwner } from '#lib/names.ts';
 	import { reference, type Reference } from '#lib/reference.ts';
-	import { transactionsById } from '#lib/transactions.ts';
 	import { cleanQuantity } from '#lib/views/editor.ts';
 
 	type Check = Schemas['BalanceCheck'];
@@ -27,7 +23,7 @@
 	let account = $derived(hashQuery(page.url).get('account') ?? '');
 	let ref: Reference | null = $state(null);
 	let history: Check[] = $state([]);
-	let shown: { check: Check; txs: Map<string, Schemas['Transaction']> } | null = $state(null);
+	let shown: { check: Check } | null = $state(null);
 	/** The form at the top: a new check. */
 	let form: { account: string; amount: string; date: string; commodity: string } | null =
 		$state(null);
@@ -62,20 +58,16 @@
 		loadHistory(account);
 	});
 
-	/** The candidate split whose transaction's form is open. */
-	let editing: string | null = $state(null);
-
 	async function show(id: string, again = false) {
 		if (shown?.check.id === id && !again) {
 			shown = null;
 			return;
 		}
-		editing = null;
 		failure = null;
 		try {
-			const check = ok(await api.GET('/api/v1/balance-checks/{id}', { params: { path: { id } } }));
-			const ids = (check.candidates ?? []).flatMap((c) => c.splits.map((s) => s.transaction_id));
-			shown = { check, txs: await transactionsById(ids) };
+			shown = {
+				check: ok(await api.GET('/api/v1/balance-checks/{id}', { params: { path: { id } } }))
+			};
 		} catch (e) {
 			failure = e;
 		}
@@ -135,16 +127,9 @@
 		}
 	}
 
-	/** The split's effect on the checked account: + in, − out. */
 	/** Banks show what's owed on these as positive, and so are checks entered. */
 	const owed = (a: Schemas['Account'] | undefined) =>
 		a?.kind === 'credit_card' || a?.kind === 'mortgage';
-
-	function movement(tx: Schemas['Transaction'] | undefined, position: number): string | null {
-		const s = tx?.splits[position];
-		if (!s) return null;
-		return s.to.account_id === account ? s.to.quantity : negate(s.from.quantity);
-	}
 
 	const pick = (id: string) =>
 		goto(resolve(id ? `/checks?account=${id}` : '/checks'), { replace: true });
@@ -274,43 +259,17 @@
 												transaction: no earlier check matched.{/if}
 										</p>
 										{#each d.check.candidates ?? [] as cand, i (i)}
-											<Section label={candidateReasons[cand.reason]} tag="section">
-												<div class="candidate">
-													<h3>{candidateReasons[cand.reason]}</h3>
-													{#each cand.splits as sp (`${sp.transaction_id}/${sp.position}`)}
-														{@const tx = d.txs.get(sp.transaction_id)}
-														{@const q = movement(tx, sp.position)}
-														{@const key = `${i}/${sp.transaction_id}/${sp.position}`}
-														{#snippet description()}{tx?.description ?? '?'}{/snippet}
-														{#snippet amount()}{#if q}<Amount value={q} />{/if}{/snippet}
-														{#snippet actions()}
-															<button
-																class="box"
-																aria-expanded={editing === key}
-																onclick={() => (editing = editing === key ? null : key)}
-																>Edit</button
-															>
-														{/snippet}
-														{#snippet form()}
-															<TransactionForm
-																id={sp.transaction_id}
-																onclose={(change) => {
-																	editing = null;
-																	if (change) show(c.id, true);
-																}}
-															/>
-														{/snippet}
-														<TransactionRow
-															label="{tx ? dayName(tx.date) : ''} {tx?.description ?? ''}"
-															date={tx?.date ?? c.date}
-															{description}
-															{amount}
-															{actions}
-															form={editing === key ? form : undefined}
-														/>
-													{/each}
-												</div>
-											</Section>
+											<div class="candidate">
+												<TransactionTable
+													label={candidateReasons[cand.reason]}
+													filter={{
+														id: cand.splits.map((s) => s.transaction_id),
+														account_id: [account],
+														commodity_id: [c.commodity_id]
+													}}
+													onchange={() => show(c.id, true)}
+												/>
+											</div>
 										{:else}
 											<p class="muted">No transaction explains it on its own.</p>
 										{/each}
@@ -386,15 +345,6 @@
 	}
 	.candidate {
 		margin-top: var(--space-3);
-		background: var(--color-surface);
-		border: var(--border-width) solid var(--color-border);
-		border-radius: var(--radius-md);
-	}
-	.candidate h3 {
-		margin: 0;
-		padding: var(--space-2) var(--space-3);
-		border-bottom: var(--border-width) solid var(--color-border);
-		font-size: var(--text-sm);
 	}
 	.list {
 		background: var(--color-surface);

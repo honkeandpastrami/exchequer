@@ -30,7 +30,8 @@
 		open: opened,
 		empty = 'No transactions match.',
 		values: more,
-		oncopy
+		oncopy,
+		onchange
 	}: {
 		/** Fetch what this filter matches. */
 		filter?: Filter;
@@ -47,6 +48,8 @@
 		values?: Snippet<[Transaction]>;
 		/** Copy as new, asked from a transaction's form: the page opens a form for it. */
 		oncopy?: (id: string) => void;
+		/** A transaction was saved or deleted. */
+		onchange?: () => void;
 	} = $props();
 
 	let fetched: Transaction[] = $state([]);
@@ -110,6 +113,7 @@
 	function closed(id: string, change?: { saved?: Transaction; deleted?: true }) {
 		editing[id] = false;
 		if (!change) return;
+		onchange?.();
 		if (filter) load(filter, null, Math.min(Math.max(fetched.length, PAGE), 500));
 		else if (change.deleted) given = given?.filter((x) => x.id !== id);
 		else if (change.saved) {
