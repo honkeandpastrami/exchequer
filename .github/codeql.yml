@@ -1,0 +1,6 @@
+# Merged into code scanning's default setup through the repository's
+# github-codeql-config-file property. Test code holds only fixture data.
+paths-ignore:
+  - "**/tests/**"
+  - "**/tests.rs"
+  - "**/*.spec.ts"
