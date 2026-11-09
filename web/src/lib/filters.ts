@@ -10,8 +10,8 @@ type Shared = Schemas['TransactionFilter'];
 /** The shared filter, plus what only the list takes. */
 export type Filter = { [K in keyof Shared]?: NonNullable<Shared[K]> } & {
 	import_batch_id?: string;
-	/** One transaction only; never in a link. */
-	id?: string;
+	/** These transactions only; never in a link. */
+	id?: string[];
 };
 
 /** A filter a report returned. */

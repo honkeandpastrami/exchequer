@@ -61,7 +61,7 @@
 			Object.keys(filters).every((k) => ['account_id', 'from', 'to'].includes(k))
 	);
 	let account = $derived(filters.account_id?.length === 1 ? filters.account_id[0] : undefined);
-	let shown: Filter = $derived(only ? { id: only } : filters);
+	let shown: Filter = $derived(only ? { id: [only] } : filters);
 
 	// The batch being shown, when filtering by one.
 	let batch: Schemas['ImportBatch'] | null = $state(null);
@@ -167,26 +167,30 @@
 			>
 		</p>
 	{:else if !isEmpty(filters)}
-		<ul class="showing chips" aria-label="Showing">
-			{#each chips(filters, r) as c (`${c.key}=${c.value ?? ''}`)}
-				<li>
-					<button
-						type="button"
-						class="chip"
-						aria-label="Remove {c.label}"
-						onclick={() => {
-							if (c.key === 'q') text = '';
-							go(without(filters, c.key, c.value));
-						}}>{c.label} <span aria-hidden="true">×</span></button
-					>
-				</li>
-			{/each}
-			<li>
-				<a class="clear" href={resolve(transactionsPath({}))} onclick={() => (text = '')}
-					>Clear all</a
-				>
-			</li>
-		</ul>
+		<Section label="Showing">
+			{#snippet children(look)}
+				<ul class="showing chips" class:narrow={look === 'narrow'} aria-label="Showing">
+					{#each chips(filters, r) as c (`${c.key}=${c.value ?? ''}`)}
+						<li>
+							<button
+								type="button"
+								class="chip"
+								aria-label="Remove {c.label}"
+								onclick={() => {
+									if (c.key === 'q') text = '';
+									go(without(filters, c.key, c.value));
+								}}>{c.label} <span aria-hidden="true">×</span></button
+							>
+						</li>
+					{/each}
+					<li>
+						<a class="clear" href={resolve(transactionsPath({}))} onclick={() => (text = '')}
+							>Clear all</a
+						>
+					</li>
+				</ul>
+			{/snippet}
+		</Section>
 		{#if filters.import_batch_id && batch}
 			<p class="showing">
 				Import batch <strong>{batchName(batch)}</strong>
@@ -257,13 +261,20 @@
 	.showing {
 		margin: 0 0 var(--space-3);
 	}
+	/* Wide, the chips are one row; narrow, one per line. */
 	.chips {
 		display: flex;
-		flex-wrap: wrap;
 		align-items: baseline;
 		gap: var(--space-2);
 		padding: 0;
 		list-style: none;
+	}
+	.chips > li {
+		flex: none;
+	}
+	.chips.narrow {
+		flex-direction: column;
+		align-items: start;
 	}
 	.chip {
 		padding: 0 var(--space-2);

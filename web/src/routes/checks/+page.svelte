@@ -8,14 +8,14 @@
 	import Failure from '#lib/components/Failure.svelte';
 	import Mark from '#lib/components/Mark.svelte';
 	import RowForm from '#lib/components/RowForm.svelte';
+	import TransactionTable from '#lib/components/TransactionTable.svelte';
+	import { transactionsPath } from '#lib/filters.ts';
 	import { dayName, today } from '#lib/dates.ts';
 	import DateField from '#lib/components/dates/DateField.svelte';
 	import { candidateReasons } from '#lib/labels.ts';
-	import { negate } from '#lib/money.ts';
 	import { hashQuery } from '#lib/query.ts';
 	import { accountLabel, accountsByOwner } from '#lib/names.ts';
 	import { reference, type Reference } from '#lib/reference.ts';
-	import { transactionsById } from '#lib/transactions.ts';
 	import { cleanQuantity } from '#lib/views/editor.ts';
 
 	type Check = Schemas['BalanceCheck'];
@@ -23,7 +23,7 @@
 	let account = $derived(hashQuery(page.url).get('account') ?? '');
 	let ref: Reference | null = $state(null);
 	let history: Check[] = $state([]);
-	let shown: { check: Check; txs: Map<string, Schemas['Transaction']> } | null = $state(null);
+	let shown: { check: Check } | null = $state(null);
 	/** The form at the top: a new check. */
 	let form: { account: string; amount: string; date: string; commodity: string } | null =
 		$state(null);
@@ -58,16 +58,16 @@
 		loadHistory(account);
 	});
 
-	async function show(id: string) {
-		if (shown?.check.id === id) {
+	async function show(id: string, again = false) {
+		if (shown?.check.id === id && !again) {
 			shown = null;
 			return;
 		}
 		failure = null;
 		try {
-			const check = ok(await api.GET('/api/v1/balance-checks/{id}', { params: { path: { id } } }));
-			const ids = (check.candidates ?? []).flatMap((c) => c.splits.map((s) => s.transaction_id));
-			shown = { check, txs: await transactionsById(ids) };
+			shown = {
+				check: ok(await api.GET('/api/v1/balance-checks/{id}', { params: { path: { id } } }))
+			};
 		} catch (e) {
 			failure = e;
 		}
@@ -127,16 +127,9 @@
 		}
 	}
 
-	/** The split's effect on the checked account: + in, − out. */
 	/** Banks show what's owed on these as positive, and so are checks entered. */
 	const owed = (a: Schemas['Account'] | undefined) =>
 		a?.kind === 'credit_card' || a?.kind === 'mortgage';
-
-	function movement(tx: Schemas['Transaction'] | undefined, position: number): string | null {
-		const s = tx?.splits[position];
-		if (!s) return null;
-		return s.to.account_id === account ? s.to.quantity : negate(s.from.quantity);
-	}
 
 	const pick = (id: string) =>
 		goto(resolve(id ? `/checks?account=${id}` : '/checks'), { replace: true });
@@ -221,7 +214,17 @@
 					<tr class:selected={shown?.check.id === c.id}>
 						<td>{dayName(c.date)}</td>
 						<td class="num"><Amount value={c.amount} code={code(c.commodity_id)} /></td>
-						<td class="num"><Amount value={c.ledger} /></td>
+						<td class="num">
+							<a
+								href={resolve(
+									transactionsPath({
+										account_id: [account],
+										commodity_id: [c.commodity_id],
+										to: c.date
+									})
+								)}><Amount value={c.ledger} /></a
+							>
+						</td>
 						<td class="num">
 							{#if c.matches}<Mark tone="ok" label="Matches" />{:else}<Amount
 									value={c.difference}
@@ -257,19 +260,15 @@
 										</p>
 										{#each d.check.candidates ?? [] as cand, i (i)}
 											<div class="candidate">
-												<strong>{candidateReasons[cand.reason]}</strong>
-												{#each cand.splits as sp (`${sp.transaction_id}/${sp.position}`)}
-													{@const tx = d.txs.get(sp.transaction_id)}
-													{@const q = movement(tx, sp.position)}
-													<div class="line">
-														<span class="date">{tx ? dayName(tx.date) : ''}</span>
-														<span class="desc">{tx?.description ?? '?'}</span>
-														{#if q}<Amount value={q} />{/if}
-														<a href={resolve('/transactions/[id]', { id: sp.transaction_id })}
-															>Edit</a
-														>
-													</div>
-												{/each}
+												<TransactionTable
+													label={candidateReasons[cand.reason]}
+													filter={{
+														id: cand.splits.map((s) => s.transaction_id),
+														account_id: [account],
+														commodity_id: [c.commodity_id]
+													}}
+													onchange={() => show(c.id, true)}
+												/>
 											</div>
 										{:else}
 											<p class="muted">No transaction explains it on its own.</p>
@@ -346,20 +345,6 @@
 	}
 	.candidate {
 		margin-top: var(--space-3);
-		font-size: var(--text-sm);
-	}
-	.line {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-3);
-		padding: var(--space-1) 0 0 var(--space-4);
-	}
-	.date {
-		font-variant-numeric: var(--numeric);
-		color: var(--color-text-muted);
-	}
-	.desc {
-		flex: 1;
 	}
 	.list {
 		background: var(--color-surface);
