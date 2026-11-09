@@ -166,6 +166,37 @@ impl H {
     }
 }
 
+impl H {
+    /// The `totals` of the transactions list with this query string.
+    pub async fn totals(&self, pool: &PgPool, query: &str) -> Value {
+        let r = self
+            .send(pool, "GET", &format!("/api/v1/transactions?{query}"), None)
+            .await;
+        assert_eq!(r.status, axum::http::StatusCode::OK, "{query}: {}", r.body);
+        r.body["totals"].clone()
+    }
+
+    /// One amount in USD, as `totals` lists it.
+    pub fn usd_total(&self, amount: &Value) -> Value {
+        json!([{ "commodity_id": self.usd, "amount": amount }])
+    }
+}
+
+/// A filter a report returned, as a query string: a list is a repeated key.
+pub fn query_string(filter: &Value) -> String {
+    let mut out = Vec::new();
+    for (k, v) in filter.as_object().unwrap() {
+        match v {
+            Value::Array(items) => {
+                out.extend(items.iter().map(|i| format!("{k}={}", i.as_str().unwrap())));
+            }
+            Value::String(s) => out.push(format!("{k}={s}")),
+            other => out.push(format!("{k}={other}")),
+        }
+    }
+    out.join("&")
+}
+
 pub fn edge<'a>(statement: &'a Value, child: &str) -> &'a Value {
     statement["edges"]
         .as_array()

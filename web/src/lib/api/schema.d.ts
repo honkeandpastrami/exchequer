@@ -1275,7 +1275,10 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List transactions, newest first. */
+		/**
+		 * List the transactions with a split that passes the filter, newest first,
+		 *     each with what of it counts (`matched`), and the totals over every page.
+		 */
 		get: operations['transactions_list'];
 		put?: never;
 		/** Create a transaction with its splits. */
@@ -1687,6 +1690,13 @@ export interface components {
 			 */
 			precision: number;
 		};
+		/** @description An amount of one commodity, at its precision. */
+		CommodityAmount: {
+			/** @example -80.00 */
+			amount: string;
+			/** Format: uuid */
+			commodity_id: string;
+		};
 		/** @enum {string} */
 		CommodityKind: 'fiat' | 'security' | 'fund' | 'crypto' | 'other';
 		/** @description Fields to change; omitted ones stay as they are. */
@@ -1961,12 +1971,18 @@ export interface components {
 			 */
 			fetching: boolean;
 			/**
+			 * @description What `income` and `expenses` were computed from: with `kind` and a
+			 *     `category_id` added, the transactions behind one figure.
+			 */
+			filter: components['schemas']['TransactionFilter'];
+			/**
 			 * @description Income for the household, by category (positive). Money out of an
 			 *     investment into a liquid account counts.
 			 */
 			income: components['schemas']['CategoryAmount'][];
 			/** @example 2026-06 */
 			month: string;
+			savings_filter?: components['schemas']['TransactionFilter'] | null;
 			/** @description The change in the household's own liquid accounts over the month. */
 			shared_savings_change: string;
 			/** @description What the household owes each person for the month. */
@@ -2630,27 +2646,6 @@ export interface components {
 			/** @description Pass as `cursor` to get the next page; absent on the last page. */
 			next_cursor?: string | null;
 		};
-		/** @description One page of results. */
-		Page_Transaction: {
-			items: {
-				/** Format: date */
-				date: string;
-				description: string;
-				external_refs: components['schemas']['ExternalRef'][];
-				/** Format: uuid */
-				id: string;
-				/**
-				 * Format: uuid
-				 * @description Read-only: the import batch the transaction entered with.
-				 */
-				import_batch_id: string;
-				notes?: string | null;
-				splits: components['schemas']['Split'][];
-				tags: string[];
-			}[];
-			/** @description Pass as `cursor` to get the next page; absent on the last page. */
-			next_cursor?: string | null;
-		};
 		Party: {
 			/** Format: uuid */
 			id: string;
@@ -2745,14 +2740,19 @@ export interface components {
 			line?: number | null;
 			message: string;
 		};
-		/** @description Filters combine with AND; the values inside one filter with OR. */
+		/**
+		 * @description Filters combine with AND; the values inside one filter with OR. `null`
+		 *     in a list takes postings with no value there (no category, say). The
+		 *     transactions list takes the same filters (`GET /transactions`).
+		 */
 		QueryRequest: {
 			account_ids?: string[];
 			bucket?: components['schemas']['BucketName'] | null;
 			/** @description Flow only. */
-			category_ids?: string[];
+			category_ids?: (string | null)[];
+			commodity_ids?: string[];
 			/** @description Flow only. */
-			counterparty_ids?: string[];
+			counterparty_ids?: (string | null)[];
 			/**
 			 * Format: date
 			 * @description First day, inclusive. For a balance, where buckets start (default: `to`).
@@ -2768,7 +2768,7 @@ export interface components {
 			measure?: components['schemas']['Measure'];
 			owner_ids?: string[];
 			/** @description Flow only. Effective purpose, as in `group_by: purpose`. */
-			purpose_ids?: string[];
+			purpose_ids?: (string | null)[];
 			/** @description Flow only: transactions with any of these tags. */
 			tags?: string[];
 			/** @description Flow only: case-insensitive text in the description or notes. */
@@ -3425,9 +3425,79 @@ export interface components {
 			 * @description Read-only: the import batch the transaction entered with.
 			 */
 			import_batch_id: string;
+			/**
+			 * @description In a list: what its splits that pass the filter add up to, per
+			 *     commodity. Those amounts are what a report or a statement with the
+			 *     same filter counted of it.
+			 */
+			matched?: components['schemas']['CommodityAmount'][] | null;
 			notes?: string | null;
 			splits: components['schemas']['Split'][];
 			tags: string[];
+		};
+		/**
+		 * @description Which transactions to list, and what of each counts. Filters combine with
+		 *     AND; repeat a key for alternatives (`kind=income&kind=expense`). `none`
+		 *     takes splits with no value there (`category_id=none`: uncategorized).
+		 *
+		 *     The amounts that count are the postings that pass, as `/query` sums them;
+		 *     with `settles`, the settlement lines of one party's statement instead.
+		 */
+		TransactionFilter: {
+			/** @description On one of these accounts. */
+			account_id?: string[];
+			category_id?: string[];
+			commodity_id?: string[];
+			/** @description The outside party of an income or expense. */
+			counterparty_id?: string[];
+			/**
+			 * Format: date
+			 * @description Earliest date, inclusive.
+			 */
+			from?: string | null;
+			kind?: components['schemas']['KindName'][];
+			line?: components['schemas']['LineKind'] | null;
+			/** @description On an account one of these parties owns. */
+			owner_id?: string[];
+			/**
+			 * Format: uuid
+			 * @description With `settles`: the party whose statement it is (the child of its
+			 *     edge).
+			 */
+			party_id?: string | null;
+			/** @description For one of these parties: the effective purpose, as `/query` has it. */
+			purpose_id?: string[];
+			/**
+			 * @description Text in the description or notes, or a split's description
+			 *     (case-insensitive).
+			 */
+			q?: string | null;
+			/**
+			 * @description With `party_id`: the lines on that party's settlement statement for
+			 *     this month (`YYYY-MM`). A payment can settle a month other than its
+			 *     date's.
+			 */
+			settles?: string | null;
+			/** @description Transactions with one of these tags. */
+			tag_id?: string[];
+			/**
+			 * Format: date
+			 * @description Latest date, inclusive.
+			 */
+			to?: string | null;
+			/** @description Splits the settlement couldn't value: no leg in USD and no price. */
+			unpriced?: boolean;
+		};
+		/** @description One page of transactions, newest first. */
+		TransactionPage: {
+			items: components['schemas']['Transaction'][];
+			/** @description Pass as `cursor` to get the next page; absent on the last page. */
+			next_cursor?: string | null;
+			/**
+			 * @description Every match's `matched` added up, on every page: the aggregate the
+			 *     filter describes.
+			 */
+			totals: components['schemas']['CommodityAmount'][];
 		};
 		/** @description A transfer pair's other row. */
 		TransferPair: {
@@ -7392,19 +7462,39 @@ export interface operations {
 				from?: string;
 				/** @description Latest date, inclusive. */
 				to?: string;
-				/** @description Only transactions with a split on this account. */
-				account_id?: string;
-				/** @description Only transactions with a split involving this counterparty. */
-				counterparty_id?: string;
-				/** @description Only transactions with a split in this category. */
-				category_id?: string;
-				/** @description Only transactions with this tag. */
-				tag_id?: string;
+				/** @description On one of these accounts. */
+				account_id?: string[];
+				/** @description On an account one of these parties owns. */
+				owner_id?: string[];
+				/** @description For one of these parties: the effective purpose, as `/query` has it. */
+				purpose_id?: string[];
+				category_id?: string[];
+				/** @description The outside party of an income or expense. */
+				counterparty_id?: string[];
+				kind?: components['schemas']['KindName'][];
+				commodity_id?: string[];
+				/** @description Transactions with one of these tags. */
+				tag_id?: string[];
 				/**
-				 * @description Only transactions whose description, notes or a split's description
-				 *     contain this text (case-insensitive).
+				 * @description Text in the description or notes, or a split's description
+				 *     (case-insensitive).
 				 */
 				q?: string;
+				/**
+				 * @description With `party_id`: the lines on that party's settlement statement for
+				 *     this month (`YYYY-MM`). A payment can settle a month other than its
+				 *     date's.
+				 */
+				settles?: string;
+				/**
+				 * @description With `settles`: the party whose statement it is (the child of its
+				 *     edge).
+				 */
+				party_id?: string;
+				/** @description With `settles`: only its claims, or only its payments. */
+				line?: components['schemas']['LineKind'];
+				/** @description Splits the settlement couldn't value: no leg in USD and no price. */
+				unpriced?: boolean;
 				/** @description With `external_ref`: the transaction with this external reference. */
 				external_source?: string;
 				/** @description With `external_source`. */
@@ -7428,7 +7518,16 @@ export interface operations {
 					[name: string]: unknown;
 				};
 				content: {
-					'application/json': components['schemas']['Page_Transaction'];
+					'application/json': components['schemas']['TransactionPage'];
+				};
+			};
+			/** @description Unprocessable Entity */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/problem+json': components['schemas']['Problem'];
 				};
 			};
 		};

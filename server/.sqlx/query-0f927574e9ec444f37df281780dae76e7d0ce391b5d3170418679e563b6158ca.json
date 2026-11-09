@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.id FROM transaction t\n         WHERE ($1::uuid IS NULL OR t.import_batch_id = $1)\n           AND ($2::text IS NULL OR EXISTS (SELECT 1 FROM transaction_external_ref e\n                WHERE e.transaction_id = t.id AND e.source = $2 AND e.ref = $3))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "transaction",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0f927574e9ec444f37df281780dae76e7d0ce391b5d3170418679e563b6158ca"
+}

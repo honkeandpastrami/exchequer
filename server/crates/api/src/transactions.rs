@@ -14,7 +14,7 @@ use ledger::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use store::audit::Action;
-use store::transactions::{Filter, Full, SplitRow, TransactionRow};
+use store::transactions::{Full, SplitRow, TransactionRow};
 use time::Date;
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
@@ -24,9 +24,10 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::auth::Principal;
 use crate::common::{audit, delete_error, write_error};
-use crate::conventions::{IfMatch, Page, etag};
+use crate::conventions::{IfMatch, etag};
+use crate::filter::{TransactionFilter, matching};
 use crate::ledger_from_store::book_for;
-use crate::problem::{Json, Path, Problem, Query};
+use crate::problem::{Json, ListQuery, Path, Problem};
 
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -158,8 +159,33 @@ pub struct Transaction {
     /// Read-only: the import batch the transaction entered with.
     import_batch_id: Uuid,
     splits: Vec<Split>,
+    /// In a list: what its splits that pass the filter add up to, per
+    /// commodity. Those amounts are what a report or a statement with the
+    /// same filter counted of it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matched: Option<Vec<CommodityAmount>>,
     #[serde(skip)]
     version: i64,
+}
+
+/// An amount of one commodity, at its precision.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct CommodityAmount {
+    commodity_id: Uuid,
+    #[schema(value_type = String, example = "-80.00")]
+    amount: Amount,
+}
+
+/// One page of transactions, newest first.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TransactionPage {
+    items: Vec<Transaction>,
+    /// Pass as `cursor` to get the next page; absent on the last page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_cursor: Option<String>,
+    /// Every match's `matched` added up, on every page: the aggregate the
+    /// filter describes.
+    totals: Vec<CommodityAmount>,
 }
 
 fn respond(status: StatusCode, t: &Transaction) -> Response {
@@ -311,6 +337,7 @@ fn output(
                 kind: c.kind.into(),
             })
             .collect(),
+        matched: None,
         version,
     }
 }
@@ -490,24 +517,10 @@ fn duplicate_ref() -> String {
 
 // ------------------------------------------------------------ Handlers ----
 
+/// What the transactions list takes besides its filter.
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct ListParams {
-    /// Earliest date, inclusive.
-    from: Option<Date>,
-    /// Latest date, inclusive.
-    to: Option<Date>,
-    /// Only transactions with a split on this account.
-    account_id: Option<Uuid>,
-    /// Only transactions with a split involving this counterparty.
-    counterparty_id: Option<Uuid>,
-    /// Only transactions with a split in this category.
-    category_id: Option<Uuid>,
-    /// Only transactions with this tag.
-    tag_id: Option<Uuid>,
-    /// Only transactions whose description, notes or a split's description
-    /// contain this text (case-insensitive).
-    q: Option<String>,
     /// With `external_ref`: the transaction with this external reference.
     external_source: Option<String>,
     /// With `external_source`.
@@ -530,42 +543,97 @@ fn parse_cursor(c: &str) -> Result<(Date, Uuid), Problem> {
     ))
 }
 
-/// List transactions, newest first.
+/// Amounts per commodity, each at its commodity's precision.
+async fn at_precision(
+    db: &mut PgConnection,
+    amounts: &std::collections::BTreeMap<CommodityId, Amount>,
+) -> Result<Vec<CommodityAmount>, Problem> {
+    let ids: Vec<Uuid> = amounts.keys().map(|c| *c.as_uuid()).collect();
+    let scale: std::collections::HashMap<Uuid, u32> = store::commodities::get_many(&mut *db, &ids)
+        .await?
+        .into_iter()
+        .map(|c| (c.id, u32::try_from(c.precision).unwrap_or(0)))
+        .collect();
+    amounts
+        .iter()
+        .map(|(c, a)| {
+            let id = *c.as_uuid();
+            let mut d = a.as_decimal();
+            if d.is_zero() {
+                d = rust_decimal::Decimal::ZERO;
+            }
+            d.rescale(*scale.get(&id).ok_or_else(Problem::internal)?);
+            Ok(CommodityAmount {
+                commodity_id: id,
+                amount: Amount::from_decimal(d),
+            })
+        })
+        .collect()
+}
+
+/// List the transactions with a split that passes the filter, newest first,
+/// each with what of it counts (`matched`), and the totals over every page.
 #[utoipa::path(get, path = "/transactions", tag = "transactions", security(("bearer" = [])),
-    params(ListParams),
-    responses((status = OK, body = Page<Transaction>)))]
+    params(TransactionFilter, ListParams),
+    responses((status = OK, body = TransactionPage),
+              (status = UNPROCESSABLE_ENTITY, body = Problem, content_type = "application/problem+json")))]
 async fn list(
     State(state): State<AppState>,
-    Query(p): Query<ListParams>,
-) -> Result<axum::Json<Page<Transaction>>, Problem> {
+    ListQuery(filter): ListQuery<TransactionFilter>,
+    ListQuery(p): ListQuery<ListParams>,
+) -> Result<axum::Json<TransactionPage>, Problem> {
     let after = p.cursor.as_deref().map(parse_cursor).transpose()?;
-    let limit = i64::from(p.limit.unwrap_or(100).clamp(1, 500));
-    let filter = Filter {
-        from: p.from,
-        to: p.to,
-        account: p.account_id,
-        counterparty: p.counterparty_id,
-        category: p.category_id,
-        tag: p.tag_id,
-        text: p.q.filter(|q| !q.trim().is_empty()),
-        external_ref: match (p.external_source, p.external_ref) {
-            (Some(s), Some(r)) => Some((s, r)),
-            (None, None) => None,
-            _ => {
-                return Err(Problem::invalid(
-                    "external_source and external_ref go together",
-                ));
-            }
-        },
-        import_batch: p.import_batch_id,
+    let limit = usize::try_from(p.limit.unwrap_or(100).clamp(1, 500)).unwrap_or(100);
+    let external_ref = match (p.external_source, p.external_ref) {
+        (Some(s), Some(r)) => Some((s, r)),
+        (None, None) => None,
+        _ => {
+            return Err(Problem::invalid(
+                "external_source and external_ref go together",
+            ));
+        }
     };
     let mut conn = state.pool.acquire().await?;
-    let rows = store::transactions::list(&mut *conn, &filter, after, limit + 1).await?;
+    let mut matched = matching(&state, &mut conn, &filter).await?;
+    if p.import_batch_id.is_some() || external_ref.is_some() {
+        let only: std::collections::HashSet<Uuid> =
+            store::transactions::ids_with(&mut *conn, p.import_batch_id, external_ref)
+                .await?
+                .into_iter()
+                .collect();
+        matched.transactions.retain(|m| only.contains(&m.id));
+        matched.totals.clear();
+        for m in &matched.transactions {
+            for (c, a) in &m.amounts {
+                let sum = matched.totals.entry(*c).or_default();
+                *sum = sum.checked_add(*a).map_err(|_| Problem::internal())?;
+            }
+        }
+    }
+    let rest = matched
+        .transactions
+        .iter()
+        .skip_while(|m| after.is_some_and(|a| (m.date, m.id) >= a));
+    let page: Vec<_> = rest.take(limit + 1).collect();
+    let more = page.len() > limit;
+    let page = &page[..page.len().min(limit)];
+
+    let ids: Vec<Uuid> = page.iter().map(|m| m.id).collect();
+    let rows = store::transactions::rows(&mut *conn, &ids).await?;
     let fulls = store::transactions::complete(&mut conn, rows).await?;
-    let items = from_full(&mut conn, fulls).await?;
-    Ok(axum::Json(Page::from_rows(items, limit, |t| {
-        format!("{}_{}", t.date, t.id)
-    })))
+    let mut items = from_full(&mut conn, fulls).await?;
+    for (t, m) in items.iter_mut().zip(page) {
+        t.matched = Some(at_precision(&mut conn, &m.amounts).await?);
+    }
+    Ok(axum::Json(TransactionPage {
+        next_cursor: if more {
+            items.last().map(|t| format!("{}_{}", t.date, t.id))
+        } else {
+            None
+        },
+        items,
+        totals: at_precision(&mut conn, &matched.totals).await?,
+    }))
 }
 
 /// Get one transaction.

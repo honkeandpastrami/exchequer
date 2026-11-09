@@ -85,6 +85,72 @@ pub fn postings(
     out
 }
 
+/// Which postings count: the one filter behind every query, report and list
+/// of transactions (design §7). Filters combine with AND, the values inside
+/// one with OR; an empty list takes anything. `None` in a list takes
+/// postings with no value there (no category, say).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Filter {
+    /// First day, inclusive.
+    pub from: Option<Date>,
+    /// Last day, inclusive.
+    pub to: Option<Date>,
+    pub accounts: Vec<AccountId>,
+    pub owners: Vec<PartyId>,
+    pub purposes: Vec<Option<PartyId>>,
+    pub categories: Vec<Option<CategoryId>>,
+    pub counterparties: Vec<Option<CounterpartyId>>,
+    pub kinds: Vec<Kind>,
+    pub commodities: Vec<CommodityId>,
+    /// Transactions with any of these tags.
+    pub tags: Vec<String>,
+    /// Case-insensitive text in the transaction's description or notes, or
+    /// the split's description.
+    pub text: Option<String>,
+}
+
+impl Filter {
+    /// Whether `p` passes every filter but `text`, which is the split's
+    /// (see [`Filter::has_text`]).
+    #[must_use]
+    pub fn keeps(&self, p: &Posting) -> bool {
+        fn any<T: PartialEq>(list: &[T], value: &T) -> bool {
+            list.is_empty() || list.contains(value)
+        }
+        self.from.is_none_or(|f| p.date >= f)
+            && self.to.is_none_or(|t| p.date <= t)
+            && any(&self.accounts, &p.account)
+            && any(&self.owners, &p.owner)
+            && any(&self.purposes, &p.purpose)
+            && any(&self.categories, &p.category)
+            && any(&self.counterparties, &p.counterparty)
+            && any(&self.kinds, &p.kind)
+            && any(&self.commodities, &p.commodity)
+            && (self.tags.is_empty() || p.tags.iter().any(|t| self.tags.contains(t)))
+    }
+
+    /// Whether one of `texts` (the transaction's description and notes, the
+    /// split's description) holds `text`.
+    pub fn has_text<'a>(&self, texts: impl IntoIterator<Item = &'a str>) -> bool {
+        let Some(text) = self.text.as_deref().map(str::to_lowercase) else {
+            return true;
+        };
+        texts.into_iter().any(|s| s.to_lowercase().contains(&text))
+    }
+
+    /// Whether it filters by what holds the money only (account, owner,
+    /// commodity): all a balance can take.
+    #[must_use]
+    pub fn by_holding_only(&self) -> bool {
+        self.purposes.is_empty()
+            && self.categories.is_empty()
+            && self.counterparties.is_empty()
+            && self.kinds.is_empty()
+            && self.tags.is_empty()
+            && self.text.is_none()
+    }
+}
+
 /// What rows can be grouped by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Dimension {

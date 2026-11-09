@@ -4,7 +4,7 @@
 use crate::common;
 
 use axum::http::StatusCode;
-use common::household::H;
+use common::household::{H, query_string};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
@@ -306,4 +306,135 @@ async fn household_pool(pool: PgPool) {
         json!([{ "party_id": h.studio, "amount": "0.00" }])
     );
     assert_eq!(p["shared_savings_change"], "500.00");
+}
+
+/// Every figure links to the transactions it adds up: the list with the same
+/// filter totals to it.
+#[sqlx::test(migrator = "store::MIGRATOR")]
+async fn figures_equal_their_lists(pool: PgPool) {
+    let h = H::new(&pool).await;
+    june_and_july(&h, &pool).await;
+    h.tx(
+        &pool,
+        "2026-06-25",
+        h.acct(&h.alex_brokerage),
+        h.acct(&h.joint_savings),
+        "500.00",
+        json!({ "purpose_id": h.household, "category_id": h.shopping }),
+    )
+    .await;
+
+    // Spending and income by category and month, uncategorized included.
+    for kind in ["expense", "income", "transfer"] {
+        let rows = query(
+            &h,
+            &pool,
+            json!({ "from": "2026-06-01", "to": "2026-07-31", "bucket": "month",
+                    "kinds": [kind], "group_by": ["category"] }),
+        )
+        .await;
+        assert!(!rows.is_empty(), "{kind}");
+        for r in rows {
+            let month = &r["bucket"].as_str().unwrap()[..7];
+            let last = if month == "2026-06" { "30" } else { "31" };
+            let category = r["category_id"].as_str().unwrap_or("none");
+            let q = format!(
+                "from={month}-01&to={month}-{last}&kind={kind}&category_id={category}&commodity_id={}",
+                r["commodity_id"].as_str().unwrap()
+            );
+            assert_eq!(h.totals(&pool, &q).await, h.usd_total(&r["amount"]), "{q}");
+        }
+    }
+    // Text, and several values of one filter.
+    let rows = query(
+        &h,
+        &pool,
+        json!({ "text": "GROCER", "kinds": ["expense", "income"], "purpose_ids": [h.household] }),
+    )
+    .await;
+    assert_eq!(rows.len(), 1);
+    let q = format!(
+        "q=GROCER&kind=expense&kind=income&purpose_id={}",
+        h.household
+    );
+    assert_eq!(h.totals(&pool, &q).await, h.usd_total(&rows[0]["amount"]));
+
+    // The household pool, from the filters it returns.
+    let p = h
+        .send(&pool, "GET", "/api/v1/reports/household-pool/2026-06", None)
+        .await
+        .body;
+    let base = query_string(&p["filter"]);
+    for (kind, lines) in [("income", &p["income"]), ("expense", &p["expenses"])] {
+        for l in lines.as_array().unwrap() {
+            let category = l["category_id"].as_str().unwrap_or("none");
+            let q = format!("{base}&kind={kind}&category_id={category}");
+            assert_eq!(h.totals(&pool, &q).await, h.usd_total(&l["amount"]), "{q}");
+        }
+    }
+    let q = query_string(&p["savings_filter"]);
+    assert_eq!(
+        h.totals(&pool, &q).await,
+        h.usd_total(&p["shared_savings_change"])
+    );
+
+    // Each balance: everything on the account up to the day.
+    let b = h
+        .send(
+            &pool,
+            "GET",
+            "/api/v1/reports/balances?date=2026-06-30",
+            None,
+        )
+        .await
+        .body;
+    for row in b["balances"].as_array().unwrap() {
+        let q = format!(
+            "account_id={}&to=2026-06-30",
+            row["account_id"].as_str().unwrap()
+        );
+        assert_eq!(
+            h.totals(&pool, &q).await,
+            h.usd_total(&row["balance"]),
+            "{q}"
+        );
+    }
+
+    // Each transaction carries what of it counted.
+    let r = h
+        .send(
+            &pool,
+            "GET",
+            &format!(
+                "/api/v1/transactions?account_id={}&to=2026-06-30",
+                h.alex_checking
+            ),
+            None,
+        )
+        .await;
+    let matched: Vec<&str> = r.body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["matched"][0]["amount"].as_str().unwrap())
+        .collect();
+    assert_eq!(matched, ["-100.00", "3000.00"]);
+
+    // Bad filters are 422s.
+    for q in [
+        "category_id=nothing",
+        "settles=2026-06",
+        "line=claim",
+        "from=2026-07-01&to=2026-06-01",
+    ] {
+        let r = h
+            .send(&pool, "GET", &format!("/api/v1/transactions?{q}"), None)
+            .await;
+        assert_eq!(
+            r.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{q}: {}",
+            r.body
+        );
+    }
 }

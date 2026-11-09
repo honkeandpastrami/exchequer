@@ -15,9 +15,10 @@ use utoipa_axum::routes;
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::filter::{IdOrNone, TransactionFilter};
 use crate::prices::ValuationOut;
 use crate::problem::{Path, Problem, Query};
-use crate::query::{GroupBy, KindName, Measure, QueryRequest, Row, run};
+use crate::query::{GroupBy, KindName, Measure, QueryRequest, run};
 use crate::settlements::{compute, household, money};
 use crate::valuation_prices::Need;
 
@@ -185,21 +186,16 @@ pub struct HouseholdPool {
     /// The change in the household's own liquid accounts over the month.
     #[schema(value_type = String)]
     shared_savings_change: Amount,
+    /// What `income` and `expenses` were computed from: with `kind` and a
+    /// `category_id` added, the transactions behind one figure.
+    filter: TransactionFilter,
+    /// The transactions behind `shared_savings_change`; absent with no
+    /// shared liquid accounts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    savings_filter: Option<TransactionFilter>,
     /// Missing or stale prices are being fetched: once `GET /prices/fetching`
     /// says they're done, the figures may be fresher.
     fetching: bool,
-}
-
-async fn flow(
-    db: &mut PgConnection,
-    req: QueryRequest,
-    currency: Uuid,
-) -> Result<Vec<Row>, Problem> {
-    Ok(run(db, &req)
-        .await?
-        .into_iter()
-        .filter(|r| r.commodity_id == currency)
-        .collect())
 }
 
 /// The household pool for one month: shared income and expenses, stipends,
@@ -217,23 +213,28 @@ async fn household_pool(
     let db = &mut *conn;
     let (household_id, currency) = household(db).await?;
     let (household_id, currency) = (*household_id.as_uuid(), *currency.as_uuid());
-    let in_month = QueryRequest {
-        from: Some(month.first_day()),
-        to: Some(month.last_day()),
-        purpose_ids: vec![household_id],
-        ..QueryRequest::default()
+    let (from, to) = (month.first_day(), month.last_day());
+    let filter = TransactionFilter {
+        from: Some(from),
+        to: Some(to),
+        purpose_id: vec![IdOrNone(Some(household_id))],
+        commodity_id: vec![currency],
+        ..TransactionFilter::default()
     };
 
     let mut income = Vec::new();
     let mut expenses = Vec::new();
-    let rows = flow(
+    let rows = run(
         db,
-        QueryRequest {
+        &QueryRequest {
+            from: Some(from),
+            to: Some(to),
+            purpose_ids: vec![Some(household_id)],
+            commodity_ids: vec![currency],
             kinds: vec![KindName::Income, KindName::Expense],
             group_by: vec![GroupBy::Kind, GroupBy::Category],
-            ..in_month.clone()
+            ..QueryRequest::default()
         },
-        currency,
     )
     .await?;
     for r in rows {
@@ -259,15 +260,15 @@ async fn household_pool(
         if shared.is_empty() {
             return Ok(Amount::ZERO);
         }
-        let rows = flow(
+        let rows = run(
             db,
-            QueryRequest {
+            &QueryRequest {
                 measure: Measure::Balance,
                 to: Some(day),
                 account_ids: shared.clone(),
+                commodity_ids: vec![currency],
                 ..QueryRequest::default()
             },
-            currency,
         )
         .await?;
         Ok(rows
@@ -276,6 +277,13 @@ async fn household_pool(
             .next()
             .unwrap_or_default())
     };
+    let savings_filter = (!shared.is_empty()).then(|| TransactionFilter {
+        from: Some(from),
+        to: Some(to),
+        account_id: shared.clone(),
+        commodity_id: vec![currency],
+        ..TransactionFilter::default()
+    });
     let end = balance(db, month.last_day()).await?;
     let start = balance(db, month.previous().last_day()).await?;
     let shared_savings_change = m(end.checked_sub(start).map_err(|_| Problem::internal())?);
@@ -330,6 +338,8 @@ async fn household_pool(
         stipends,
         business_funding,
         shared_savings_change,
+        filter,
+        savings_filter,
         fetching: c.fetching,
     }))
 }

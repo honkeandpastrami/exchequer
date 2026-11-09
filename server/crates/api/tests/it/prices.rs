@@ -480,6 +480,21 @@ async fn settlement_and_balances_use_prices(pool: PgPool) {
     let st = h.send(&pool, "GET", statement, None).await;
     assert_eq!(st.status, StatusCode::OK, "{}", st.body);
     assert_eq!(st.body["unpriced"].as_array().unwrap().len(), 1);
+    // The note links to them.
+    let r = h
+        .send(
+            &pool,
+            "GET",
+            "/api/v1/transactions?unpriced=true&to=2026-06-30",
+            None,
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(r.body["items"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        r.body["totals"],
+        json!([{ "commodity_id": eur, "amount": "-100.00" }])
+    );
     let balances = "/api/v1/reports/balances?date=2026-06-30&value_in=USD";
     let b = h.send(&pool, "GET", balances, None).await;
     assert_eq!(b.status, StatusCode::OK, "{}", b.body);

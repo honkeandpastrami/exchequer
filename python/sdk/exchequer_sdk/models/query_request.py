@@ -18,35 +18,39 @@ T = TypeVar("T", bound="QueryRequest")
 
 @_attrs_define
 class QueryRequest:
-    """Filters combine with AND; the values inside one filter with OR.
+    """Filters combine with AND; the values inside one filter with OR. `null`
+    in a list takes postings with no value there (no category, say). The
+    transactions list takes the same filters (`GET /transactions`).
 
-    Attributes:
-        account_ids (list[UUID] | Unset):
-        bucket (BucketName | None | Unset):
-        category_ids (list[UUID] | Unset): Flow only.
-        counterparty_ids (list[UUID] | Unset): Flow only.
-        from_ (datetime.date | None | Unset): First day, inclusive. For a balance, where buckets start (default: `to`).
-        group_by (list[GroupBy] | Unset): Rows are always per commodity too. A balance groups by `account` or
-            `owner` only.
-        kinds (list[KindName] | Unset): Flow only.
-        measure (Measure | Unset):
-        owner_ids (list[UUID] | Unset):
-        purpose_ids (list[UUID] | Unset): Flow only. Effective purpose, as in `group_by: purpose`.
-        tags (list[str] | Unset): Flow only: transactions with any of these tags.
-        text (None | str | Unset): Flow only: case-insensitive text in the description or notes.
-        to (datetime.date | None | Unset): Last day, inclusive. Required for a balance.
+        Attributes:
+            account_ids (list[UUID] | Unset):
+            bucket (BucketName | None | Unset):
+            category_ids (list[None | UUID] | Unset): Flow only.
+            commodity_ids (list[UUID] | Unset):
+            counterparty_ids (list[None | UUID] | Unset): Flow only.
+            from_ (datetime.date | None | Unset): First day, inclusive. For a balance, where buckets start (default: `to`).
+            group_by (list[GroupBy] | Unset): Rows are always per commodity too. A balance groups by `account` or
+                `owner` only.
+            kinds (list[KindName] | Unset): Flow only.
+            measure (Measure | Unset):
+            owner_ids (list[UUID] | Unset):
+            purpose_ids (list[None | UUID] | Unset): Flow only. Effective purpose, as in `group_by: purpose`.
+            tags (list[str] | Unset): Flow only: transactions with any of these tags.
+            text (None | str | Unset): Flow only: case-insensitive text in the description or notes.
+            to (datetime.date | None | Unset): Last day, inclusive. Required for a balance.
     """
 
     account_ids: list[UUID] | Unset = UNSET
     bucket: BucketName | None | Unset = UNSET
-    category_ids: list[UUID] | Unset = UNSET
-    counterparty_ids: list[UUID] | Unset = UNSET
+    category_ids: list[None | UUID] | Unset = UNSET
+    commodity_ids: list[UUID] | Unset = UNSET
+    counterparty_ids: list[None | UUID] | Unset = UNSET
     from_: datetime.date | None | Unset = UNSET
     group_by: list[GroupBy] | Unset = UNSET
     kinds: list[KindName] | Unset = UNSET
     measure: Measure | Unset = UNSET
     owner_ids: list[UUID] | Unset = UNSET
-    purpose_ids: list[UUID] | Unset = UNSET
+    purpose_ids: list[None | UUID] | Unset = UNSET
     tags: list[str] | Unset = UNSET
     text: None | str | Unset = UNSET
     to: datetime.date | None | Unset = UNSET
@@ -67,18 +71,33 @@ class QueryRequest:
         else:
             bucket = self.bucket
 
-        category_ids: list[str] | Unset = UNSET
+        category_ids: list[None | str] | Unset = UNSET
         if not isinstance(self.category_ids, Unset):
             category_ids = []
             for category_ids_item_data in self.category_ids:
-                category_ids_item = str(category_ids_item_data)
+                category_ids_item: None | str
+                if isinstance(category_ids_item_data, UUID):
+                    category_ids_item = str(category_ids_item_data)
+                else:
+                    category_ids_item = category_ids_item_data
                 category_ids.append(category_ids_item)
 
-        counterparty_ids: list[str] | Unset = UNSET
+        commodity_ids: list[str] | Unset = UNSET
+        if not isinstance(self.commodity_ids, Unset):
+            commodity_ids = []
+            for commodity_ids_item_data in self.commodity_ids:
+                commodity_ids_item = str(commodity_ids_item_data)
+                commodity_ids.append(commodity_ids_item)
+
+        counterparty_ids: list[None | str] | Unset = UNSET
         if not isinstance(self.counterparty_ids, Unset):
             counterparty_ids = []
             for counterparty_ids_item_data in self.counterparty_ids:
-                counterparty_ids_item = str(counterparty_ids_item_data)
+                counterparty_ids_item: None | str
+                if isinstance(counterparty_ids_item_data, UUID):
+                    counterparty_ids_item = str(counterparty_ids_item_data)
+                else:
+                    counterparty_ids_item = counterparty_ids_item_data
                 counterparty_ids.append(counterparty_ids_item)
 
         from_: None | str | Unset
@@ -114,11 +133,15 @@ class QueryRequest:
                 owner_ids_item = str(owner_ids_item_data)
                 owner_ids.append(owner_ids_item)
 
-        purpose_ids: list[str] | Unset = UNSET
+        purpose_ids: list[None | str] | Unset = UNSET
         if not isinstance(self.purpose_ids, Unset):
             purpose_ids = []
             for purpose_ids_item_data in self.purpose_ids:
-                purpose_ids_item = str(purpose_ids_item_data)
+                purpose_ids_item: None | str
+                if isinstance(purpose_ids_item_data, UUID):
+                    purpose_ids_item = str(purpose_ids_item_data)
+                else:
+                    purpose_ids_item = purpose_ids_item_data
                 purpose_ids.append(purpose_ids_item)
 
         tags: list[str] | Unset = UNSET
@@ -148,6 +171,8 @@ class QueryRequest:
             field_dict["bucket"] = bucket
         if category_ids is not UNSET:
             field_dict["category_ids"] = category_ids
+        if commodity_ids is not UNSET:
+            field_dict["commodity_ids"] = commodity_ids
         if counterparty_ids is not UNSET:
             field_dict["counterparty_ids"] = counterparty_ids
         if from_ is not UNSET:
@@ -201,20 +226,57 @@ class QueryRequest:
         bucket = _parse_bucket(d.pop("bucket", UNSET))
 
         _category_ids = d.pop("category_ids", UNSET)
-        category_ids: list[UUID] | Unset = UNSET
+        category_ids: list[None | UUID] | Unset = UNSET
         if _category_ids is not UNSET:
             category_ids = []
             for category_ids_item_data in _category_ids:
-                category_ids_item = UUID(category_ids_item_data)
+
+                def _parse_category_ids_item(data: object) -> None | UUID:
+                    if data is None:
+                        return data
+                    try:
+                        if not isinstance(data, str):
+                            raise TypeError()
+                        category_ids_item_type_0 = UUID(data)
+
+                        return category_ids_item_type_0
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
+                    return cast(None | UUID, data)
+
+                category_ids_item = _parse_category_ids_item(category_ids_item_data)
 
                 category_ids.append(category_ids_item)
 
+        _commodity_ids = d.pop("commodity_ids", UNSET)
+        commodity_ids: list[UUID] | Unset = UNSET
+        if _commodity_ids is not UNSET:
+            commodity_ids = []
+            for commodity_ids_item_data in _commodity_ids:
+                commodity_ids_item = UUID(commodity_ids_item_data)
+
+                commodity_ids.append(commodity_ids_item)
+
         _counterparty_ids = d.pop("counterparty_ids", UNSET)
-        counterparty_ids: list[UUID] | Unset = UNSET
+        counterparty_ids: list[None | UUID] | Unset = UNSET
         if _counterparty_ids is not UNSET:
             counterparty_ids = []
             for counterparty_ids_item_data in _counterparty_ids:
-                counterparty_ids_item = UUID(counterparty_ids_item_data)
+
+                def _parse_counterparty_ids_item(data: object) -> None | UUID:
+                    if data is None:
+                        return data
+                    try:
+                        if not isinstance(data, str):
+                            raise TypeError()
+                        counterparty_ids_item_type_0 = UUID(data)
+
+                        return counterparty_ids_item_type_0
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
+                    return cast(None | UUID, data)
+
+                counterparty_ids_item = _parse_counterparty_ids_item(counterparty_ids_item_data)
 
                 counterparty_ids.append(counterparty_ids_item)
 
@@ -270,11 +332,25 @@ class QueryRequest:
                 owner_ids.append(owner_ids_item)
 
         _purpose_ids = d.pop("purpose_ids", UNSET)
-        purpose_ids: list[UUID] | Unset = UNSET
+        purpose_ids: list[None | UUID] | Unset = UNSET
         if _purpose_ids is not UNSET:
             purpose_ids = []
             for purpose_ids_item_data in _purpose_ids:
-                purpose_ids_item = UUID(purpose_ids_item_data)
+
+                def _parse_purpose_ids_item(data: object) -> None | UUID:
+                    if data is None:
+                        return data
+                    try:
+                        if not isinstance(data, str):
+                            raise TypeError()
+                        purpose_ids_item_type_0 = UUID(data)
+
+                        return purpose_ids_item_type_0
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
+                    return cast(None | UUID, data)
+
+                purpose_ids_item = _parse_purpose_ids_item(purpose_ids_item_data)
 
                 purpose_ids.append(purpose_ids_item)
 
@@ -310,6 +386,7 @@ class QueryRequest:
             account_ids=account_ids,
             bucket=bucket,
             category_ids=category_ids,
+            commodity_ids=commodity_ids,
             counterparty_ids=counterparty_ids,
             from_=from_,
             group_by=group_by,
