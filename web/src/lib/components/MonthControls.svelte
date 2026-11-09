@@ -17,6 +17,7 @@
 		type ParamsDraft
 	} from '../views/settlement-params';
 	import Failure from './Failure.svelte';
+	import Section from './Section.svelte';
 
 	let { month, ref, onchange }: { month: string; ref: Reference; onchange: () => void } = $props();
 
@@ -99,74 +100,81 @@
 			submit(false);
 		}}
 	>
-		<div class="state">
-			<strong>{s.closed ? 'Closed' : 'Open'}</strong>
-			<span class="muted">
-				{#if s.closed}
-					{s.closed_at ? `since ${stampName(s.closed_at)}` : ''}
-				{:else if s.params_from && s.params_from !== month}
-					Parameters carried forward from {monthName(s.params_from)}
-				{:else if !s.params_from}
-					No parameters set yet.
+		<Section label="Parameters">
+			{#snippet children(look)}
+				{@const narrow = look === 'narrow'}
+				<div class="state" class:narrow>
+					<strong>{s.closed ? 'Closed' : 'Open'}</strong>
+					<span class="muted">
+						{#if s.closed}
+							{s.closed_at ? `since ${stampName(s.closed_at)}` : ''}
+						{:else if s.params_from && s.params_from !== month}
+							Parameters carried forward from {monthName(s.params_from)}
+						{:else if !s.params_from}
+							No parameters set yet.
+						{/if}
+					</span>
+				</div>
+
+				<fieldset disabled={s.closed || busy}>
+					<div class="params" class:narrow>
+						{#each people(ref) as p (p.id)}
+							<label class="field">
+								<span>Stipend for {p.name}</span>
+								<span class="money">
+									<input
+										class="qty"
+										inputmode="decimal"
+										bind:value={draft.stipends[p.id]}
+										placeholder="0.00"
+									/>
+									<span class="muted">{code}</span>
+								</span>
+							</label>
+						{/each}
+						{#each businesses(ref) as b (b.id)}
+							<label class="field">
+								<span>{b.name} funded by</span>
+								<select bind:value={draft.funders[b.id]}>
+									{#each funderChoices as f (f.id)}<option value={f.id}>{f.name}</option>{/each}
+								</select>
+							</label>
+						{/each}
+					</div>
+				</fieldset>
+
+				{#if issues.length}
+					<ul class="issues" role="alert">
+						{#each issues as m (m)}<li>{m}</li>{/each}
+					</ul>
 				{/if}
-			</span>
-		</div>
-
-		<fieldset disabled={s.closed || busy}>
-			<div class="params">
-				{#each people(ref) as p (p.id)}
-					<label class="field">
-						<span>Stipend for {p.name}</span>
-						<span class="money">
-							<input
-								class="qty"
-								inputmode="decimal"
-								bind:value={draft.stipends[p.id]}
-								placeholder="0.00"
-							/>
-							<span class="muted">{code}</span>
-						</span>
-					</label>
-				{/each}
-				{#each businesses(ref) as b (b.id)}
-					<label class="field">
-						<span>{b.name} funded by</span>
-						<select bind:value={draft.funders[b.id]}>
-							{#each funderChoices as f (f.id)}<option value={f.id}>{f.name}</option>{/each}
-						</select>
-					</label>
-				{/each}
-			</div>
-		</fieldset>
-
-		{#if issues.length}
-			<ul class="issues" role="alert">
-				{#each issues as m (m)}<li>{m}</li>{/each}
-			</ul>
-		{/if}
-		{#if failure}
-			<Failure error={failure} />
-			{#if failure instanceof ApiError && failure.status === 412}
-				<button type="button" class="quiet" onclick={load}>Reload, discarding my changes</button>
-			{/if}
-		{/if}
-
-		<div class="actions">
-			{#if s.closed}
-				<button type="button" onclick={() => act(post('reopen'))} disabled={busy}>Reopen</button>
-			{:else}
-				<button type="button" onclick={() => submit(true)} disabled={busy}>
-					{pending ? 'Save and close' : 'Close'}
-					{monthName(month)}
-				</button>
-				<button type="submit" class="quiet" disabled={busy || !pending}>Save parameters</button>
-				{#if pending && s.params_from === month}
-					<button type="button" class="quiet" onclick={() => (draft = draftFrom(s, ref))}
-						>Undo changes</button
-					>
+				{#if failure}
+					<Failure error={failure} />
+					{#if failure instanceof ApiError && failure.status === 412}
+						<button type="button" class="quiet" onclick={load}>Reload, discarding my changes</button
+						>
+					{/if}
 				{/if}
-			{/if}
-		</div>
+
+				<div class="actions" class:narrow>
+					{#if s.closed}
+						<button type="button" onclick={() => act(post('reopen'))} disabled={busy}>Reopen</button
+						>
+					{:else}
+						<button type="button" onclick={() => submit(true)} disabled={busy}>
+							{pending ? 'Save and close' : 'Close'}
+							{monthName(month)}
+						</button>
+						<button type="submit" class="quiet" disabled={busy || !pending}>Save parameters</button>
+						{#if pending && s.params_from === month}
+							<button type="button" class="quiet" onclick={() => (draft = draftFrom(s, ref))}
+								>Undo changes</button
+							>
+						{/if}
+					{/if}
+				</div>
+			{/snippet}
+		</Section>
 	</form>
 {:else if failure}
 	<Failure error={failure} />
@@ -181,9 +189,22 @@
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-1);
 	}
-	.state {
+	/* Each row: one line while it fits, one item per line once it doesn't. */
+	.state,
+	.params,
+	.actions {
 		display: flex;
-		flex-wrap: wrap;
+	}
+	.state > :global(*),
+	.params > :global(*),
+	.actions > :global(*) {
+		flex: none;
+	}
+	.narrow {
+		flex-direction: column;
+		align-items: start;
+	}
+	.state {
 		align-items: baseline;
 		gap: var(--space-3);
 		font-size: var(--text-sm);
@@ -195,8 +216,6 @@
 		min-width: 0;
 	}
 	.params {
-		display: flex;
-		flex-wrap: wrap;
 		gap: var(--space-3) var(--space-5);
 		margin-top: var(--space-3);
 	}
@@ -227,8 +246,6 @@
 		color: var(--color-warning);
 	}
 	.actions {
-		display: flex;
-		flex-wrap: wrap;
 		gap: var(--space-3);
 		margin-top: var(--space-4);
 	}
