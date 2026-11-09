@@ -8,6 +8,10 @@
 	import Failure from '#lib/components/Failure.svelte';
 	import Mark from '#lib/components/Mark.svelte';
 	import RowForm from '#lib/components/RowForm.svelte';
+	import Section from '#lib/components/Section.svelte';
+	import TransactionForm from '#lib/components/TransactionForm.svelte';
+	import TransactionRow from '#lib/components/TransactionRow.svelte';
+	import { transactionsPath } from '#lib/filters.ts';
 	import { dayName, today } from '#lib/dates.ts';
 	import DateField from '#lib/components/dates/DateField.svelte';
 	import { candidateReasons } from '#lib/labels.ts';
@@ -58,11 +62,15 @@
 		loadHistory(account);
 	});
 
-	async function show(id: string) {
-		if (shown?.check.id === id) {
+	/** The candidate split whose transaction's form is open. */
+	let editing: string | null = $state(null);
+
+	async function show(id: string, again = false) {
+		if (shown?.check.id === id && !again) {
 			shown = null;
 			return;
 		}
+		editing = null;
 		failure = null;
 		try {
 			const check = ok(await api.GET('/api/v1/balance-checks/{id}', { params: { path: { id } } }));
@@ -221,7 +229,17 @@
 					<tr class:selected={shown?.check.id === c.id}>
 						<td>{dayName(c.date)}</td>
 						<td class="num"><Amount value={c.amount} code={code(c.commodity_id)} /></td>
-						<td class="num"><Amount value={c.ledger} /></td>
+						<td class="num">
+							<a
+								href={resolve(
+									transactionsPath({
+										account_id: [account],
+										commodity_id: [c.commodity_id],
+										to: c.date
+									})
+								)}><Amount value={c.ledger} /></a
+							>
+						</td>
 						<td class="num">
 							{#if c.matches}<Mark tone="ok" label="Matches" />{:else}<Amount
 									value={c.difference}
@@ -256,21 +274,43 @@
 												transaction: no earlier check matched.{/if}
 										</p>
 										{#each d.check.candidates ?? [] as cand, i (i)}
-											<div class="candidate">
-												<strong>{candidateReasons[cand.reason]}</strong>
-												{#each cand.splits as sp (`${sp.transaction_id}/${sp.position}`)}
-													{@const tx = d.txs.get(sp.transaction_id)}
-													{@const q = movement(tx, sp.position)}
-													<div class="line">
-														<span class="date">{tx ? dayName(tx.date) : ''}</span>
-														<span class="desc">{tx?.description ?? '?'}</span>
-														{#if q}<Amount value={q} />{/if}
-														<a href={resolve('/transactions/[id]', { id: sp.transaction_id })}
-															>Edit</a
-														>
-													</div>
-												{/each}
-											</div>
+											<Section label={candidateReasons[cand.reason]} tag="section">
+												<div class="candidate">
+													<h3>{candidateReasons[cand.reason]}</h3>
+													{#each cand.splits as sp (`${sp.transaction_id}/${sp.position}`)}
+														{@const tx = d.txs.get(sp.transaction_id)}
+														{@const q = movement(tx, sp.position)}
+														{@const key = `${i}/${sp.transaction_id}/${sp.position}`}
+														{#snippet description()}{tx?.description ?? '?'}{/snippet}
+														{#snippet amount()}{#if q}<Amount value={q} />{/if}{/snippet}
+														{#snippet actions()}
+															<button
+																class="box"
+																aria-expanded={editing === key}
+																onclick={() => (editing = editing === key ? null : key)}
+																>Edit</button
+															>
+														{/snippet}
+														{#snippet form()}
+															<TransactionForm
+																id={sp.transaction_id}
+																onclose={(change) => {
+																	editing = null;
+																	if (change) show(c.id, true);
+																}}
+															/>
+														{/snippet}
+														<TransactionRow
+															label="{tx ? dayName(tx.date) : ''} {tx?.description ?? ''}"
+															date={tx?.date ?? c.date}
+															{description}
+															{amount}
+															{actions}
+															form={editing === key ? form : undefined}
+														/>
+													{/each}
+												</div>
+											</Section>
 										{:else}
 											<p class="muted">No transaction explains it on its own.</p>
 										{/each}
@@ -346,20 +386,15 @@
 	}
 	.candidate {
 		margin-top: var(--space-3);
+		background: var(--color-surface);
+		border: var(--border-width) solid var(--color-border);
+		border-radius: var(--radius-md);
+	}
+	.candidate h3 {
+		margin: 0;
+		padding: var(--space-2) var(--space-3);
+		border-bottom: var(--border-width) solid var(--color-border);
 		font-size: var(--text-sm);
-	}
-	.line {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-3);
-		padding: var(--space-1) 0 0 var(--space-4);
-	}
-	.date {
-		font-variant-numeric: var(--numeric);
-		color: var(--color-text-muted);
-	}
-	.desc {
-		flex: 1;
 	}
 	.list {
 		background: var(--color-surface);

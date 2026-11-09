@@ -31,6 +31,10 @@
 		return { groups, valued: mixed(groups, SETTLEMENT_CODE) };
 	}
 
+	/** The transactions a balance adds up: everything on these accounts up to the date. */
+	const upTo = (accounts: string[], commodity: string) =>
+		resolve(transactionsPath({ account_id: accounts, commodity_id: [commodity], to: date }));
+
 	const data = latest(
 		() => `${date} ${showArchived}`,
 		() => load(date, showArchived)
@@ -84,7 +88,11 @@
 									<td class="muted kind-col">{accountKinds[r.account.kind]}</td>
 									<td class="num">
 										{#each r.lines as l (l.commodity.id)}
-											<div><Amount value={l.balance} code={l.commodity.code} /></div>
+											<div>
+												<a href={upTo([r.account.id], l.commodity.id)}
+													><Amount value={l.balance} code={l.commodity.code} /></a
+												>
+											</div>
 										{:else}
 											<span class="muted">—</span>
 										{/each}
@@ -103,7 +111,14 @@
 								<td>{holdings[sec.holding]} total</td><td class="kind-col"></td>
 								<td class="num">
 									{#each sec.totals as l (l.commodity.id)}
-										<div><Amount value={l.balance} code={l.commodity.code} /></div>
+										<div>
+											<a
+												href={upTo(
+													sec.rows.map((x) => x.account.id),
+													l.commodity.id
+												)}><Amount value={l.balance} code={l.commodity.code} /></a
+											>
+										</div>
 									{/each}
 								</td>
 								{#if valued}
@@ -119,7 +134,14 @@
 								<td>Net</td><td class="kind-col"></td>
 								<td class="num">
 									{#each g.net as l (l.commodity.id)}
-										<div><Amount value={l.balance} code={l.commodity.code} /></div>
+										<div>
+											<a
+												href={upTo(
+													g.sections.flatMap((x) => x.rows.map((y) => y.account.id)),
+													l.commodity.id
+												)}><Amount value={l.balance} code={l.commodity.code} /></a
+											>
+										</div>
 									{/each}
 								</td>
 								{#if valued && g.netWorth}

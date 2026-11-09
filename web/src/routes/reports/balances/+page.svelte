@@ -8,12 +8,16 @@
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
 	import MonthRange from '#lib/components/dates/MonthRange.svelte';
+	import OneRow from '#lib/components/OneRow.svelte';
+	import PageHeading from '#lib/components/PageHeading.svelte';
+	import Section from '#lib/components/Section.svelte';
+	import { transactionsPath, type Filter } from '#lib/filters.ts';
 	import { dayName, lastDay, monthName, thisMonth, today } from '#lib/dates.ts';
 	import { hashQuery, withParam } from '#lib/query.ts';
 	import { holding, holdings, type Holding } from '#lib/labels.ts';
 	import { accountLabel, accountsByOwner } from '#lib/names.ts';
 	import { reference, sorted, type Reference } from '#lib/reference.ts';
-	import { balanceSeries, buckets, commoditiesIn } from '#lib/views/reports.ts';
+	import { balanceSeries, bucketEnd, buckets, commoditiesIn } from '#lib/views/reports.ts';
 	import { readWindow } from '#lib/views/window.ts';
 
 	type Bucket = 'month' | 'week' | 'day';
@@ -58,13 +62,13 @@
 				? []
 				: [...ref.accounts.values()].filter((a) => inHolding(a, held)).map((a) => a.id);
 		// No accounts in the holding: nothing to ask for (an empty filter means every account).
-		if (held !== 'all' && accounts.length === 0) return { ref, rows: [] };
+		if (held !== 'all' && accounts.length === 0) return { ref, rows: [], accounts };
 		const result = await api
 			.POST('/api/v1/query', {
 				body: {
 					measure: 'balance',
 					from: `${start}-01`,
-					to: end === thisMonth() ? today() : lastDay(end),
+					to: last(end),
 					bucket,
 					group_by: [by === 'owner_id' ? 'owner' : 'account'],
 					owner_ids: owner ? [owner] : [],
@@ -72,8 +76,11 @@
 				}
 			})
 			.then(ok);
-		return { ref, rows: result.rows };
+		return { ref, rows: result.rows, accounts };
 	}
+
+	/** The range's last day: today, in the current month. */
+	const last = (end: string) => (end === thisMonth() ? today() : lastDay(end));
 
 	let data = $derived(load(w.start, w.end, bucket, by, owner, account, held));
 
@@ -96,21 +103,21 @@
 	}
 </script>
 
-<div class="heading">
+<PageHeading>
 	<h1>Balance history</h1>
 	<MonthRange
 		end={w.end}
 		span={w.span}
 		onchange={(end, span) => set({ end, span: String(span) })}
 	/>
-</div>
+</PageHeading>
 
 {#await data}
 	<p class="muted">Loading…</p>
 {:then d}
 	{@const v = view(d.rows, d.ref, query.get('commodity'))}
 	{@const code = v.commodity ? d.ref.commodities.get(v.commodity)?.code : undefined}
-	<form class="controls" onsubmit={(e) => e.preventDefault()}>
+	<OneRow label="Report controls">
 		<select
 			value={by === 'owner_id' ? 'owner' : 'account'}
 			onchange={(e) => set({ by: e.currentTarget.value === 'account' ? 'account' : '' })}
@@ -160,35 +167,69 @@
 				{/each}
 			</select>
 		{/if}
-	</form>
+	</OneRow>
 
 	{#if v.series.length}
 		<section class="card">
 			<Chart labels={v.at.map(label)} series={v.series} {code} />
 		</section>
-		<section class="card table">
-			<table>
-				<thead>
-					<tr>
-						<th>{bucket === 'month' ? 'Month end' : bucket === 'week' ? 'Week of' : 'Day'}</th>
-						{#each v.series as s (s.name)}<th class="num">{s.name}</th>{/each}
-					</tr>
-				</thead>
-				<tbody>
+		{@const head = bucket === 'month' ? 'Month end' : bucket === 'week' ? 'Week of' : 'Day'}
+		{@const isTotal = (s: (typeof v.series)[number]) => !s.key && v.series.length > 1}
+		{@const cellLink = (s: (typeof v.series)[number], i: number) => {
+			const f: Filter = {
+				to: bucketEnd(v.at[i].slice(0, 10), bucket, last(w.end)),
+				...(v.commodity ? { commodity_id: [v.commodity] } : {}),
+				...(d.accounts.length ? { account_id: d.accounts } : {}),
+				...(owner ? { owner_id: [owner] } : {})
+			};
+			if (s.key && by === 'account_id') f.account_id = [s.key];
+			if (s.key && by === 'owner_id') f.owner_id = [s.key];
+			return resolve(transactionsPath(f));
+		}}
+		<Section label="Balances" tag="section">
+			{#snippet children(look)}
+				{#if look === 'wide'}
+					<div class="card table">
+						<table>
+							<thead>
+								<tr>
+									<th>{head}</th>
+									{#each v.series as s (s.name)}<th class="num">{s.name}</th>{/each}
+								</tr>
+							</thead>
+							<tbody>
+								{#each v.at.toReversed() as b, ri (b)}
+									{@const i = v.at.length - 1 - ri}
+									<tr>
+										<td>{label(b)}</td>
+										{#each v.series as s (s.name)}
+											<td class="num" class:total={isTotal(s)}
+												><a href={cellLink(s, i)}><Amount value={s.values[i]} /></a></td
+											>
+										{/each}
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{:else}
 					{#each v.at.toReversed() as b, ri (b)}
 						{@const i = v.at.length - 1 - ri}
-						<tr>
-							<td>{label(b)}</td>
-							{#each v.series as s (s.name)}
-								<td class="num" class:total={s === v.series.at(-1) && v.series.length > 1}
-									><Amount value={s.values[i]} /></td
-								>
-							{/each}
-						</tr>
+						<div class="card block">
+							<h3>{label(b)}</h3>
+							<dl>
+								{#each v.series as s (s.name)}
+									<dt class:total={isTotal(s)}>{s.name}</dt>
+									<dd class:total={isTotal(s)}>
+										<a href={cellLink(s, i)}><Amount value={s.values[i]} /></a>
+									</dd>
+								{/each}
+							</dl>
+						</div>
 					{/each}
-				</tbody>
-			</table>
-		</section>
+				{/if}
+			{/snippet}
+		</Section>
 	{:else}
 		<p class="muted">No balances in this range.</p>
 	{/if}
@@ -197,18 +238,6 @@
 {/await}
 
 <style>
-	.heading {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: baseline;
-		gap: var(--space-2) var(--space-5);
-	}
-	.controls {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2) var(--space-3);
-		margin-bottom: var(--space-4);
-	}
 	.card {
 		margin-bottom: var(--space-4);
 		padding: var(--space-4);
@@ -218,10 +247,26 @@
 		box-shadow: var(--shadow-1);
 	}
 	.table {
-		overflow-x: auto;
 		max-height: 32rem;
 		overflow-y: auto;
 		padding: 0;
+	}
+	.block h3 {
+		margin: 0 0 var(--space-2);
+		font-size: var(--text-base);
+	}
+	.block dl {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) max-content;
+		gap: var(--space-1) var(--space-3);
+		margin: 0;
+	}
+	.block dt {
+		color: var(--color-text-muted);
+	}
+	.block dd {
+		margin: 0;
+		text-align: right;
 	}
 	.total {
 		font-weight: var(--weight-strong);

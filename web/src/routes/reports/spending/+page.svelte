@@ -9,6 +9,9 @@
 	import Amount from '#lib/components/Amount.svelte';
 	import Failure from '#lib/components/Failure.svelte';
 	import MonthRange from '#lib/components/dates/MonthRange.svelte';
+	import OneRow from '#lib/components/OneRow.svelte';
+	import PageHeading from '#lib/components/PageHeading.svelte';
+	import Section from '#lib/components/Section.svelte';
 	import { lastDay, monthName, monthsBetween } from '#lib/dates.ts';
 	import { NONE, queryBody, transactionsPath, type Filter } from '#lib/filters.ts';
 	import { hashQuery, withParam } from '#lib/query.ts';
@@ -66,31 +69,33 @@
 
 	const name = (r: Reference, id: string | null) =>
 		id ? (r.categories.get(id)?.name ?? '?') : 'Uncategorized';
-	const link = (commodity: string | undefined, id: string | null) =>
+	/** The transactions behind one figure: a category's (`null`: none), a month's, or both. */
+	const link = (commodity: string | undefined, at: { category?: string | null; month?: string }) =>
 		resolve(
 			transactionsPath({
 				...filter,
 				...(commodity ? { commodity_id: [commodity] } : {}),
-				category_id: [id ?? NONE]
+				...(at.category !== undefined ? { category_id: [at.category ?? NONE] } : {}),
+				...(at.month ? { from: `${at.month}-01`, to: lastDay(at.month) } : {})
 			})
 		);
 </script>
 
-<div class="heading">
+<PageHeading>
 	<h1>{kind === 'expense' ? 'Spending' : 'Income'} by category</h1>
 	<MonthRange
 		end={w.end}
 		span={w.span}
 		onchange={(end, span) => set({ end, span: String(span) })}
 	/>
-</div>
+</PageHeading>
 
 {#await data}
 	<p class="muted">Loading…</p>
 {:then d}
 	{@const v = view(d.rows, d.ref, query.get('commodity'))}
 	{@const code = v.commodity ? d.ref.commodities.get(v.commodity)?.code : undefined}
-	<form class="controls" onsubmit={(e) => e.preventDefault()}>
+	<OneRow label="Report controls">
 		<select
 			value={kind}
 			onchange={(e) => set({ kind: e.currentTarget.value === 'income' ? 'income' : '' })}
@@ -110,7 +115,7 @@
 				{/each}
 			</select>
 		{/if}
-	</form>
+	</OneRow>
 
 	{#if v.totals && v.totals.categories.length}
 		{@const t = v.totals}
@@ -124,42 +129,77 @@
 			/>
 		</section>
 		<section class="card">
-			<h2>Total <Amount value={t.total} {code} /></h2>
+			<h2>
+				Total <a href={link(v.commodity, {})}><Amount value={t.total} {code} /></a>
+			</h2>
 			<BarList
 				{code}
 				bars={t.categories.map((c) => ({
 					key: c.category ?? '',
 					label: name(d.ref, c.category),
 					value: c.total,
-					href: link(v.commodity, c.category)
+					href: link(v.commodity, { category: c.category })
 				}))}
 			/>
 		</section>
-		<section class="card table">
-			<table>
-				<thead>
-					<tr>
-						<th>Category</th>
-						{#each months as m (m)}<th class="num">{monthName(m)}</th>{/each}
-						<th class="num">Total</th>
-					</tr>
-				</thead>
-				<tbody>
+		{@const cell = (value: string, at: { category?: string | null; month?: string }) => ({
+			value,
+			href: link(v.commodity, at)
+		})}
+		<Section label="Per category and month" tag="section">
+			{#snippet children(look)}
+				{#if look === 'wide'}
+					<div class="card table">
+						<table>
+							<thead>
+								<tr>
+									<th>Category</th>
+									{#each months as m (m)}<th class="num">{monthName(m)}</th>{/each}
+									<th class="num">Total</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each t.categories as c (c.category)}
+									<tr>
+										<td class="name">{name(d.ref, c.category)}</td>
+										{#each c.monthly as m, i (i)}
+											<td class="num">
+												{@render figure(cell(m, { category: c.category, month: months[i] }))}
+											</td>
+										{/each}
+										<td class="num total">
+											{@render figure(cell(c.total, { category: c.category }))}
+										</td>
+									</tr>
+								{/each}
+								<tr class="sum">
+									<td>Total</td>
+									{#each t.monthly as m, i (i)}
+										<td class="num">{@render figure(cell(m, { month: months[i] }))}</td>
+									{/each}
+									<td class="num">{@render figure(cell(t.total, {}))}</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				{:else}
 					{#each t.categories as c (c.category)}
-						<tr>
-							<td class="name">{name(d.ref, c.category)}</td>
-							{#each c.monthly as m, i (i)}<td class="num"><Amount value={m} /></td>{/each}
-							<td class="num total"><Amount value={c.total} /></td>
-						</tr>
+						<div class="card block">
+							<h3>
+								<span>{name(d.ref, c.category)}</span>
+								{@render figure(cell(c.total, { category: c.category }))}
+							</h3>
+							<dl>
+								{#each c.monthly as m, i (i)}
+									<dt>{monthName(months[i])}</dt>
+									<dd>{@render figure(cell(m, { category: c.category, month: months[i] }))}</dd>
+								{/each}
+							</dl>
+						</div>
 					{/each}
-					<tr class="sum">
-						<td>Total</td>
-						{#each t.monthly as m, i (i)}<td class="num"><Amount value={m} /></td>{/each}
-						<td class="num"><Amount value={t.total} /></td>
-					</tr>
-				</tbody>
-			</table>
-		</section>
+				{/if}
+			{/snippet}
+		</Section>
 	{:else}
 		<p class="muted">Nothing in this range.</p>
 	{/if}
@@ -167,19 +207,12 @@
 	<Failure {error} />
 {/await}
 
+{#snippet figure(f: { value: string; href: string })}
+	<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- link() resolves -->
+	<a href={f.href}><Amount value={f.value} /></a>
+{/snippet}
+
 <style>
-	.heading {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: baseline;
-		gap: var(--space-2) var(--space-5);
-	}
-	.controls {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2) var(--space-3);
-		margin-bottom: var(--space-4);
-	}
 	.card {
 		margin-bottom: var(--space-4);
 		padding: var(--space-4);
@@ -188,13 +221,31 @@
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-1);
 	}
-	.card h2 {
+	.card h2,
+	.block h3 {
 		display: flex;
 		gap: var(--space-3);
 		align-items: baseline;
 	}
+	.block h3 {
+		justify-content: space-between;
+		margin: 0 0 var(--space-2);
+		font-size: var(--text-base);
+	}
+	.block dl {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) max-content;
+		gap: var(--space-1) var(--space-3);
+		margin: 0;
+	}
+	.block dt {
+		color: var(--color-text-muted);
+	}
+	.block dd {
+		margin: 0;
+		text-align: right;
+	}
 	.table {
-		overflow-x: auto;
 		padding: 0;
 	}
 	.name {
