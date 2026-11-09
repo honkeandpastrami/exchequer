@@ -5,6 +5,7 @@
 	import { api } from '../api/client';
 	import { signOut } from '../session.svelte';
 	import { version } from '../version';
+	import Brand from './Brand.svelte';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -28,7 +29,7 @@
 </script>
 
 <header class="bar">
-	<span class="brand">Exchequer <span class="version">{version}</span></span>
+	<span class="brand"><Brand /> <span class="version">{version}</span></span>
 	<nav>
 		{#each sections as s (s.route)}
 			<a href={s.href} aria-current={current(s.route) ? 'page' : undefined}>{s.label}</a>

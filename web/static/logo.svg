@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 2 64 64">
+	<title>Exchequer</title>
+	<!-- The favicon, the app's brand (Brand.svelte) and the README's logo; the light
+	     look is rendered to apple-touch-icon.png. Colors are the accent and chart gold
+	     of tokens.css, light and dark. -->
+	<style>
+		.pig { fill: #1f5f4a; }
+		.tail { fill: none; stroke: #1f5f4a; }
+		.coin { fill: #b7791f; }
+		@media (prefers-color-scheme: dark) {
+			.pig { fill: #5cb595; }
+			.tail { stroke: #5cb595; }
+			.coin { fill: #e0a84a; }
+		}
+	</style>
+	<mask id="cuts">
+		<rect width="64" height="64" fill="#fff" />
+		<rect x="20" y="27" width="14" height="3.5" rx="1.75" fill="#000" />
+		<circle cx="44" cy="33" r="2.25" fill="#000" />
+		<ellipse cx="52.5" cy="36.5" rx="1.1" ry="1.5" fill="#000" />
+		<ellipse cx="52.5" cy="41" rx="1.1" ry="1.5" fill="#000" />
+	</mask>
+	<clipPath id="above-slot">
+		<rect width="64" height="28.75" />
+	</clipPath>
+	<g class="pig" mask="url(#cuts)">
+		<ellipse cx="30" cy="38" rx="22" ry="15" />
+		<rect x="47" y="31.5" width="9.5" height="13" rx="4" />
+		<path d="M37.5 27 C38.5 21.5 41.5 18 45.5 18.5 C46.8 22 46.4 25.5 44.8 29 Z" />
+		<rect x="16" y="45" width="8" height="12" rx="2.5" />
+		<rect x="35" y="45" width="8" height="12" rx="2.5" />
+	</g>
+	<path class="tail" d="M9.5 34.5 C6 35.5 3.5 33 4.5 30.5 C5.5 28 9 28.8 8.3 31.2" stroke-width="2.5" stroke-linecap="round" />
+	<g clip-path="url(#above-slot)">
+		<circle class="coin" cx="27" cy="20" r="8.5" />
+		<circle cx="27" cy="20" r="5.75" fill="none" stroke="#000" stroke-opacity="0.2" stroke-width="1.25" />
+	</g>
+</svg>
