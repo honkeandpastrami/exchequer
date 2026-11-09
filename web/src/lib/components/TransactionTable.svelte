@@ -4,7 +4,7 @@
 	// each amount is what the filter counted of the transaction (`matched`),
 	// the same amount the report or statement with that filter added up; the
 	// total is that figure. Given items, it only draws them. Edit opens the
-	// transaction's form under its row (§7).
+	// transaction's form under its row (§7), which holds Copy as new.
 	import { tick, untrack, type Snippet } from 'svelte';
 	import { api, ok, type Schemas } from '../api/client';
 	import type { Filter } from '../filters';
@@ -45,7 +45,7 @@
 		empty?: string;
 		/** More values for a row, after its own (`<dt>`, `<dd>`, `<dd class="aside">`). */
 		values?: Snippet<[Transaction]>;
-		/** Copy as new: the page opens a form for it. */
+		/** Copy as new, asked from a transaction's form: the page opens a form for it. */
 		oncopy?: (id: string) => void;
 	} = $props();
 
@@ -202,7 +202,6 @@
 			aria-expanded={!!editing[tx.id]}
 			onclick={() => (editing[tx.id] = !editing[tx.id])}>Edit</button
 		>
-		{#if oncopy}<button class="box" onclick={() => copy(tx.id)}>Copy as new</button>{/if}
 	{/snippet}
 	{#snippet form()}
 		<TransactionForm
