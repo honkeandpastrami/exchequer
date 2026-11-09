@@ -371,6 +371,13 @@ An OFX file's ledger balance is recorded on commit as a balance check (§7.1).
   bucketed. Rows are per commodity; the query doesn't value.
 - **Named reports** build on it: the settlement statement (§4.3), the household pool, and
   balances on a date, optionally valued (§3.4). The web app's reports use these.
+- **One filter** (`ledger::query::Filter`) decides which postings count, for `/query`, the
+  named reports and the transactions list alike. The list takes it as a query string, plus
+  a settlement filter (the lines of one party's statement for a month, or the splits it
+  couldn't value). Each listed transaction carries what of it counted, and the page carries
+  the total. A figure's list of transactions is built from the filter that computed the
+  figure, so it adds up to the figure; reports whose rules live on the server (the
+  household pool) return their filter.
 - Splits are classified by `ledger`, as everywhere else, so a report can't disagree with the
   ledger. Nothing is cached: household-scale data aggregates in milliseconds.
 
@@ -478,7 +485,7 @@ client generated from the spec, and looks and behaves as [`ux.md`](ux.md) says.
 | Page | Its job | Built on |
 |---|---|---|
 | **Accounts** | Balances on a date, valued, by owner and liquid/investment/loan | balances report (§7), valuation (§3.4) |
-| **Transactions** | Find and edit transactions and their splits | transactions |
+| **Transactions** | Find and edit transactions and their splits; the list behind any figure | transactions, the shared filter (§7) |
 | **Imports** | Upload, review and commit bank files | imports (§6), suggestions (§8) |
 | **Checks** | Compare with the bank; find what explains a difference | balance checks (§7.1) |
 | **Settlement** | Each month's state across a year; a month's statement, parameters, close and reopen | settlements (§4) |

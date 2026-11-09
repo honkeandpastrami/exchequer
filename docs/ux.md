@@ -40,6 +40,9 @@ a reason to change this doc, not to make an exception.
 - A value is plain text; anything that isn't one (none, unknown) is a tag, so it can't be
   mistaken for data.
 - A status is a symbol plus a word, never colour alone.
+- A figure that adds up transactions links to them: the list built from the filter that
+  computed it, which totals to it. A figure computed from other figures, or a setting,
+  doesn't link, and neither does a chart.
 - Only meaningful choices are offered.
 
 ## 6. Clear controls
