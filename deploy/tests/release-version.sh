@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # deploy/release-version on a scratch repository, with a stand-in for `gh`
-# that answers each commit's pull request labels from $LABELS_DIR/<commit>.
+# that answers each commit's pull request author and labels from
+# $LABELS_DIR/<commit>.
 
 set -euo pipefail
 
@@ -12,7 +13,7 @@ mkdir -p "$work/repo/deploy" "$work/bin" "$work/labels"
 cp "$here/deploy/release-version" "$work/repo/deploy/"
 cat > "$work/bin/gh" << 'EOF'
 #!/usr/bin/env bash
-# gh api repos/<repo>/commits/<commit>/pulls --jq ...: one label per line.
+# gh api repos/<repo>/commits/<commit>/pulls --jq ...: the author, then one label per line.
 commit=$(basename "$(dirname "$2")")
 cat "$LABELS_DIR/$commit" 2> /dev/null || true
 EOF
@@ -22,9 +23,9 @@ export PATH="$work/bin:$PATH" LABELS_DIR="$work/labels" GITHUB_REPOSITORY=exampl
 cd "$work/repo"
 git init -q -b main
 git config user.name test && git config user.email test@example.com
-merge() { # a merged pull request with these labels
+merge() { # a merged pull request by $author with these labels
     git commit -q --allow-empty -m "pr"
-    printf '%s\n' "$@" > "$LABELS_DIR/$(git rev-parse HEAD)"
+    printf '%s\n' "${author:-someone}" "$@" > "$LABELS_DIR/$(git rev-parse HEAD)"
 }
 expect() {
     got=$(deploy/release-version)
@@ -42,4 +43,9 @@ merge patch
 expect 0.28.1
 merge major patch
 expect 1.0.0
+git tag -a v1.0.0 -m v1.0.0
+author='dependabot[bot]' merge major dependencies
+expect 1.1.0                   # dependabot's major label doesn't count
+author='dependabot[bot]' merge major patch
+expect 1.1.0
 echo "release-version: ok"

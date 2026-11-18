@@ -60,7 +60,8 @@ check the repository rule requires, so a pull request merges only when all of th
   | `patch` | patch | 0.27.0 → 0.27.1 |
   | `major` | major | 0.27.0 → 1.0.0 |
 
-  `major` wins over `patch` on one pull request. Labels are read when the release runs,
+  `major` wins over `patch` on one pull request. Dependabot's pull requests never count as
+  `major` (it labels semver-major dependency updates that way), whatever they upgrade. Labels are read when the release runs,
   so they can be changed up to the merge.
 
 ## Releases
