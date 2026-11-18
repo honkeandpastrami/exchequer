@@ -6,6 +6,8 @@
 # HEAD already tagged vX.Y.Z (a release run again): X.Y.Z. Otherwise the last
 # release's version, bumped once by the largest bump among the pull requests
 # merged since: `major`, `patch` or, by default, minor, from each one's labels.
+# Dependabot's pull requests never count as `major`: it labels any semver-major
+# dependency update that way, and a dependency bump isn't a release of ours.
 # Reads the labels with `gh`, so it needs GH_TOKEN and GITHUB_REPOSITORY.
 
 set -euo pipefail
@@ -23,8 +25,11 @@ IFS=. read -r major minor patch <<< "${last#v}"
 # 0 patch, 1 minor, 2 major.
 bump=0
 for commit in $(git rev-list --first-parent "$last..HEAD"); do
-    labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$commit/pulls" --jq '(.[0].labels // [])[].name')
-    if grep -qx major <<< "$labels"; then
+    # The pull request's author on the first line, then one label per line.
+    pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$commit/pulls" --jq '.[0] | (.user.login // ""), ((.labels // [])[].name)')
+    author=$(head -n 1 <<< "$pr")
+    labels=$(tail -n +2 <<< "$pr")
+    if [ "$author" != "dependabot[bot]" ] && grep -qx major <<< "$labels"; then
         this=2
     elif grep -qx patch <<< "$labels"; then
         this=0
