@@ -22,7 +22,7 @@ RUN npm run build
 # static by default. TLS roots are compiled in (webpki-roots): the image has
 # no certificate store. sqlx checks queries against the committed cache in
 # server/.sqlx, no database needed.
-FROM docker.io/library/rust:1.99-alpine@sha256:44819b27be4c97b0e4d7203bd2e02c4820f97700211b6a37fb4c246a2de59383 AS chef
+FROM docker.io/library/rust:1.100-alpine@sha256:8d0e82abfdf9a38071e07cabc5afba4ddbe077631a80e4e742a760c38beadc33 AS chef
 RUN apk add --no-cache gcc musl-dev make perl
 RUN cargo install cargo-chef --version 0.1.78 --locked
 WORKDIR /src/server
